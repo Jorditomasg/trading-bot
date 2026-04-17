@@ -1,0 +1,25 @@
+[Unit]
+Description=Crypto Trading Bot (BTC/USDT — Binance Testnet)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory={{WORKING_DIR}}
+ExecStart={{VENV_PYTHON}} {{WORKING_DIR}}/main.py
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=trading-bot
+
+# Load environment from .env file
+EnvironmentFile={{WORKING_DIR}}/.env
+
+# Hard limits
+LimitNOFILE=65536
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
