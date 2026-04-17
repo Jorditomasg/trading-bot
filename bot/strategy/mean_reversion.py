@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from bot.indicators import atr as compute_atr, rsi as compute_rsi
 from bot.strategy.base import BaseStrategy, Signal
 
 logger = logging.getLogger(__name__)
@@ -40,8 +41,8 @@ class MeanReversionStrategy(BaseStrategy):
         upper_band = sma + self.config.bb_std * std
         lower_band = sma - self.config.bb_std * std
 
-        rsi = self._rsi(close, self.config.rsi_period)
-        atr = self._atr(df, self.config.atr_period)
+        rsi = compute_rsi(close, self.config.rsi_period)
+        atr = compute_atr(df, self.config.atr_period)
 
         current_price = close.iloc[-1]
         current_rsi = rsi.iloc[-1]
@@ -93,21 +94,3 @@ class MeanReversionStrategy(BaseStrategy):
             current_price, current_rsi, current_lower, current_upper,
         )
         return Signal(action="HOLD", strength=0.0, stop_loss=0.0, take_profit=0.0, atr=current_atr)
-
-    @staticmethod
-    def _rsi(close: pd.Series, period: int) -> pd.Series:
-        delta = close.diff()
-        gain = delta.clip(lower=0).rolling(period).mean()
-        loss = (-delta.clip(upper=0)).rolling(period).mean()
-        rs = gain / loss.replace(0, float("nan"))
-        return 100 - (100 / (1 + rs))
-
-    @staticmethod
-    def _atr(df: pd.DataFrame, period: int) -> pd.Series:
-        high = df["high"]
-        low = df["low"]
-        prev_close = df["close"].shift(1)
-        tr = pd.concat(
-            [high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1
-        ).max(axis=1)
-        return tr.rolling(period).mean()

@@ -53,3 +53,6 @@ htmlcov/
 # Docker runtime
 data/
 *.db
+
+# Agent tooling
+.atl/

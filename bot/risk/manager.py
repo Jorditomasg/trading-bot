@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
 
 from bot.strategy.base import Signal
@@ -15,11 +16,13 @@ class RiskConfig:
     risk_per_trade: float = 0.01
     max_concurrent_trades: int = 1
     min_signal_strength: float = 0.4
+    cooldown_hours: int = 4
 
 
 class RiskManager:
     def __init__(self, config: RiskConfig = RiskConfig()) -> None:
         self.config = config
+        self._breaker_triggered_at: Optional[datetime] = None
 
     def compute_position_size(
         self, capital: float, entry: float, stop_loss: float
@@ -47,13 +50,38 @@ class RiskManager:
         if peak_capital <= 0:
             return False
         drawdown = (peak_capital - current_capital) / peak_capital
-        triggered = drawdown >= self.config.max_drawdown
-        if triggered:
+
+        if drawdown < self.config.max_drawdown:
+            if self._breaker_triggered_at is not None:
+                logger.info(
+                    "Circuit breaker reset: drawdown recovered to %.2f%% (below %.2f%%)",
+                    drawdown * 100, self.config.max_drawdown * 100,
+                )
+                self._breaker_triggered_at = None
+            return False
+
+        if self._breaker_triggered_at is None:
+            self._breaker_triggered_at = datetime.utcnow()
             logger.warning(
-                "CIRCUIT BREAKER triggered: drawdown=%.2f%% (peak=%.2f current=%.2f)",
+                "CIRCUIT BREAKER triggered: drawdown=%.2f%% peak=%.2f current=%.2f",
                 drawdown * 100, peak_capital, current_capital,
             )
-        return triggered
+            return True
+
+        elapsed_hours = (datetime.utcnow() - self._breaker_triggered_at).total_seconds() / 3600
+        if elapsed_hours >= self.config.cooldown_hours:
+            logger.info(
+                "Circuit breaker auto-reset: cooldown of %dh elapsed",
+                self.config.cooldown_hours,
+            )
+            self._breaker_triggered_at = None
+            return False
+
+        logger.debug(
+            "Circuit breaker active: %.1fh / %dh cooldown elapsed",
+            elapsed_hours, self.config.cooldown_hours,
+        )
+        return True
 
     def validate_signal(self, signal: Signal, open_position: Optional[dict]) -> bool:
         if signal.action == "HOLD":

@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from bot.indicators import atr as compute_atr
 from bot.strategy.base import BaseStrategy, Signal
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,7 @@ class BreakoutStrategy(BaseStrategy):
         lower_channel = low.rolling(self.config.channel_period).min().shift(1)
 
         volume_ma = volume.rolling(self.config.channel_period).mean()
-        atr = self._atr(df, self.config.atr_period)
+        atr = compute_atr(df, self.config.atr_period)
 
         current_close = close.iloc[-1]
         current_volume = volume.iloc[-1]
@@ -97,13 +98,3 @@ class BreakoutStrategy(BaseStrategy):
             current_close, current_lower, current_upper,
         )
         return Signal(action="HOLD", strength=0.0, stop_loss=0.0, take_profit=0.0, atr=current_atr)
-
-    @staticmethod
-    def _atr(df: pd.DataFrame, period: int) -> pd.Series:
-        high = df["high"]
-        low = df["low"]
-        prev_close = df["close"].shift(1)
-        tr = pd.concat(
-            [high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1
-        ).max(axis=1)
-        return tr.rolling(period).mean()

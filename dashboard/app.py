@@ -1,12 +1,12 @@
 """Streamlit dashboard — Nothing OS design language."""
 
 import math
-import time
 from datetime import datetime
 
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 
 from bot.database.db import Database
 
@@ -233,6 +233,7 @@ def _pnl_span(val: float, text: str) -> str:
 # ─── Render ───────────────────────────────────────────────────────────────────
 def render() -> None:
     db = get_db()
+    st_autorefresh(interval=REFRESH_INTERVAL * 1000, key="dashboard_refresh")
 
     trades          = db.get_all_trades()
     equity_curve    = db.get_equity_curve()
@@ -501,8 +502,6 @@ def render() -> None:
         unsafe_allow_html=True,
     )
 
-    time.sleep(REFRESH_INTERVAL)
-    st.rerun()
 
 
 render()

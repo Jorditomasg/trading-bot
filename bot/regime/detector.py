@@ -5,6 +5,8 @@ from enum import Enum
 import numpy as np
 import pandas as pd
 
+from bot.indicators import atr as compute_atr, wilder_smooth
+
 logger = logging.getLogger(__name__)
 
 
@@ -42,7 +44,7 @@ class RegimeDetector:
             )
             return MarketRegime.RANGING
 
-        atr_series = self._atr(df, self.config.atr_period)
+        atr_series = compute_atr(df, self.config.atr_period)
         current_atr = atr_series.iloc[-1]
         mean_atr = atr_series.iloc[-self.config.atr_volatile_lookback :].mean()
 
@@ -71,37 +73,37 @@ class RegimeDetector:
         logger.info("Regime=RANGING (default, Hurst=%.4f ADX=%.2f)", hurst, adx)
         return MarketRegime.RANGING
 
-    def _atr(self, df: pd.DataFrame, period: int) -> pd.Series:
-        high = df["high"]
-        low = df["low"]
-        prev_close = df["close"].shift(1)
-        tr = pd.concat(
-            [high - low, (high - prev_close).abs(), (low - prev_close).abs()],
-            axis=1,
-        ).max(axis=1)
-        return tr.rolling(period).mean()
-
     def _adx(self, df: pd.DataFrame, period: int) -> float:
         high = df["high"]
         low = df["low"]
         prev_high = high.shift(1)
         prev_low = low.shift(1)
+        prev_close = df["close"].shift(1)
 
         plus_dm = (high - prev_high).clip(lower=0)
         minus_dm = (prev_low - low).clip(lower=0)
-        # Zero out where the opposite move is larger
         plus_dm = plus_dm.where(plus_dm > minus_dm, 0.0)
         minus_dm = minus_dm.where(minus_dm > plus_dm, 0.0)
 
-        atr = self._atr(df, period)
-        smoothed_plus = plus_dm.rolling(period).mean()
-        smoothed_minus = minus_dm.rolling(period).mean()
+        # True Range for ADX uses Wilder smoothing (separate from atr() which uses SMA)
+        tr = pd.concat(
+            [high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1
+        ).max(axis=1)
 
-        plus_di = 100 * smoothed_plus / atr
-        minus_di = 100 * smoothed_minus / atr
+        smoothed_tr = wilder_smooth(tr, period)
+        smoothed_plus = wilder_smooth(plus_dm, period)
+        smoothed_minus = wilder_smooth(minus_dm, period)
 
-        dx = (100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)).fillna(0)
-        adx = dx.rolling(period).mean()
+        plus_di = 100 * smoothed_plus / smoothed_tr.replace(0, float("nan"))
+        minus_di = 100 * smoothed_minus / smoothed_tr.replace(0, float("nan"))
+
+        dx = (
+            100
+            * (plus_di - minus_di).abs()
+            / (plus_di + minus_di).replace(0, float("nan"))
+        ).fillna(0)
+
+        adx = wilder_smooth(dx, period)
         return float(adx.iloc[-1])
 
     def _hurst_exponent(self, prices: np.ndarray) -> float:
