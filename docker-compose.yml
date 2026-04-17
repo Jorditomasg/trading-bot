@@ -8,6 +8,7 @@ services:
     env_file: .env
     environment:
       DB_PATH: /app/data/trading_bot.db
+      TZ: ${TZ:-Europe/Madrid}
     volumes:
       - data:/app/data
       - logs:/app/logs
@@ -30,6 +31,7 @@ services:
     env_file: .env
     environment:
       DB_PATH: /app/data/trading_bot.db
+      TZ: ${TZ:-Europe/Madrid}
     volumes:
       - data:/app/data
     ports:
