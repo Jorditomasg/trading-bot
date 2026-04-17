@@ -7,7 +7,7 @@ import os
 import signal
 import sys
 import time
-from datetime import datetime
+import datetime as dt
 from pathlib import Path
 
 import schedule
@@ -33,6 +33,8 @@ def setup_logging(level: str) -> None:
             logging.FileHandler(LOG_DIR / "bot.log"),
         ],
     )
+    # Use local time (respects TZ env var) instead of UTC in log timestamps
+    logging.Formatter.converter = time.localtime
 
 
 logger = logging.getLogger(__name__)
@@ -72,7 +74,7 @@ def run_cycle(
     db: Database,
     dry_run: bool,
 ) -> None:
-    logger.info("─── Cycle start %s ───", datetime.utcnow().isoformat())
+    logger.info("─── Cycle start %s ───", dt.datetime.now().isoformat())
 
     try:
         df = client.get_klines(settings.symbol, settings.timeframe, KLINES_LIMIT)
