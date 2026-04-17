@@ -26,6 +26,7 @@ COPY .streamlit/ ./.streamlit/
 RUN mkdir -p /app/data /app/logs
 
 ENV DB_PATH=/app/data/trading_bot.db \
+    PYTHONPATH=/app \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
