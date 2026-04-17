@@ -24,10 +24,12 @@ LOG_DIR = Path("logs")
 
 def setup_logging(level: str) -> None:
     LOG_DIR.mkdir(exist_ok=True)
-    fmt = "%(asctime)s %(levelname)-8s %(name)-30s %(message)s"
+    fmt = "%(asctime)s  %(levelname)-8s  %(name)-30s  %(message)s"
+    datefmt = "%Y-%m-%d %H:%M:%S"
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
         format=fmt,
+        datefmt=datefmt,
         handlers=[
             logging.StreamHandler(sys.stdout),
             logging.FileHandler(LOG_DIR / "bot.log"),
@@ -74,7 +76,7 @@ def run_cycle(
     db: Database,
     dry_run: bool,
 ) -> None:
-    logger.info("─── Cycle start %s ───", dt.datetime.now().isoformat())
+    logger.info("─── Cycle start %s ───", dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
     try:
         df = client.get_klines(settings.symbol, settings.timeframe, KLINES_LIMIT)
