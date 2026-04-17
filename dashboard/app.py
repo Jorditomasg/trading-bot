@@ -353,16 +353,13 @@ def render() -> None:
                 line_color="#333",
                 line_width=1,
             )
-            fig_dd.update_layout(
-                **PLOTLY_LAYOUT,
-                height=160,
-                yaxis=dict(
-                    gridcolor="#111",
-                    showline=False,
-                    zeroline=False,
-                    autorange="reversed",
-                    ticksuffix="%",
-                ),
+            fig_dd.update_layout(**PLOTLY_LAYOUT, height=160)
+            fig_dd.update_yaxes(
+                gridcolor="#111",
+                showline=False,
+                zeroline=False,
+                autorange="reversed",
+                ticksuffix="%",
             )
             st.plotly_chart(fig_dd, use_container_width=True)
         else:
