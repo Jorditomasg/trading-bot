@@ -142,41 +142,82 @@ class StrategyOrchestrator:
         self, trade: dict, df: pd.DataFrame, signal: Signal
     ) -> Optional[dict]:
         current_price = float(df["close"].iloc[-1])
-        side = trade["side"]
-        stop_loss = trade["stop_loss"]
-        take_profit = trade["take_profit"]
-        trade_id = trade["id"]
+        side          = trade["side"]
+        static_sl     = trade["stop_loss"]
+        static_tp     = trade["take_profit"]
+        trade_id      = trade["id"]
+        entry_price   = trade["entry_price"]
+        trade_atr     = trade.get("atr")
+        trailing_sl   = trade.get("trailing_sl")  # None until activated
 
-        hit_stop = (side == "BUY" and current_price <= stop_loss) or \
-                   (side == "SELL" and current_price >= stop_loss)
-        hit_tp = (side == "BUY" and current_price >= take_profit) or \
-                 (side == "SELL" and current_price <= take_profit)
+        # ── Trailing SL update ──────────────────────────────────────────────
+        if trade_atr:
+            trail_dist    = self.risk_manager.config.trail_atr_mult * trade_atr
+            activation    = self.risk_manager.config.trail_activation_mult * trade_atr
+
+            if side == "BUY":
+                activated = current_price >= entry_price + activation
+                if activated:
+                    new_trail = current_price - trail_dist
+                    if trailing_sl is None or new_trail > trailing_sl:
+                        self.db.update_trailing_sl(trade_id, new_trail)
+                        trailing_sl = new_trail
+                        logger.debug(
+                            "Trailing SL ratcheted up to %.2f (price=%.2f)",
+                            trailing_sl, current_price,
+                        )
+            else:  # SELL
+                activated = current_price <= entry_price - activation
+                if activated:
+                    new_trail = current_price + trail_dist
+                    if trailing_sl is None or new_trail < trailing_sl:
+                        self.db.update_trailing_sl(trade_id, new_trail)
+                        trailing_sl = new_trail
+                        logger.debug(
+                            "Trailing SL ratcheted down to %.2f (price=%.2f)",
+                            trailing_sl, current_price,
+                        )
+
+        # ── Exit evaluation (trailing takes priority) ────────────────────────
+        reason: Optional[str] = None
+
+        if trailing_sl is not None:
+            if side == "BUY"  and current_price <= trailing_sl:
+                reason = "TRAILING_STOP"
+            elif side == "SELL" and current_price >= trailing_sl:
+                reason = "TRAILING_STOP"
+
+        if reason is None:
+            if (side == "BUY"  and current_price <= static_sl) or \
+               (side == "SELL" and current_price >= static_sl):
+                reason = "STOP_LOSS"
+            elif (side == "BUY"  and current_price >= static_tp) or \
+                 (side == "SELL" and current_price <= static_tp):
+                reason = "TAKE_PROFIT"
 
         # Opposite signal also closes position
-        opposite_signal = (
-            (side == "BUY" and signal.action == "SELL") or
-            (side == "SELL" and signal.action == "BUY")
-        ) and signal.strength >= 0.5
+        if reason is None:
+            opposite = (
+                (side == "BUY"  and signal.action == "SELL") or
+                (side == "SELL" and signal.action == "BUY")
+            ) and signal.strength >= 0.5
+            if opposite:
+                reason = "SIGNAL_REVERSAL"
 
-        if hit_stop:
-            reason = "STOP_LOSS"
-        elif hit_tp:
-            reason = "TAKE_PROFIT"
-        elif opposite_signal:
-            reason = "SIGNAL_REVERSAL"
-        else:
+        if reason is None:
             return None
 
         close_side = "SELL" if side == "BUY" else "BUY"
         logger.info(
-            "Orchestrator: closing trade id=%d reason=%s price=%.2f",
+            "Orchestrator: closing trade id=%d reason=%s price=%.2f trailing_sl=%s",
             trade_id, reason, current_price,
+            f"{trailing_sl:.2f}" if trailing_sl else "N/A",
         )
         return {
-            "action": "CLOSE",
-            "side": close_side,
-            "trade_id": trade_id,
-            "quantity": trade["quantity"],
-            "exit_price": current_price,
+            "action":      "CLOSE",
+            "side":        close_side,
+            "trade_id":    trade_id,
+            "quantity":    trade["quantity"],
+            "exit_price":  current_price,
             "exit_reason": reason,
         }

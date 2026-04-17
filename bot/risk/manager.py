@@ -17,6 +17,8 @@ class RiskConfig:
     max_concurrent_trades: int = 1
     min_signal_strength: float = 0.4
     cooldown_hours: int = 4
+    trail_atr_mult: float = 1.5
+    trail_activation_mult: float = 1.0
 
 
 class RiskManager:

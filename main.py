@@ -124,6 +124,7 @@ def _execute_order(client: BinanceClient, db: Database, order: dict) -> None:
                 quantity=order["quantity"],
                 stop_loss=order["stop_loss"],
                 take_profit=order["take_profit"],
+                atr=order.get("atr"),
             )
             logger.info(
                 "Opened trade id=%d orderId=%s",

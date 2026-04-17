@@ -25,7 +25,9 @@ CREATE TABLE IF NOT EXISTS trades (
     exit_time   TEXT,
     exit_reason TEXT,
     stop_loss   REAL    NOT NULL,
-    take_profit REAL    NOT NULL
+    take_profit REAL    NOT NULL,
+    atr         REAL,
+    trailing_sl REAL
 );
 
 CREATE TABLE IF NOT EXISTS equity (
@@ -55,7 +57,23 @@ class Database:
     def _init_schema(self) -> None:
         with self._conn() as conn:
             conn.executescript(DDL)
+        self._migrate_schema()
         logger.debug("Database schema initialized at %s", self.path)
+
+    def _migrate_schema(self) -> None:
+        """Add columns introduced after initial schema creation (safe, idempotent)."""
+        with self._conn() as conn:
+            existing = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(trades)").fetchall()
+            }
+            for col, definition in [
+                ("atr",         "REAL"),
+                ("trailing_sl", "REAL"),
+            ]:
+                if col not in existing:
+                    conn.execute(f"ALTER TABLE trades ADD COLUMN {col} {definition}")
+                    logger.info("Migration: added column trades.%s", col)
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
@@ -81,16 +99,17 @@ class Database:
         stop_loss: float,
         take_profit: float,
         entry_time: Optional[datetime] = None,
+        atr: Optional[float] = None,
     ) -> int:
         ts = (entry_time or datetime.utcnow()).isoformat()
         with self._conn() as conn:
             cursor = conn.execute(
                 """INSERT INTO trades
                    (symbol, side, strategy, regime, entry_price, quantity,
-                    stop_loss, take_profit, entry_time)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    stop_loss, take_profit, entry_time, atr)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (symbol, side, strategy, regime, entry_price, quantity,
-                 stop_loss, take_profit, ts),
+                 stop_loss, take_profit, ts, atr),
             )
             trade_id = cursor.lastrowid
         logger.info("Trade inserted id=%s side=%s entry=%.2f", trade_id, side, entry_price)
@@ -133,6 +152,14 @@ class Database:
             "Trade closed id=%s exit=%.2f pnl=%.4f (%.2f%%)",
             trade_id, exit_price, pnl, pnl_pct * 100,
         )
+
+    def update_trailing_sl(self, trade_id: int, trailing_sl: float) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE trades SET trailing_sl = ? WHERE id = ?",
+                (trailing_sl, trade_id),
+            )
+        logger.debug("Trailing SL updated trade_id=%s sl=%.2f", trade_id, trailing_sl)
 
     def insert_equity_snapshot(self, balance: float, drawdown: float = 0.0) -> None:
         ts = datetime.utcnow().isoformat()
