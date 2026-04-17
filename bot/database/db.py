@@ -1,3 +1,4 @@
+import os
 import sqlite3
 import logging
 from contextlib import contextmanager
@@ -6,7 +7,7 @@ from typing import Generator, Optional
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = "trading_bot.db"
+DB_PATH = os.getenv("DB_PATH", "trading_bot.db")
 
 DDL = """
 CREATE TABLE IF NOT EXISTS trades (

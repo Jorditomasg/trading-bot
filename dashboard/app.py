@@ -10,8 +10,10 @@ import streamlit as st
 
 from bot.database.db import Database
 
+import os
+
 REFRESH_INTERVAL = 60  # seconds
-DB_PATH = "trading_bot.db"
+DB_PATH = os.getenv("DB_PATH", "trading_bot.db")
 
 # ─── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(

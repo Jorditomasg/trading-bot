@@ -1,0 +1,47 @@
+services:
+
+  bot:
+    image: ghcr.io/${GITHUB_REPO:-youruser/trading-bot}:latest
+    container_name: trading-bot
+    restart: always
+    command: python main.py
+    env_file: .env
+    environment:
+      DB_PATH: /app/data/trading_bot.db
+    volumes:
+      - data:/app/data
+      - logs:/app/logs
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  dashboard:
+    image: ghcr.io/${GITHUB_REPO:-youruser/trading-bot}:latest
+    container_name: trading-dashboard
+    restart: always
+    command: >
+      streamlit run dashboard/app.py
+      --server.port=8501
+      --server.address=0.0.0.0
+      --server.headless=true
+      --browser.gatherUsageStats=false
+    env_file: .env
+    environment:
+      DB_PATH: /app/data/trading_bot.db
+    volumes:
+      - data:/app/data
+    ports:
+      - "8501:8501"
+    depends_on:
+      - bot
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+volumes:
+  data:
+  logs:
