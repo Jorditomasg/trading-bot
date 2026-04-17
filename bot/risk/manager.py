@@ -63,14 +63,14 @@ class RiskManager:
             return False
 
         if self._breaker_triggered_at is None:
-            self._breaker_triggered_at = datetime.utcnow()
+            self._breaker_triggered_at = datetime.now()
             logger.warning(
                 "CIRCUIT BREAKER triggered: drawdown=%.2f%% peak=%.2f current=%.2f",
                 drawdown * 100, peak_capital, current_capital,
             )
             return True
 
-        elapsed_hours = (datetime.utcnow() - self._breaker_triggered_at).total_seconds() / 3600
+        elapsed_hours = (datetime.now() - self._breaker_triggered_at).total_seconds() / 3600
         if elapsed_hours >= self.config.cooldown_hours:
             logger.info(
                 "Circuit breaker auto-reset: cooldown of %dh elapsed",

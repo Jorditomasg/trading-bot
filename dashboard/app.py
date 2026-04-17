@@ -75,7 +75,7 @@ def render() -> None:
 
     last_regime   = recent_signals[0]["regime"]   if recent_signals else "RANGING"
     last_strategy = recent_signals[0]["strategy"] if recent_signals else "—"
-    last_ts       = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+    last_ts       = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     # ── TOPBAR ────────────────────────────────────────────────────────────────
     st.markdown(
@@ -334,7 +334,7 @@ def render() -> None:
             pnl     = t.get("pnl") or 0.0
             pnl_pct = (t.get("pnl_pct") or 0.0) * 100
             rows.append({
-                "DATE":     (t["entry_time"] or "")[:16],
+                "DATE":     (t["entry_time"] or "")[:19].replace("T", " "),
                 "SIDE":     t["side"],
                 "STRATEGY": t["strategy"],
                 "ENTRY":    f"{t['entry_price']:,.2f}",
@@ -371,7 +371,7 @@ def render() -> None:
     if recent_signals:
         df_s = pd.DataFrame([
             {
-                "TIME":     s["timestamp"][:16],
+                "TIME":     s["timestamp"][:19].replace("T", " "),
                 "STRATEGY": s["strategy"],
                 "REGIME":   s["regime"],
                 "ACTION":   s["action"],

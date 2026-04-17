@@ -101,7 +101,7 @@ class Database:
         entry_time: Optional[datetime] = None,
         atr: Optional[float] = None,
     ) -> int:
-        ts = (entry_time or datetime.utcnow()).isoformat()
+        ts = (entry_time or datetime.now()).isoformat()
         with self._conn() as conn:
             cursor = conn.execute(
                 """INSERT INTO trades
@@ -122,7 +122,7 @@ class Database:
         exit_reason: str,
         exit_time: Optional[datetime] = None,
     ) -> None:
-        ts = (exit_time or datetime.utcnow()).isoformat()
+        ts = (exit_time or datetime.now()).isoformat()
         with self._conn() as conn:
             row = conn.execute(
                 "SELECT entry_price, quantity, side FROM trades WHERE id = ?", (trade_id,)
@@ -162,7 +162,7 @@ class Database:
         logger.debug("Trailing SL updated trade_id=%s sl=%.2f", trade_id, trailing_sl)
 
     def insert_equity_snapshot(self, balance: float, drawdown: float = 0.0) -> None:
-        ts = datetime.utcnow().isoformat()
+        ts = datetime.now().isoformat()
         with self._conn() as conn:
             conn.execute(
                 "INSERT INTO equity (timestamp, balance, drawdown) VALUES (?, ?, ?)",
@@ -179,7 +179,7 @@ class Database:
         strength: float,
         timestamp: Optional[datetime] = None,
     ) -> None:
-        ts = (timestamp or datetime.utcnow()).isoformat()
+        ts = (timestamp or datetime.now()).isoformat()
         with self._conn() as conn:
             conn.execute(
                 """INSERT INTO signals (timestamp, symbol, strategy, regime, action, strength)
