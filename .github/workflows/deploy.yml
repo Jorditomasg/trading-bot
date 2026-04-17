@@ -68,7 +68,7 @@ jobs:
           port: ${{ secrets.SSH_PORT || 22 }}
           script: |
             set -e
-            cd ~/trading-bot
+            cd /srv/trading-bot
 
             # Pull latest image
             echo "${{ secrets.GITHUB_TOKEN }}" | \
