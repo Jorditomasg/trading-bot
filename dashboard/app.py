@@ -239,6 +239,7 @@ def render() -> None:
     equity_curve    = db.get_equity_curve()
     open_trade      = db.get_open_trade()
     strategy_perf   = db.get_performance_by_strategy()
+    regime_perf     = db.get_performance_by_regime()
     recent_signals  = db.get_recent_signals(20)
 
     closed = [t for t in trades if t.get("exit_price") is not None]
@@ -333,12 +334,39 @@ def render() -> None:
             f"<code>{last_strategy}</code>",
             unsafe_allow_html=True,
         )
-        st.markdown(
-            f"<span style='font-size:0.65rem;letter-spacing:0.12em;color:#555'>DRAWDOWN</span> "
-            f"{'<span class=\"neg\">' if current_dd > 0.05 else '<span class=\"neu\">'}"
-            f"{current_dd*100:.2f}%</span>",
-            unsafe_allow_html=True,
-        )
+        st.markdown("## Drawdown")
+        if len(equity_curve) >= 2:
+            dd_ts  = [r["timestamp"] for r in equity_curve]
+            dd_val = [r["drawdown"] * 100 for r in equity_curve]
+            fig_dd = go.Figure()
+            fig_dd.add_trace(go.Scatter(
+                x=dd_ts, y=dd_val,
+                mode="lines",
+                line=dict(color="#FF0000", width=1.5),
+                fill="tozeroy",
+                fillcolor="rgba(255,0,0,0.08)",
+                showlegend=False,
+            ))
+            fig_dd.add_hline(
+                y=15.0,
+                line_dash="dot",
+                line_color="#333",
+                line_width=1,
+            )
+            fig_dd.update_layout(
+                **PLOTLY_LAYOUT,
+                height=160,
+                yaxis=dict(
+                    gridcolor="#111",
+                    showline=False,
+                    zeroline=False,
+                    autorange="reversed",
+                    ticksuffix="%",
+                ),
+            )
+            st.plotly_chart(fig_dd, use_container_width=True)
+        else:
+            st.caption("waiting for data...")
         st.markdown("")
 
         if open_trade:
@@ -370,7 +398,7 @@ def render() -> None:
     st.divider()
 
     # ── ROW 3 — Strategy perf + Risk metrics ──────────────────────────────────
-    col_strat, col_risk = st.columns(2)
+    col_strat, col_hist, col_risk = st.columns(3)
 
     with col_strat:
         st.markdown("## Strategy Performance")
@@ -400,6 +428,40 @@ def render() -> None:
         else:
             st.caption("no closed trades yet")
 
+    with col_hist:
+        st.markdown("## P&L Distribution")
+        if closed:
+            pnl_vals = [t["pnl"] for t in closed if t.get("pnl") is not None]
+            pos_vals = [v for v in pnl_vals if v >= 0]
+            neg_vals = [v for v in pnl_vals if v < 0]
+            fig_hist = go.Figure()
+            if neg_vals:
+                fig_hist.add_trace(go.Histogram(
+                    x=neg_vals,
+                    name="Loss",
+                    marker_color="#FF0000",
+                    opacity=0.85,
+                    nbinsx=15,
+                ))
+            if pos_vals:
+                fig_hist.add_trace(go.Histogram(
+                    x=pos_vals,
+                    name="Win",
+                    marker_color="#F5F5F5",
+                    opacity=0.85,
+                    nbinsx=15,
+                ))
+            fig_hist.add_vline(x=0, line_color="#555", line_width=1)
+            fig_hist.update_layout(
+                **PLOTLY_LAYOUT,
+                barmode="overlay",
+                showlegend=False,
+                height=220,
+            )
+            st.plotly_chart(fig_hist, use_container_width=True)
+        else:
+            st.caption("no closed trades yet")
+
     with col_risk:
         st.markdown("## Risk Metrics")
         pf         = _profit_factor(closed)
@@ -418,6 +480,34 @@ def render() -> None:
         r2.metric("Max Loss Streak", str(max_streak))
         r1.metric("Avg Win",         f"${avg_win:+.2f}")
         r2.metric("Avg Loss",        f"${avg_loss:+.2f}")
+
+        st.markdown("## Regime Performance")
+        if regime_perf:
+            df_reg = pd.DataFrame(regime_perf)
+            reg_colors = {
+                "TRENDING": "#F5F5F5",
+                "RANGING": "#888888",
+                "VOLATILE": "#FF0000",
+            }
+            fig_reg = go.Figure(go.Bar(
+                x=df_reg["win_rate"],
+                y=df_reg["regime"],
+                orientation="h",
+                marker_color=[reg_colors.get(r, "#555") for r in df_reg["regime"]],
+                marker_line_width=0,
+                text=[f"{wr:.0f}%  ({t}T)" for wr, t in zip(df_reg["win_rate"], df_reg["total_trades"])],
+                textfont=dict(family="Space Mono", size=10, color="#0A0A0A"),
+                textposition="inside",
+            ))
+            fig_reg.add_vline(x=50, line_dash="dot", line_color="#333", line_width=1)
+            fig_reg.update_layout(
+                **PLOTLY_LAYOUT,
+                xaxis=dict(range=[0, 100], gridcolor="#111", showline=False, zeroline=False),
+                height=180,
+            )
+            st.plotly_chart(fig_reg, use_container_width=True)
+        else:
+            st.caption("no regime data yet")
 
     st.divider()
 

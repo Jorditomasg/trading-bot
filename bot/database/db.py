@@ -199,6 +199,23 @@ class Database:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_performance_by_regime(self) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT
+                       regime,
+                       COUNT(*)                                        AS total_trades,
+                       SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END)       AS wins,
+                       SUM(CASE WHEN pnl <= 0 THEN 1 ELSE 0 END)      AS losses,
+                       ROUND(AVG(CASE WHEN pnl > 0 THEN 1.0 ELSE 0 END) * 100, 2) AS win_rate,
+                       ROUND(SUM(pnl), 4)                              AS total_pnl,
+                       ROUND(AVG(pnl), 4)                              AS avg_pnl
+                   FROM trades
+                   WHERE exit_price IS NOT NULL
+                   GROUP BY regime"""
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def get_recent_signals(self, limit: int = 20) -> list[dict]:
         with self._conn() as conn:
             rows = conn.execute(
