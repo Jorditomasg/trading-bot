@@ -5,6 +5,7 @@ import pandas as pd
 
 from bot.indicators import atr as compute_atr, rsi as compute_rsi
 from bot.strategy.base import BaseStrategy, Signal
+from bot.strategy.signal_factory import hold_signal, buy_signal, sell_signal
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ class MeanReversionStrategy(BaseStrategy):
         required = max(self.config.bb_period, self.config.rsi_period + 1, self.config.atr_period) + 2
         if len(df) < required:
             logger.warning("MeanReversion: insufficient data (%d rows)", len(df))
-            return Signal(action="HOLD", strength=0.0, stop_loss=0.0, take_profit=0.0, atr=0.0)
+            return hold_signal(atr=0.0)
 
         close = df["close"]
         sma = close.rolling(self.config.bb_period).mean()
@@ -59,11 +60,10 @@ class MeanReversionStrategy(BaseStrategy):
             band_width = current_upper - current_lower
             penetration = (current_lower - current_price) / band_width if band_width > 0 else 0
             strength = min(0.5 + penetration + (self.config.rsi_oversold - current_rsi) / 100, 1.0)
-            signal = Signal(
-                action="BUY",
+            signal = buy_signal(
                 strength=strength,
                 stop_loss=current_price - STOP_ATR_MULT * current_atr,
-                take_profit=current_mean,  # revert to mean
+                take_profit=current_mean,
                 atr=current_atr,
             )
             logger.info(
@@ -76,8 +76,7 @@ class MeanReversionStrategy(BaseStrategy):
             band_width = current_upper - current_lower
             penetration = (current_price - current_upper) / band_width if band_width > 0 else 0
             strength = min(0.5 + penetration + (current_rsi - self.config.rsi_overbought) / 100, 1.0)
-            signal = Signal(
-                action="SELL",
+            signal = sell_signal(
                 strength=strength,
                 stop_loss=current_price + STOP_ATR_MULT * current_atr,
                 take_profit=current_mean,
@@ -93,4 +92,4 @@ class MeanReversionStrategy(BaseStrategy):
             "MeanReversion: HOLD price=%.2f rsi=%.1f [%.2f – %.2f]",
             current_price, current_rsi, current_lower, current_upper,
         )
-        return Signal(action="HOLD", strength=0.0, stop_loss=0.0, take_profit=0.0, atr=current_atr)
+        return hold_signal(atr=current_atr)

@@ -3,6 +3,7 @@ from typing import Optional
 
 import pandas as pd
 
+from bot.constants import ExitReason, TradeAction, StrategyName
 from bot.database.db import Database
 from bot.regime.detector import MarketRegime, RegimeDetector
 from bot.risk.manager import RiskConfig, RiskManager
@@ -13,10 +14,10 @@ from bot.strategy.mean_reversion import MeanReversionStrategy
 
 logger = logging.getLogger(__name__)
 
-REGIME_STRATEGY_MAP: dict[MarketRegime, str] = {
-    MarketRegime.TRENDING: "EMA_CROSSOVER",
-    MarketRegime.RANGING: "MEAN_REVERSION",
-    MarketRegime.VOLATILE: "BREAKOUT",
+REGIME_STRATEGY_MAP: dict[MarketRegime, StrategyName] = {
+    MarketRegime.TRENDING: StrategyName.EMA_CROSSOVER,
+    MarketRegime.RANGING: StrategyName.MEAN_REVERSION,
+    MarketRegime.VOLATILE: StrategyName.BREAKOUT,
 }
 
 WINRATE_LOOKBACK = 20
@@ -35,10 +36,10 @@ class StrategyOrchestrator:
         self.risk_manager = RiskManager(risk_config or RiskConfig())
         self.regime_detector = RegimeDetector()
 
-        self._strategies: dict[str, BaseStrategy] = {
-            "EMA_CROSSOVER": EMACrossoverStrategy(),
-            "MEAN_REVERSION": MeanReversionStrategy(),
-            "BREAKOUT": BreakoutStrategy(),
+        self._strategies: dict[StrategyName, BaseStrategy] = {
+            StrategyName.EMA_CROSSOVER: EMACrossoverStrategy(),
+            StrategyName.MEAN_REVERSION: MeanReversionStrategy(),
+            StrategyName.BREAKOUT: BreakoutStrategy(),
         }
         self._peak_capital: float = 0.0
 
@@ -96,7 +97,7 @@ class StrategyOrchestrator:
             return None
 
         return {
-            "action": "OPEN",
+            "action": TradeAction.OPEN,
             "side": signal.action,
             "quantity": quantity,
             "entry_price": current_price,
@@ -183,17 +184,17 @@ class StrategyOrchestrator:
 
         if trailing_sl is not None:
             if side == "BUY"  and current_price <= trailing_sl:
-                reason = "TRAILING_STOP"
+                reason = ExitReason.TRAILING_STOP
             elif side == "SELL" and current_price >= trailing_sl:
-                reason = "TRAILING_STOP"
+                reason = ExitReason.TRAILING_STOP
 
         if reason is None:
             if (side == "BUY"  and current_price <= static_sl) or \
                (side == "SELL" and current_price >= static_sl):
-                reason = "STOP_LOSS"
+                reason = ExitReason.STOP_LOSS
             elif (side == "BUY"  and current_price >= static_tp) or \
                  (side == "SELL" and current_price <= static_tp):
-                reason = "TAKE_PROFIT"
+                reason = ExitReason.TAKE_PROFIT
 
         # Opposite signal also closes position
         if reason is None:
@@ -202,7 +203,7 @@ class StrategyOrchestrator:
                 (side == "SELL" and signal.action == "BUY")
             ) and signal.strength >= 0.5
             if opposite:
-                reason = "SIGNAL_REVERSAL"
+                reason = ExitReason.SIGNAL_REVERSAL
 
         if reason is None:
             return None
@@ -214,7 +215,7 @@ class StrategyOrchestrator:
             f"{trailing_sl:.2f}" if trailing_sl else "N/A",
         )
         return {
-            "action":      "CLOSE",
+            "action":      TradeAction.CLOSE,
             "side":        close_side,
             "trade_id":    trade_id,
             "quantity":    trade["quantity"],

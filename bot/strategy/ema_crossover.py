@@ -5,6 +5,8 @@ import pandas as pd
 
 from bot.indicators import atr as compute_atr
 from bot.strategy.base import BaseStrategy, Signal
+from bot.strategy.signal_factory import hold_signal, buy_signal, sell_signal
+from bot.strategy.levels import calculate_levels
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +33,7 @@ class EMACrossoverStrategy(BaseStrategy):
         required = self.config.slow_period + self.config.atr_period + 2
         if len(df) < required:
             logger.warning("EMACrossover: insufficient data (%d rows)", len(df))
-            return Signal(action="HOLD", strength=0.0, stop_loss=0.0, take_profit=0.0, atr=0.0)
+            return hold_signal(atr=0.0)
 
         close = df["close"]
         fast = close.ewm(span=self.config.fast_period, adjust=False).mean()
@@ -48,28 +50,18 @@ class EMACrossoverStrategy(BaseStrategy):
         if crossed_up:
             distance = abs(fast.iloc[-1] - slow.iloc[-1])
             strength = min(distance / current_atr, 1.0) if current_atr > 0 else 0.5
-            signal = Signal(
-                action="BUY",
-                strength=strength,
-                stop_loss=current_price - STOP_ATR_MULT * current_atr,
-                take_profit=current_price + TP_ATR_MULT * current_atr,
-                atr=current_atr,
-            )
+            sl, tp = calculate_levels("BUY", current_price, current_atr, STOP_ATR_MULT, TP_ATR_MULT)
+            signal = buy_signal(strength=strength, stop_loss=sl, take_profit=tp, atr=current_atr)
             logger.info("EMACrossover: BUY strength=%.2f price=%.2f", strength, current_price)
             return signal
 
         if crossed_down:
             distance = abs(fast.iloc[-1] - slow.iloc[-1])
             strength = min(distance / current_atr, 1.0) if current_atr > 0 else 0.5
-            signal = Signal(
-                action="SELL",
-                strength=strength,
-                stop_loss=current_price + STOP_ATR_MULT * current_atr,
-                take_profit=current_price - TP_ATR_MULT * current_atr,
-                atr=current_atr,
-            )
+            sl, tp = calculate_levels("SELL", current_price, current_atr, STOP_ATR_MULT, TP_ATR_MULT)
+            signal = sell_signal(strength=strength, stop_loss=sl, take_profit=tp, atr=current_atr)
             logger.info("EMACrossover: SELL strength=%.2f price=%.2f", strength, current_price)
             return signal
 
         logger.debug("EMACrossover: HOLD fast=%.2f slow=%.2f", fast.iloc[-1], slow.iloc[-1])
-        return Signal(action="HOLD", strength=0.0, stop_loss=0.0, take_profit=0.0, atr=current_atr)
+        return hold_signal(atr=current_atr)

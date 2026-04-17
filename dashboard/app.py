@@ -1,6 +1,5 @@
 """Streamlit dashboard — Nothing OS design language."""
 
-import math
 from datetime import datetime
 
 import pandas as pd
@@ -9,6 +8,8 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 from bot.database.db import Database
+from bot.metrics import sharpe_ratio, max_drawdown, profit_factor, max_consecutive_losses
+from dashboard.themes import NothingOS
 
 import os
 
@@ -24,154 +25,10 @@ st.set_page_config(
 )
 
 # ─── Nothing OS styles ────────────────────────────────────────────────────────
-# Palette: #0A0A0A bg · #111 surface · #1A1A1A border · #FF0000 accent · #F5F5F5 text
-NOTHING_CSS = """
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
-
-/* ── Root ──────────────────────────────────────────────── */
-html, body, [class*="css"] {
-    font-family: 'Space Mono', 'Courier New', monospace !important;
-    background-color: #0A0A0A;
-    color: #F5F5F5;
-}
-
-/* ── Hide Streamlit chrome ──────────────────────────────── */
-#MainMenu, footer, header { visibility: hidden; }
-.block-container { padding: 1.5rem 2rem 1rem; }
-
-/* ── Divider ────────────────────────────────────────────── */
-hr { border-color: #1A1A1A !important; }
-
-/* ── Metric cards ───────────────────────────────────────── */
-[data-testid="metric-container"] {
-    background: #111111;
-    border: 1px solid #1A1A1A;
-    padding: 1rem 1.2rem;
-    border-radius: 0 !important;
-}
-[data-testid="metric-container"] label {
-    font-size: 0.65rem !important;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    color: #555 !important;
-}
-[data-testid="metric-container"] [data-testid="stMetricValue"] {
-    font-size: 1.55rem !important;
-    font-weight: 700;
-    color: #F5F5F5;
-}
-[data-testid="stMetricDelta"] svg { display: none; }
-[data-testid="stMetricDelta"] > div {
-    font-size: 0.75rem !important;
-    letter-spacing: 0.05em;
-}
-
-/* ── Dataframes ─────────────────────────────────────────── */
-[data-testid="stDataFrame"] {
-    border: 1px solid #1A1A1A;
-    border-radius: 0 !important;
-}
-thead tr th {
-    background: #111 !important;
-    color: #555 !important;
-    font-size: 0.65rem !important;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    border-bottom: 1px solid #1A1A1A !important;
-}
-tbody tr:nth-child(even) { background: #0D0D0D !important; }
-
-/* ── Section headers ────────────────────────────────────── */
-h1, h2, h3 {
-    font-family: 'Space Mono', monospace !important;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    color: #F5F5F5 !important;
-}
-h2 { font-size: 0.85rem !important; letter-spacing: 0.18em; text-transform: uppercase; color: #555 !important; }
-
-/* ── Status pills ───────────────────────────────────────── */
-.pill {
-    display: inline-block;
-    padding: 2px 10px;
-    font-size: 0.65rem;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    font-weight: 700;
-    font-family: 'Space Mono', monospace;
-}
-.pill-running  { border: 1px solid #FF0000; color: #FF0000; }
-.pill-stopped  { border: 1px solid #333;    color: #555; }
-.pill-testnet  { border: 1px solid #333;    color: #888; }
-.pill-live     { border: 1px solid #FF0000; color: #FF0000; }
-
-/* ── Regime badges ──────────────────────────────────────── */
-.regime {
-    display: inline-block;
-    padding: 2px 10px;
-    font-size: 0.65rem;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    font-weight: 700;
-    font-family: 'Space Mono', monospace;
-    border-radius: 0 !important;
-}
-.regime-TRENDING  { border: 1px solid #F5F5F5; color: #F5F5F5; }
-.regime-RANGING   { border: 1px solid #555;    color: #888; }
-.regime-VOLATILE  { border: 1px solid #FF0000; color: #FF0000; }
-
-/* ── PnL colours ────────────────────────────────────────── */
-.pos { color: #F5F5F5; font-weight: 700; }
-.neg { color: #FF0000; font-weight: 700; }
-.neu { color: #555; }
-
-/* ── Topbar ─────────────────────────────────────────────── */
-.topbar {
-    display: flex;
-    align-items: baseline;
-    gap: 1.5rem;
-    margin-bottom: 0.25rem;
-}
-.bot-name {
-    font-size: 1.2rem;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    color: #F5F5F5;
-}
-.glyph {
-    color: #FF0000;
-    font-size: 1.1rem;
-    margin-right: 0.3rem;
-}
-
-/* ── Info box ────────────────────────────────────────────── */
-[data-testid="stInfo"], [data-testid="stSuccess"], [data-testid="stWarning"] {
-    background: #111 !important;
-    border-left: 2px solid #1A1A1A !important;
-    border-radius: 0 !important;
-    font-size: 0.75rem;
-}
-
-/* ── Captions ───────────────────────────────────────────── */
-[data-testid="stCaptionContainer"] {
-    color: #333 !important;
-    font-size: 0.6rem !important;
-    letter-spacing: 0.08em;
-}
-</style>
-"""
-st.markdown(NOTHING_CSS, unsafe_allow_html=True)
+st.markdown(NothingOS.NOTHING_CSS, unsafe_allow_html=True)
 
 # ─── Plotly base layout (shared) ──────────────────────────────────────────────
-PLOTLY_LAYOUT = dict(
-    paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="#0A0A0A",
-    font=dict(family="Space Mono, Courier New, monospace", color="#555", size=10),
-    margin=dict(l=0, r=0, t=4, b=0),
-    xaxis=dict(gridcolor="#111", showline=False, zeroline=False),
-    yaxis=dict(gridcolor="#111", showline=False, zeroline=False),
-)
+PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
 
 
 # ─── DB ───────────────────────────────────────────────────────────────────────
@@ -180,46 +37,7 @@ def get_db() -> Database:
     return Database(DB_PATH)
 
 
-# ─── Calculations ─────────────────────────────────────────────────────────────
-def _sharpe(equity_curve: list[dict], tf_hours: int = 1) -> float:
-    if len(equity_curve) < 2:
-        return 0.0
-    returns = pd.Series([r["balance"] for r in equity_curve]).pct_change().dropna()
-    std = returns.std()
-    return float((returns.mean() / std) * math.sqrt(8760 / tf_hours)) if std > 0 else 0.0
-
-
-def _max_drawdown(equity_curve: list[dict]) -> float:
-    if not equity_curve:
-        return 0.0
-    peak = max_dd = 0.0
-    for row in equity_curve:
-        b = row["balance"]
-        if b > peak:
-            peak = b
-        dd = (peak - b) / peak if peak > 0 else 0.0
-        if dd > max_dd:
-            max_dd = dd
-    return max_dd
-
-
-def _profit_factor(trades: list[dict]) -> float:
-    gross_win  = sum(t["pnl"] for t in trades if t.get("pnl") and t["pnl"] > 0)
-    gross_loss = sum(abs(t["pnl"]) for t in trades if t.get("pnl") and t["pnl"] < 0)
-    return gross_win / gross_loss if gross_loss > 0 else float("inf")
-
-
-def _max_loss_streak(trades: list[dict]) -> int:
-    max_s = cur = 0
-    for t in trades:
-        if t.get("pnl") is not None and t["pnl"] < 0:
-            cur += 1
-            max_s = max(max_s, cur)
-        else:
-            cur = 0
-    return max_s
-
-
+# ─── Helpers ──────────────────────────────────────────────────────────────────
 def _regime_badge(regime: str) -> str:
     r = regime.upper()
     return f'<span class="regime regime-{r}">{r}</span>'
@@ -252,8 +70,8 @@ def render() -> None:
     total_pnl_pct = (total_pnl / initial_balance * 100) if initial_balance > 0 else 0.0
     wins          = sum(1 for t in closed if t.get("pnl") and t["pnl"] > 0)
     win_rate      = (wins / len(closed) * 100) if closed else 0.0
-    sharpe        = _sharpe(equity_curve)
-    max_dd        = _max_drawdown(equity_curve)
+    sharpe        = sharpe_ratio(equity_curve)
+    max_dd        = max_drawdown(equity_curve)
 
     last_regime   = recent_signals[0]["regime"]   if recent_signals else "RANGING"
     last_strategy = recent_signals[0]["strategy"] if recent_signals else "—"
@@ -461,8 +279,8 @@ def render() -> None:
 
     with col_risk:
         st.markdown("## Risk Metrics")
-        pf         = _profit_factor(closed)
-        max_streak = _max_loss_streak(closed)
+        pf         = profit_factor(closed)
+        max_streak = max_consecutive_losses(closed)
         avg_win    = (
             sum(t["pnl"] for t in closed if t.get("pnl") and t["pnl"] > 0) / wins
             if wins > 0 else 0.0
