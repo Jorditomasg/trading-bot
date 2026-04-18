@@ -365,3 +365,40 @@ class Database:
 
     def has_mainnet_credentials(self) -> bool:
         return self.get_mainnet_credentials() is not None
+
+    # ── Telegram config ───────────────────────────────────────────────────────
+
+    def save_telegram_config(self, token: str, chat_id: str, enabled: bool) -> None:
+        self.set_config("telegram_token",   token)
+        self.set_config("telegram_chat_id", chat_id)
+        self.set_config("telegram_enabled", "1" if enabled else "0")
+        logger.info("Telegram config saved (enabled=%s)", enabled)
+
+    def get_telegram_config(self) -> dict:
+        return {
+            "token":   self.get_config("telegram_token")   or "",
+            "chat_id": self.get_config("telegram_chat_id") or "",
+            "enabled": self.get_config("telegram_enabled") == "1",
+        }
+
+    def has_telegram_config(self) -> bool:
+        cfg = self.get_telegram_config()
+        return bool(cfg["token"] and cfg["chat_id"])
+
+    # ── Bot pause state ───────────────────────────────────────────────────────
+
+    def get_bot_paused(self) -> bool:
+        return self.get_config("bot_paused") == "1"
+
+    def set_bot_paused(self, paused: bool) -> None:
+        self.set_config("bot_paused", "1" if paused else "0")
+        logger.info("Bot paused=%s", paused)
+
+    # ── Single trade lookup ───────────────────────────────────────────────────
+
+    def get_trade(self, trade_id: int) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM trades WHERE id = ?", (trade_id,)
+            ).fetchone()
+        return dict(row) if row else None

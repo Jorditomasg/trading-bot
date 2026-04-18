@@ -81,10 +81,13 @@ Developer reference for this codebase. Read this before touching anything.
 | `bot/strategy/levels.py` | Pure function: `calculate_levels(side, price, atr, sl_mult, tp_mult)` |
 | `bot/strategy/signal_factory.py` | Constructors: `buy_signal()`, `sell_signal()`, `hold_signal()` |
 | `bot/indicators/utils.py` | Pure functions: `atr()`, `rsi()`, `wilder_smooth()` |
-| `bot/database/db.py` | SQLite wrapper, DDL, migrations, all queries |
+| `bot/database/db.py` | SQLite wrapper, DDL, migrations, all queries; `bot_config` KV store for Telegram config and pause state |
 | `bot/metrics.py` | Pure functions: Sharpe, max drawdown, profit factor, max loss streak |
 | `bot/exchange/binance_client.py` | Binance API client (testnet-aware) |
-| `dashboard/app.py` | Streamlit app, all render logic, 60s auto-refresh |
+| `bot/telegram_notifier.py` | `TelegramNotifier` — sends trade/circuit-breaker/lifecycle events; lazy DB config reads |
+| `bot/telegram_commands.py` | `TelegramCommandHandler` — daemon thread, long-polls Telegram, handles `/pause` `/resume` `/status` |
+| `dashboard/app.py` | Streamlit app; `_topbar()` fragment (5s refresh) with live mode pill and settings popover; section order: KPIs → Live → [Equity | Drawdown + State] → Signals → Performance |
+| `dashboard/sections/open_position.py` | Regime badge + CSS flex timeline strip + open position; `drawdown_section` as separate `@st.fragment(run_every=10)` |
 | `dashboard/themes.py` | NothingOS palette + PLOTLY_LAYOUT definition |
 
 ---
@@ -264,6 +267,97 @@ In dry-run mode `_execute_order()` is never called, so no orders go to Binance.
 However, `db.insert_equity_snapshot()` runs every cycle regardless.
 The equity curve IS recorded in dry-run. Use this to evaluate strategy performance
 without touching the exchange.
+
+### 11. `TelegramNotifier` reads config from DB on every send — no restart needed
+
+`TelegramNotifier._post()` calls `db.get_telegram_config()` before every HTTP request.
+There is no in-memory cache. This means updating the token, chat ID, or `enabled` flag
+in the dashboard takes effect on the very next notification — no bot restart required.
+The notifier silently no-ops when unconfigured (`has_telegram_config()` returns False).
+
+### 12. Circuit breaker notification fires only on the triggering cycle
+
+`main.run_cycle()` snapshots `orchestrator.risk_manager._breaker_triggered_at` BEFORE
+calling `orchestrator.step()` and compares it AFTER. The Telegram notification is sent
+only when the value transitions from `None` to a timestamp — i.e., the first cycle that
+triggers the breaker. Subsequent cycles where the breaker is still active do NOT re-notify.
+
+### 13. `bot_paused` stops `run_cycle` but NOT `position_manager`
+
+When `db.get_bot_paused()` is True, `run_cycle()` returns immediately (no new signals,
+no exchange calls). However, `position_manager()` runs on its own schedule and is NOT
+gated by the pause flag — SL/TP checks and trailing stop updates continue uninterrupted
+even while the bot is paused. Pausing only prevents new trade entries.
+
+---
+
+## Telegram Integration
+
+### Architecture
+
+Two classes handle all Telegram interaction:
+
+| Class | File | Role |
+|---|---|---|
+| `TelegramNotifier` | `bot/telegram_notifier.py` | Outbound — sends notifications to Telegram |
+| `TelegramCommandHandler` | `bot/telegram_commands.py` | Inbound — daemon thread, long-polls `getUpdates` (timeout=30s) |
+
+`main()` constructs both, starts the command handler thread, and wires the notifier into
+`run_cycle()`, `_execute_order()`, and `position_manager()`. Neither class is imported
+by the orchestrator or strategies — they live at the `main.py` layer only.
+
+### Config storage
+
+Telegram config is stored in the `bot_config` key-value table (same store used for active
+mode). Keys:
+
+| Key | Type | Description |
+|---|---|---|
+| `telegram_token` | str | Bot token from BotFather |
+| `telegram_chat_id` | str | Target chat ID |
+| `telegram_enabled` | `"true"` / `"false"` | Master on/off switch |
+| `bot_paused` | `"true"` / `"false"` | Pause flag checked at `run_cycle()` start |
+
+Relevant `Database` methods:
+- `save_telegram_config(token, chat_id, enabled)` — writes all three config keys
+- `get_telegram_config() -> dict` — returns `{token, chat_id, enabled}`
+- `has_telegram_config() -> bool` — True when token + chat_id are present
+- `get_bot_paused() -> bool` — reads `bot_paused` key
+- `set_bot_paused(paused: bool)` — writes `bot_paused` key
+- `get_trade(trade_id: int) -> dict | None` — single trade lookup (used for PnL in `trade_closed`)
+
+### Notifications sent
+
+| Method | When |
+|---|---|
+| `bot_started(dry_run, mode)` | After setup, before first scheduler tick |
+| `bot_stopped()` | Before shutdown (SIGTERM/SIGINT handler) |
+| `paused()` / `resumed()` | When `/pause` or `/resume` command received |
+| `trade_opened(trade, mode)` | After `_execute_order()` writes an OPEN trade to DB |
+| `trade_closed(trade, pnl, exit_reason, mode)` | After `_execute_order()` writes a CLOSE trade to DB |
+| `circuit_breaker(drawdown, mode)` | On the cycle the breaker first triggers |
+| `status(balance, open_trade, mode)` | In response to `/status` command |
+
+### Mode tags
+
+All notifications that accept a `mode` parameter include a tag: `🧪 DEMO` for testnet/dry-run
+and `🔴 MAINNET` for live trading. Mode is read from `db.get_active_mode()`.
+
+### Supported commands
+
+| Command | Effect |
+|---|---|
+| `/pause` | Sets `bot_paused=True` in DB; sends `paused()` notification |
+| `/resume` | Sets `bot_paused=False` in DB; sends `resumed()` notification |
+| `/status` | Sends current balance + open position summary |
+
+The command handler reads token and chat_id from DB on every poll cycle — config changes
+take effect without restarting the bot.
+
+### No new dependencies
+
+`TelegramNotifier` uses `requests`, which is already in `requirements.txt`. No new packages
+are needed.
 
 ---
 

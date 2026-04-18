@@ -9,7 +9,7 @@ from bot.database.db import Database
 from dashboard.sections.equity_chart import equity_chart_section
 from dashboard.sections.kpi_row import kpi_row_section
 from dashboard.sections.live_price import live_price_section
-from dashboard.sections.open_position import open_position_section
+from dashboard.sections.open_position import drawdown_section, open_position_section
 from dashboard.sections.performance import performance_section
 from dashboard.sections.settings import settings_section
 from dashboard.sections.signal_log import signal_log_section
@@ -36,58 +36,81 @@ def get_db() -> Database:
     return Database(DB_PATH)
 
 
-# ─── Render ───────────────────────────────────────────────────────────────────
-def render() -> None:
-    db = get_db()
-
+# ─── Topbar fragment (updates clock + mode every 5s) ──────────────────────────
+@st.fragment(run_every=5)
+def _topbar(db: Database) -> None:
     recent_signals = db.get_recent_signals(1)
-    last_regime    = recent_signals[0]["regime"]   if recent_signals else "RANGING"
-    last_strategy  = recent_signals[0]["strategy"] if recent_signals else "—"
-    last_ts        = datetime.now().strftime("%Y-%m-%d %H:%M")
+    last_regime    = recent_signals[0]["regime"] if recent_signals else "RANGING"
+    active_mode    = db.get_active_mode()
+    last_ts        = datetime.now().strftime("%H:%M:%S")
+
+    mode_pill = (
+        "<span class='pill pill-stopped'>● MAINNET</span>"
+        if active_mode == "MAINNET"
+        else "<span class='pill pill-testnet'>● DEMO</span>"
+    )
 
     st.markdown(
         f"""
         <div class="topbar">
             <span class="bot-name"><span class="glyph">*</span> BOT / BTC·USDT</span>
             <span class="pill pill-running">● RUNNING</span>
-            <span class="pill pill-testnet">TESTNET</span>
+            {mode_pill}
             {_regime_badge(last_regime)}
             <span class="neu" style="font-size:0.65rem;letter-spacing:0.1em;margin-left:auto">{last_ts} UTC</span>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+
+# ─── Render ───────────────────────────────────────────────────────────────────
+def render() -> None:
+    db = get_db()
+
+    # Topbar + minimal config button
+    bar_col, cfg_col = st.columns([14, 1])
+    with bar_col:
+        _topbar(db)
+    with cfg_col:
+        with st.popover("⚙"):
+            settings_section(db)
+
     st.divider()
 
+    # Key metrics summary
     kpi_row_section(db)
     st.divider()
 
-    st.markdown("## Live Price")
+    # Live market context
+    st.markdown("## Live")
     live_price_section(db)
     st.divider()
 
-    col_eq, col_state = st.columns([3, 2])
+    # Performance history: equity curve (left) + drawdown & state (right)
+    col_eq, col_right = st.columns([3, 2])
     with col_eq:
-        st.markdown("## Equity Curve")
+        st.markdown("## Equity")
         equity_chart_section(db)
-    with col_state:
+    with col_right:
+        st.markdown("## Drawdown")
+        drawdown_section(db)
         st.markdown("## State")
         open_position_section(db)
+
     st.divider()
 
-    performance_section(db)
-    st.divider()
-
-    st.markdown("## Signal Log")
+    # Signal history
+    st.markdown("## Signals")
     signal_log_section(db)
     st.divider()
 
-    with st.expander("⚙ Configuration", expanded=False):
-        settings_section(db)
+    # Strategy performance breakdown
+    performance_section(db)
 
     st.markdown(
         "<div style='text-align:right;font-size:0.55rem;color:#1A1A1A;"
-        "letter-spacing:0.15em;margin-top:2rem'>* TRADING BOT · BINANCE TESTNET · "
+        "letter-spacing:0.15em;margin-top:2rem'>* TRADING BOT · BINANCE · "
         "FRAGMENTS: 5s/10s/30s</div>",
         unsafe_allow_html=True,
     )

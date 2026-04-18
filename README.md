@@ -1,10 +1,10 @@
 # * Trading Bot — BTC/USDT
 
-Regime-adaptive algorithmic trading bot for Binance Testnet. Automatically selects between three strategies based on real-time market regime detection.
+Regime-adaptive algorithmic trading bot for Binance (Testnet and Mainnet). Automatically selects between three strategies based on real-time market regime detection.
 
 ![Python 3.12](https://img.shields.io/badge/Python-3.12-blue?style=flat-square)
 ![Docker](https://img.shields.io/badge/Docker-compose-2496ED?style=flat-square)
-![Binance Testnet](https://img.shields.io/badge/Binance-Testnet-F0B90B?style=flat-square)
+![Binance](https://img.shields.io/badge/Binance-Testnet%20%7C%20Mainnet-F0B90B?style=flat-square)
 
 ---
 
@@ -29,6 +29,9 @@ The bot runs on a 1-hour candle cycle. Each cycle it:
 - Win-rate fallback: switches away from underperforming strategies automatically
 - Nothing OS dashboard — real-time Streamlit UI with equity curve, drawdown, P&L, signal log
 - Full dry-run mode: no exchange calls, but equity curve is still recorded
+- DEMO / MAINNET mode switch from the dashboard settings panel
+- Telegram notifications: trade open/close, circuit breaker trigger, bot start/stop — tagged with `🧪 DEMO` or `🔴 MAINNET`
+- Telegram commands: `/pause`, `/resume`, `/status` — control the bot from any Telegram chat
 
 ---
 
@@ -187,13 +190,15 @@ All configuration is read from environment variables (`.env` file or Docker env)
 
 The dashboard auto-refreshes every 60 seconds. All times are UTC.
 
-**Topbar** — Bot name, running status pill, testnet badge, current regime badge, last refresh time.
+**Topbar** — Bot name, running status pill, mode badge (`● DEMO` or `● MAINNET` — reads actual active mode from DB), current regime badge, clock (updates every 5s). Settings (⚙) button at the top right opens the configuration popover.
 
 **KPI Row** — Six cards: Balance, Total PnL ($ and %), Win Rate, Annualised Sharpe Ratio, Max Drawdown, Total Closed Trades.
 
-**Equity Curve** — Balance over time. Line is white above starting capital, red below. Dotted reference line marks initial capital.
+**Equity Curve** (60% width) — Balance over time. Line is white above starting capital, red below. Dotted reference line marks initial capital.
 
-**State Panel** — Current regime + active strategy. Drawdown chart (inverted Y axis) with 15% circuit breaker reference line. Open position card (entry, SL, TP, quantity) or "NO OPEN POSITION".
+**Drawdown Panel** (40% width, beside equity curve) — Drawdown chart (inverted Y axis) with 15% circuit breaker reference line.
+
+**State Panel** — Current regime + regime timeline strip + open position card (entry, SL, TP, quantity) or "NO OPEN POSITION".
 
 **Strategy Performance** — Horizontal bar chart, win rate per strategy. Bars are white above 50%, red below. Each bar shows trade count.
 
@@ -204,6 +209,32 @@ The dashboard auto-refreshes every 60 seconds. All times are UTC.
 **Trade History** — Last 50 closed trades. PnL in white (positive) or red (negative). Exit reason column shows STOP_LOSS, TAKE_PROFIT, TRAILING_STOP, or SIGNAL_REVERSAL.
 
 **Signal Log** — Last 20 signals generated. Shows timestamp, strategy, regime, action (BUY/SELL/HOLD), and strength score.
+
+**Settings (⚙ popover)** — Always accessible from the top right. Contains DEMO/MAINNET mode switch and the Telegram configuration section (token, chat ID, enable toggle, Save and Test buttons). Changes take effect immediately without restarting the bot.
+
+---
+
+## Telegram Setup
+
+Telegram config is managed from the dashboard — no environment variables needed.
+
+1. Create a bot via [@BotFather](https://t.me/BotFather) → copy the token
+2. Start a chat with your bot (or add it to a group) → get the chat ID via [@userinfobot](https://t.me/userinfobot)
+3. Open the dashboard → **⚙** (top right) → Telegram section
+4. Enter the token and chat ID, enable notifications, press **Save**
+5. Press **Test** to verify connectivity — you should receive a test message
+
+Configuration is stored in the SQLite `bot_config` table and read on every notification send, so changes take effect immediately without restarting the bot.
+
+**Commands** (send to your bot in Telegram):
+
+| Command | Effect |
+|---|---|
+| `/pause` | Skip strategy cycles — SL/TP monitoring and Telegram polling continue |
+| `/resume` | Resume normal operation |
+| `/status` | Get current balance and open position summary |
+
+All notifications include a mode tag (`🧪 DEMO` or `🔴 MAINNET`) so you always know which environment an alert is coming from.
 
 ---
 
@@ -266,7 +297,9 @@ writable by the container process.
 
 ## Risk Disclaimer
 
-This software is for educational and paper trading purposes only. It operates exclusively on
-Binance Testnet with simulated funds. Do not use this code to trade real assets without
-understanding the risks. Past performance in simulation does not guarantee future results.
-The authors accept no liability for financial losses of any kind.
+This software is intended for educational purposes and paper trading. It supports both Binance
+Testnet (simulated funds) and Mainnet (real funds) via a mode switch in the dashboard. Using
+Mainnet mode involves real financial risk. Do not enable Mainnet trading without fully
+understanding the strategies, risk parameters, and potential for loss. Past performance in
+simulation does not guarantee future results. The authors accept no liability for financial
+losses of any kind.

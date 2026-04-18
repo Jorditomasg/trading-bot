@@ -19,6 +19,8 @@ from bot.database.db import Database
 from bot.exchange.binance_client import BinanceClient
 from bot.orchestrator import StrategyOrchestrator
 from bot.risk.manager import RiskConfig
+from bot.telegram_commands import TelegramCommandHandler
+from bot.telegram_notifier import TelegramNotifier
 
 KLINES_LIMIT = 200
 LOG_DIR = Path("logs")
@@ -118,8 +120,13 @@ def run_cycle(
     db: Database,
     dry_run: bool,
     adaptor: ParameterAdaptor | None = None,
+    notifier: TelegramNotifier | None = None,
 ) -> None:
     logger.info("─── Cycle start %s ───", dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+    if db.get_bot_paused():
+        logger.info("Bot is paused — skipping cycle")
+        return
 
     client = _build_client(db)
 
@@ -136,7 +143,16 @@ def run_cycle(
         curve = db.get_equity_curve()
         balance = curve[-1]["balance"] if curve else settings.initial_capital
 
+    # Snapshot circuit breaker state before step to detect new triggers
+    breaker_was_active = orchestrator.risk_manager._breaker_triggered_at is not None
+
     order = orchestrator.step(df, balance)
+
+    # Notify if circuit breaker just fired this cycle
+    if notifier and not breaker_was_active:
+        if orchestrator.risk_manager._breaker_triggered_at is not None:
+            drawdown = compute_drawdown(db, balance)
+            notifier.circuit_breaker(drawdown, db.get_active_mode())
 
     if order is not None:
         logger.info("Orchestrator returned order: %s", order)
@@ -144,7 +160,7 @@ def run_cycle(
         if dry_run:
             logger.info("[DRY-RUN] Would execute: %s", order)
         else:
-            _execute_order(client, db, order)
+            _execute_order(client, db, order, notifier)
     else:
         logger.info("No order this cycle")
 
@@ -162,8 +178,14 @@ def run_cycle(
     logger.info("─── Cycle end ───")
 
 
-def _execute_order(client: BinanceClient, db: Database, order: dict) -> None:
+def _execute_order(
+    client: BinanceClient,
+    db: Database,
+    order: dict,
+    notifier: TelegramNotifier | None = None,
+) -> None:
     action = order["action"]
+    mode   = db.get_active_mode()
 
     if action == "OPEN":
         try:
@@ -187,6 +209,8 @@ def _execute_order(client: BinanceClient, db: Database, order: dict) -> None:
                 "Opened trade id=%d orderId=%s",
                 trade_id, result.get("orderId"),
             )
+            if notifier:
+                notifier.trade_opened(order, mode)
         except Exception as exc:
             logger.error("Failed to open position: %s", exc)
 
@@ -206,11 +230,19 @@ def _execute_order(client: BinanceClient, db: Database, order: dict) -> None:
                 "Closed trade id=%d orderId=%s reason=%s",
                 order["trade_id"], result.get("orderId"), order["exit_reason"],
             )
+            if notifier:
+                trade = db.get_trade(order["trade_id"])
+                pnl   = trade["pnl"] if trade else 0.0
+                notifier.trade_closed(trade or order, pnl, order["exit_reason"], mode)
         except Exception as exc:
             logger.error("Failed to close position: %s", exc)
 
 
-def position_manager(db: Database, dry_run: bool) -> None:
+def position_manager(
+    db: Database,
+    dry_run: bool,
+    notifier: TelegramNotifier | None = None,
+) -> None:
     """Check SL/TP on open position using live WebSocket price. Runs every 60s."""
     trade = db.get_open_trade()
     if trade is None:
@@ -264,7 +296,7 @@ def position_manager(db: Database, dry_run: bool) -> None:
         "quantity":    trade["quantity"],
         "exit_price":  price,
         "exit_reason": reason,
-    })
+    }, notifier)
 
 
 def main() -> None:
@@ -297,6 +329,11 @@ def main() -> None:
         risk_manager=orchestrator.risk_manager,
     )
 
+    # Telegram — always instantiated; no-ops when unconfigured
+    notifier    = TelegramNotifier(db=db)
+    cmd_handler = TelegramCommandHandler(db=db, notifier=notifier)
+    cmd_handler.start()
+
     # Build a client for the WebSocket price stream (uses startup mode)
     stream_client = _build_client(db)
     twm = stream_client.start_price_stream(
@@ -308,19 +345,22 @@ def main() -> None:
         "Bot started — symbol=%s timeframe=%s dry_run=%s",
         settings.symbol, settings.timeframe, args.dry_run,
     )
+    notifier.bot_started(args.dry_run, db.get_active_mode())
 
     # Run immediately on startup, then schedule hourly
-    run_cycle(orchestrator, db, dry_run=args.dry_run, adaptor=adaptor)
+    run_cycle(orchestrator, db, dry_run=args.dry_run, adaptor=adaptor, notifier=notifier)
 
     schedule.every().hour.at(":00").do(
-        run_cycle, orchestrator, db, args.dry_run, adaptor
+        run_cycle, orchestrator, db, args.dry_run, adaptor, notifier
     )
-    schedule.every(60).seconds.do(position_manager, db, args.dry_run)
+    schedule.every(60).seconds.do(position_manager, db, args.dry_run, notifier)
 
     while not _shutdown:
         schedule.run_pending()
         time.sleep(10)
 
+    notifier.bot_stopped()
+    cmd_handler.stop()
     twm.stop()
     logger.info("WebSocket price stream stopped.")
     logger.info("Bot stopped cleanly.")
