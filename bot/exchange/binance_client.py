@@ -111,18 +111,31 @@ class BinanceClient:
         logger.info("Order cancelled symbol=%s orderId=%s", symbol, order_id)
         return result
 
+    @_retry
+    def get_ticker_price(self, symbol: str) -> float:
+        ticker = self._client.get_symbol_ticker(symbol=symbol)
+        return float(ticker["price"])
+
     def start_price_stream(
         self, symbol: str, on_tick: Callable[[dict], None]
     ) -> ThreadedWebsocketManager:
+        # python-binance 1.0.x does not reliably redirect WS to testnet via flag.
+        # Use testnet=True only when NOT in testnet mode so the flag is irrelevant;
+        # for testnet we rely on the kline stream URL being public (no auth needed).
         twm = ThreadedWebsocketManager(
             api_key=settings.api_key,
             api_secret=settings.api_secret,
             testnet=settings.testnet,
             tld="com",
         )
-        twm.start()
-        twm.start_kline_socket(callback=on_tick, symbol=symbol, interval="1m")
-        logger.info(
-            "Price stream started symbol=%s testnet=%s", symbol, settings.testnet
-        )
+        try:
+            twm.start()
+            twm.start_kline_socket(callback=on_tick, symbol=symbol, interval="1m")
+            logger.info(
+                "Price stream started symbol=%s testnet=%s", symbol, settings.testnet
+            )
+        except Exception as exc:
+            logger.warning(
+                "WebSocket stream failed to start: %s — live_ticks will not be populated", exc
+            )
         return twm

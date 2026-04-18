@@ -41,9 +41,23 @@ def get_db() -> Database:
 
 @st.cache_data(ttl=300)
 def get_klines_cached(symbol: str, timeframe: str, limit: int = 50) -> list:
-    client = BinanceClient()
-    df = client.get_klines(symbol, timeframe, limit)
-    return df.to_dict("records")
+    try:
+        client = BinanceClient()
+        df = client.get_klines(symbol, timeframe, limit)
+        return df.to_dict("records")
+    except Exception:
+        return []
+
+
+@st.cache_data(ttl=5)
+def get_rest_price(symbol: str) -> float | None:
+    """REST ticker price — updates every 5s, always current market price."""
+    try:
+        client = BinanceClient()
+        ticker = client.get_ticker_price(symbol)
+        return ticker
+    except Exception:
+        return None
 
 
 # ─── Live Price Fragment ──────────────────────────────────────────────────────
@@ -51,6 +65,12 @@ def get_klines_cached(symbol: str, timeframe: str, limit: int = 50) -> list:
 def live_price_section(db: Database) -> None:
     tick = db.get_live_tick(settings.symbol)
     open_trade = db.get_open_trade()
+
+    # Fallback: REST price when WebSocket hasn't written yet
+    if tick is None:
+        price = get_rest_price(settings.symbol)
+        if price is not None:
+            tick = {"price": price}
 
     if tick is None:
         st.caption("live feed connecting...")
