@@ -50,6 +50,29 @@ def _handle_signal(signum: int, _frame) -> None:
     _shutdown = True
 
 
+def _make_tick_handler(db: Database, symbol: str):
+    def handle_tick(msg: dict) -> None:
+        if msg.get("e") == "error":
+            logger.warning("WebSocket error: %s", msg)
+            return
+        k = msg.get("k", {})
+        if not k:
+            return
+        try:
+            db.upsert_live_tick(
+                symbol=symbol,
+                price=float(k["c"]),
+                open_=float(k["o"]),
+                high=float(k["h"]),
+                low=float(k["l"]),
+                volume=float(k["v"]),
+                timestamp=str(k["t"]),
+            )
+        except Exception as exc:
+            logger.warning("Failed to upsert live tick: %s", exc)
+    return handle_tick
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Crypto trading bot")
     parser.add_argument(
@@ -178,6 +201,11 @@ def main() -> None:
     risk_config = RiskConfig(risk_per_trade=settings.risk_per_trade)
     orchestrator = StrategyOrchestrator(db=db, symbol=settings.symbol, risk_config=risk_config)
 
+    twm = client.start_price_stream(
+        settings.symbol,
+        _make_tick_handler(db, settings.symbol),
+    )
+
     logger.info(
         "Bot started — symbol=%s timeframe=%s testnet=%s dry_run=%s",
         settings.symbol, settings.timeframe, settings.testnet, args.dry_run,
@@ -194,6 +222,8 @@ def main() -> None:
         schedule.run_pending()
         time.sleep(10)
 
+    twm.stop()
+    logger.info("WebSocket price stream stopped.")
     logger.info("Bot stopped cleanly.")
 
 

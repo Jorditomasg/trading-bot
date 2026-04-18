@@ -46,6 +46,16 @@ CREATE TABLE IF NOT EXISTS signals (
     action    TEXT    NOT NULL,
     strength  REAL    NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS live_ticks (
+    symbol    TEXT PRIMARY KEY,
+    price     REAL,
+    open      REAL,
+    high      REAL,
+    low       REAL,
+    volume    REAL,
+    timestamp TEXT
+);
 """
 
 
@@ -249,3 +259,29 @@ class Database:
                 "SELECT * FROM signals ORDER BY timestamp DESC LIMIT ?", (limit,)
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def upsert_live_tick(
+        self,
+        symbol: str,
+        price: float,
+        open_: float,
+        high: float,
+        low: float,
+        volume: float,
+        timestamp: str,
+    ) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT OR REPLACE INTO live_ticks
+                   (symbol, price, open, high, low, volume, timestamp)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (symbol, price, open_, high, low, volume, timestamp),
+            )
+        logger.debug("Live tick upserted symbol=%s price=%.2f", symbol, price)
+
+    def get_live_tick(self, symbol: str) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM live_ticks WHERE symbol = ?", (symbol,)
+            ).fetchone()
+        return dict(row) if row else None

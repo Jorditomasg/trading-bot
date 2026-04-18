@@ -17,7 +17,7 @@ TP_ATR_MULT = 3.0
 @dataclass
 class BreakoutConfig:
     channel_period: int = 20
-    volume_multiplier: float = 1.5
+    volume_multiplier: float = 1.2
     atr_period: int = 14
 
 

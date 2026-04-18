@@ -17,8 +17,8 @@ class MeanReversionConfig:
     bb_period: int = 20
     bb_std: float = 2.0
     rsi_period: int = 14
-    rsi_oversold: float = 30.0
-    rsi_overbought: float = 70.0
+    rsi_oversold: float = 35.0
+    rsi_overbought: float = 65.0
     atr_period: int = 14
 
 

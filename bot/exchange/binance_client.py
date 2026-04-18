@@ -1,10 +1,11 @@
 import logging
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 import pandas as pd
 from binance.client import Client
 from binance.exceptions import BinanceAPIException, BinanceRequestException
+from binance import ThreadedWebsocketManager
 
 from bot.config import settings
 
@@ -109,3 +110,19 @@ class BinanceClient:
         result = self._client.cancel_order(symbol=symbol, orderId=order_id)
         logger.info("Order cancelled symbol=%s orderId=%s", symbol, order_id)
         return result
+
+    def start_price_stream(
+        self, symbol: str, on_tick: Callable[[dict], None]
+    ) -> ThreadedWebsocketManager:
+        twm = ThreadedWebsocketManager(
+            api_key=settings.api_key,
+            api_secret=settings.api_secret,
+            testnet=settings.testnet,
+            tld="com",
+        )
+        twm.start()
+        twm.start_kline_socket(callback=on_tick, symbol=symbol, interval="1m")
+        logger.info(
+            "Price stream started symbol=%s testnet=%s", symbol, settings.testnet
+        )
+        return twm

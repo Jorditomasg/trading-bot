@@ -48,19 +48,19 @@ class EMACrossoverStrategy(BaseStrategy):
         crossed_down = fast.iloc[-2] >= slow.iloc[-2] and fast.iloc[-1] < slow.iloc[-1]
 
         if crossed_up:
-            distance = abs(fast.iloc[-1] - slow.iloc[-1])
-            strength = min(distance / current_atr, 1.0) if current_atr > 0 else 0.5
+            fast_slope = fast.iloc[-1] - fast.iloc[-2]
+            strength = max(min(abs(fast_slope) / current_atr * 5, 1.0), 0.5) if current_atr > 0 else 0.5
             sl, tp = calculate_levels("BUY", current_price, current_atr, STOP_ATR_MULT, TP_ATR_MULT)
             signal = buy_signal(strength=strength, stop_loss=sl, take_profit=tp, atr=current_atr)
-            logger.info("EMACrossover: BUY strength=%.2f price=%.2f", strength, current_price)
+            logger.info("EMACrossover: BUY strength=%.2f price=%.2f slope=%.4f", strength, current_price, fast_slope)
             return signal
 
         if crossed_down:
-            distance = abs(fast.iloc[-1] - slow.iloc[-1])
-            strength = min(distance / current_atr, 1.0) if current_atr > 0 else 0.5
+            fast_slope = fast.iloc[-1] - fast.iloc[-2]
+            strength = max(min(abs(fast_slope) / current_atr * 5, 1.0), 0.5) if current_atr > 0 else 0.5
             sl, tp = calculate_levels("SELL", current_price, current_atr, STOP_ATR_MULT, TP_ATR_MULT)
             signal = sell_signal(strength=strength, stop_loss=sl, take_profit=tp, atr=current_atr)
-            logger.info("EMACrossover: SELL strength=%.2f price=%.2f", strength, current_price)
+            logger.info("EMACrossover: SELL strength=%.2f price=%.2f slope=%.4f", strength, current_price, fast_slope)
             return signal
 
         logger.debug("EMACrossover: HOLD fast=%.2f slow=%.2f", fast.iloc[-1], slow.iloc[-1])

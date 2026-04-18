@@ -87,12 +87,13 @@ class RiskManager:
 
     def validate_signal(self, signal: Signal, open_position: Optional[dict]) -> bool:
         if signal.action == "HOLD":
+            logger.debug("Signal skipped: action=HOLD")
             return False
 
         if signal.strength < self.config.min_signal_strength:
             logger.info(
-                "Signal rejected: strength %.2f < min %.2f",
-                signal.strength, self.config.min_signal_strength,
+                "Signal rejected: strength=%.4f below min=%.2f (action=%s)",
+                signal.strength, self.config.min_signal_strength, signal.action,
             )
             return False
 
