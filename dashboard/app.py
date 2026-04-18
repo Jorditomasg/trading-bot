@@ -7,6 +7,7 @@ import streamlit as st
 
 from bot.database.db import Database
 from dashboard.sections.equity_chart import equity_chart_section
+from dashboard.sections.export import export_section
 from dashboard.sections.kpi_row import kpi_row_section
 from dashboard.sections.live_price import live_price_section
 from dashboard.sections.open_position import drawdown_section, open_position_section
@@ -87,16 +88,18 @@ def render() -> None:
     live_price_section(db)
     st.divider()
 
-    # Performance history: equity curve (left) + drawdown & state (right)
-    col_eq, col_right = st.columns([3, 2])
+    # Charts row: equity + drawdown at the same fixed height (no height mismatch)
+    col_eq, col_dd = st.columns([3, 2])
     with col_eq:
         st.markdown("## Equity")
         equity_chart_section(db)
-    with col_right:
+    with col_dd:
         st.markdown("## Drawdown")
         drawdown_section(db)
-        st.markdown("## State")
-        open_position_section(db)
+
+    # State row: full width — regime, timeline, open position
+    st.markdown("## State")
+    open_position_section(db)
 
     st.divider()
 
@@ -107,6 +110,10 @@ def render() -> None:
 
     # Strategy performance breakdown
     performance_section(db)
+    st.divider()
+
+    # Data export
+    export_section(db)
 
     st.markdown(
         "<div style='text-align:right;font-size:0.55rem;color:#1A1A1A;"

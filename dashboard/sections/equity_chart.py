@@ -39,5 +39,5 @@ def equity_chart_section(db: Database) -> None:
         showlegend=False,
     ))
     fig.add_hline(y=initial_balance, line_dash="dot", line_color="#333", line_width=1)
-    fig.update_layout(**PLOTLY_LAYOUT, height=240)
+    fig.update_layout(**PLOTLY_LAYOUT, height=220)
     st.plotly_chart(fig, use_container_width=True)

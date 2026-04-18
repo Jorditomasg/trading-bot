@@ -402,3 +402,48 @@ class Database:
                 "SELECT * FROM trades WHERE id = ?", (trade_id,)
             ).fetchone()
         return dict(row) if row else None
+
+    # ── Range queries for export ──────────────────────────────────────────────
+
+    def _get_range(
+        self,
+        table: str,
+        ts_col: str,
+        from_dt: str | None,
+        to_dt: str | None,
+        order: str = "ASC",
+    ) -> list[dict]:
+        """Generic range query over any table with an ISO timestamp column."""
+        conditions: list[str] = []
+        params: list[str] = []
+        if from_dt:
+            conditions.append(f"{ts_col} >= ?")
+            params.append(from_dt)
+        if to_dt:
+            conditions.append(f"{ts_col} <= ?")
+            params.append(to_dt)
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        query = f"SELECT * FROM {table}{where} ORDER BY {ts_col} {order}"
+        with self._conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_trades_range(
+        self, from_dt: str | None = None, to_dt: str | None = None
+    ) -> list[dict]:
+        return self._get_range("trades", "entry_time", from_dt, to_dt)
+
+    def get_equity_range(
+        self, from_dt: str | None = None, to_dt: str | None = None
+    ) -> list[dict]:
+        return self._get_range("equity", "timestamp", from_dt, to_dt)
+
+    def get_signals_range(
+        self, from_dt: str | None = None, to_dt: str | None = None
+    ) -> list[dict]:
+        return self._get_range("signals", "timestamp", from_dt, to_dt)
+
+    def get_adaptive_params_range(
+        self, from_dt: str | None = None, to_dt: str | None = None
+    ) -> list[dict]:
+        return self._get_range("adaptive_params", "timestamp", from_dt, to_dt)
