@@ -78,3 +78,20 @@ class TestStatus:
         assert "50,000.00" in text
         assert "49,000.00" in text
         assert "52,000.00" in text
+
+
+# ── /status integration ───────────────────────────────────────────────────────
+
+class TestStatusIntegration:
+    def test_status_command_forwards_paused_state(self):
+        db = MagicMock()
+        db.get_telegram_config.return_value = {"token": "tok", "chat_id": "123", "enabled": True}
+        db.get_equity_curve.return_value = [{"balance": 10000.0}]
+        db.get_open_trade.return_value = None
+        db.get_active_mode.return_value = "TESTNET"
+        db.get_bot_paused.return_value = True
+        notifier = MagicMock()
+        handler = TelegramCommandHandler(db, notifier)
+        update = {"update_id": 1, "message": {"chat": {"id": "123"}, "text": "/status"}}
+        handler._handle(update, "123")
+        notifier.status.assert_called_once_with(10000.0, None, "TESTNET", paused=True)

@@ -87,8 +87,9 @@ class TelegramCommandHandler:
             curve      = self._db.get_equity_curve()
             balance    = curve[-1]["balance"] if curve else 0.0
             open_trade = self._db.get_open_trade()
+            paused     = self._db.get_bot_paused()
             mode       = self._db.get_active_mode()
-            self._notifier.status(balance, open_trade, mode)
+            self._notifier.status(balance, open_trade, mode, paused=paused)
 
     def _poll_loop(self) -> None:
         while not self._stop.is_set():
