@@ -39,20 +39,29 @@ def _retry(func):
 
 
 class BinanceClient:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        api_key: str | None = None,
+        api_secret: str | None = None,
+        testnet: bool | None = None,
+    ) -> None:
+        _api_key    = api_key    if api_key    is not None else settings.api_key
+        _api_secret = api_secret if api_secret is not None else settings.api_secret
+        _testnet    = testnet    if testnet    is not None else settings.testnet
+
         kwargs: dict = {}
-        if settings.testnet:
+        if _testnet:
             kwargs["testnet"] = True
             # python-binance respects the testnet flag but we pin the URL explicitly
             self._client = Client(
-                settings.api_key,
-                settings.api_secret,
+                _api_key,
+                _api_secret,
                 **kwargs,
             )
             self._client.API_URL = TESTNET_BASE_URL + "/api"
             logger.info("BinanceClient initialised — TESTNET mode (%s)", TESTNET_BASE_URL)
         else:
-            self._client = Client(settings.api_key, settings.api_secret)
+            self._client = Client(_api_key, _api_secret)
             logger.info("BinanceClient initialised — LIVE mode")
 
     @_retry

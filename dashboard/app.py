@@ -11,6 +11,7 @@ from dashboard.sections.kpi_row import kpi_row_section
 from dashboard.sections.live_price import live_price_section
 from dashboard.sections.open_position import open_position_section
 from dashboard.sections.performance import performance_section
+from dashboard.sections.settings import settings_section
 from dashboard.sections.signal_log import signal_log_section
 from dashboard.themes import NothingOS
 from dashboard.utils import _regime_badge
@@ -79,6 +80,10 @@ def render() -> None:
 
     st.markdown("## Signal Log")
     signal_log_section(db)
+    st.divider()
+
+    with st.expander("⚙ Configuration", expanded=False):
+        settings_section(db)
 
     st.markdown(
         "<div style='text-align:right;font-size:0.55rem;color:#1A1A1A;"

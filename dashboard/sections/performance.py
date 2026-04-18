@@ -152,3 +152,22 @@ def performance_section(db: Database) -> None:
         st.dataframe(styled, use_container_width=True, hide_index=True)
     else:
         st.caption("no completed trades yet")
+
+    st.divider()
+    st.markdown("## Adaptive Parameters Log")
+    adaptive = db.get_adaptive_params(10)
+    if adaptive:
+        df_a = pd.DataFrame([
+            {
+                "TIME":     a["timestamp"][:19].replace("T", " "),
+                "STRATEGY": a["strategy"],
+                "PARAM":    a["param_name"],
+                "OLD":      f"{a['old_value']:.4f}",
+                "NEW":      f"{a['new_value']:.4f}",
+                "REASON":   a["reason"],
+            }
+            for a in adaptive
+        ])
+        st.dataframe(df_a, use_container_width=True, hide_index=True)
+    else:
+        st.caption("no parameter adaptations yet")

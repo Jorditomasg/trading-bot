@@ -23,6 +23,9 @@ class Settings:
     # Misc
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
 
+    # Encryption
+    fernet_key: str = field(default_factory=lambda: os.getenv("FERNET_KEY", ""))
+
     def validate(self) -> None:
         if not self.api_key or self.api_key == "your_testnet_api_key":
             raise ValueError("BINANCE_API_KEY is not set in .env")

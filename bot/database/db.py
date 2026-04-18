@@ -56,6 +56,21 @@ CREATE TABLE IF NOT EXISTS live_ticks (
     volume    REAL,
     timestamp TEXT
 );
+
+CREATE TABLE IF NOT EXISTS adaptive_params (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp   TEXT    NOT NULL,
+    strategy    TEXT    NOT NULL,
+    param_name  TEXT    NOT NULL,
+    old_value   REAL    NOT NULL,
+    new_value   REAL    NOT NULL,
+    reason      TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS bot_config (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 
@@ -285,3 +300,68 @@ class Database:
                 "SELECT * FROM live_ticks WHERE symbol = ?", (symbol,)
             ).fetchone()
         return dict(row) if row else None
+
+    def insert_adaptive_param(
+        self,
+        strategy: str,
+        param_name: str,
+        old_value: float,
+        new_value: float,
+        reason: str,
+    ) -> None:
+        ts = datetime.now().isoformat()
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO adaptive_params
+                   (timestamp, strategy, param_name, old_value, new_value, reason)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (ts, strategy, param_name, old_value, new_value, reason),
+            )
+        logger.debug("Adaptive param: %s.%s %.4f→%.4f (%s)", strategy, param_name, old_value, new_value, reason)
+
+    def get_adaptive_params(self, limit: int = 10) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM adaptive_params ORDER BY timestamp DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Bot config (key-value store) ──────────────────────────────────────────────
+
+    def get_config(self, key: str) -> str | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT value FROM bot_config WHERE key = ?", (key,)
+            ).fetchone()
+        return row["value"] if row else None
+
+    def set_config(self, key: str, value: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO bot_config (key, value) VALUES (?, ?)",
+                (key, value),
+            )
+        logger.debug("Config set: %s", key)
+
+    def get_active_mode(self) -> str:
+        return self.get_config("active_mode") or "TESTNET"
+
+    def set_active_mode(self, mode: str) -> None:
+        assert mode in ("TESTNET", "MAINNET"), f"Invalid mode: {mode}"
+        self.set_config("active_mode", mode)
+        logger.info("Active mode set to %s", mode)
+
+    def save_mainnet_credentials(self, api_key_enc: str, api_secret_enc: str) -> None:
+        self.set_config("mainnet_api_key", api_key_enc)
+        self.set_config("mainnet_api_secret", api_secret_enc)
+        logger.info("Mainnet credentials saved (encrypted)")
+
+    def get_mainnet_credentials(self) -> tuple[str, str] | None:
+        key    = self.get_config("mainnet_api_key")
+        secret = self.get_config("mainnet_api_secret")
+        if key and secret:
+            return key, secret
+        return None
+
+    def has_mainnet_credentials(self) -> bool:
+        return self.get_mainnet_credentials() is not None

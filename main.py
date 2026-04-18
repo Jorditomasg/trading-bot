@@ -12,7 +12,9 @@ from pathlib import Path
 
 import schedule
 
+from bot.adaptive.adaptor import ParameterAdaptor
 from bot.config import settings
+from bot.constants import StrategyName
 from bot.database.db import Database
 from bot.exchange.binance_client import BinanceClient
 from bot.orchestrator import StrategyOrchestrator
@@ -20,6 +22,24 @@ from bot.risk.manager import RiskConfig
 
 KLINES_LIMIT = 200
 LOG_DIR = Path("logs")
+
+
+def _build_client(db: Database) -> BinanceClient:
+    """Return a BinanceClient configured for the current active mode."""
+    from bot.credentials import decrypt
+    mode = db.get_active_mode()
+    if mode == "MAINNET":
+        creds = db.get_mainnet_credentials()
+        if creds:
+            try:
+                api_key    = decrypt(creds[0], settings.fernet_key)
+                api_secret = decrypt(creds[1], settings.fernet_key)
+                return BinanceClient(api_key=api_key, api_secret=api_secret, testnet=False)
+            except Exception as exc:
+                logger.error("Failed to decrypt mainnet credentials: %s — falling back to TESTNET", exc)
+        else:
+            logger.error("MAINNET mode set but no credentials found — falling back to TESTNET")
+    return BinanceClient()
 
 
 def setup_logging(level: str) -> None:
@@ -94,12 +114,14 @@ def compute_drawdown(db: Database, current_balance: float) -> float:
 
 
 def run_cycle(
-    client: BinanceClient,
     orchestrator: StrategyOrchestrator,
     db: Database,
     dry_run: bool,
+    adaptor: ParameterAdaptor | None = None,
 ) -> None:
     logger.info("─── Cycle start %s ───", dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+    client = _build_client(db)
 
     try:
         df = client.get_klines(settings.symbol, settings.timeframe, KLINES_LIMIT)
@@ -129,6 +151,14 @@ def run_cycle(
     drawdown = compute_drawdown(db, balance)
     db.insert_equity_snapshot(balance=balance, drawdown=drawdown)
     logger.info("Equity snapshot balance=%.2f drawdown=%.4f", balance, drawdown)
+
+    if adaptor is not None:
+        curve = db.get_equity_curve()
+        peak = max(row["balance"] for row in curve) if curve else balance
+        adaptor.maybe_adapt(
+            circuit_breaker_active=orchestrator.risk_manager.check_circuit_breaker(balance, peak)
+        )
+
     logger.info("─── Cycle end ───")
 
 
@@ -184,6 +214,10 @@ def main() -> None:
     args = parse_args()
     setup_logging(settings.log_level)
 
+    from bot.credentials import ensure_fernet_key
+    fernet_key = ensure_fernet_key()
+    settings.fernet_key = fernet_key
+
     if args.dry_run:
         logger.info("*** DRY-RUN mode — no real orders will be placed ***")
     else:
@@ -197,25 +231,32 @@ def main() -> None:
     signal.signal(signal.SIGINT, _handle_signal)
 
     db = Database()
-    client = BinanceClient()
     risk_config = RiskConfig(risk_per_trade=settings.risk_per_trade)
     orchestrator = StrategyOrchestrator(db=db, symbol=settings.symbol, risk_config=risk_config)
+    adaptor = ParameterAdaptor(
+        db=db,
+        mean_reversion_strategy=orchestrator._strategies[StrategyName.MEAN_REVERSION],
+        breakout_strategy=orchestrator._strategies[StrategyName.BREAKOUT],
+        risk_manager=orchestrator.risk_manager,
+    )
 
-    twm = client.start_price_stream(
+    # Build a client for the WebSocket price stream (uses startup mode)
+    stream_client = _build_client(db)
+    twm = stream_client.start_price_stream(
         settings.symbol,
         _make_tick_handler(db, settings.symbol),
     )
 
     logger.info(
-        "Bot started — symbol=%s timeframe=%s testnet=%s dry_run=%s",
-        settings.symbol, settings.timeframe, settings.testnet, args.dry_run,
+        "Bot started — symbol=%s timeframe=%s dry_run=%s",
+        settings.symbol, settings.timeframe, args.dry_run,
     )
 
     # Run immediately on startup, then schedule hourly
-    run_cycle(client, orchestrator, db, dry_run=args.dry_run)
+    run_cycle(orchestrator, db, dry_run=args.dry_run, adaptor=adaptor)
 
     schedule.every().hour.at(":00").do(
-        run_cycle, client, orchestrator, db, args.dry_run
+        run_cycle, orchestrator, db, args.dry_run, adaptor
     )
 
     while not _shutdown:

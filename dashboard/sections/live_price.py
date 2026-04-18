@@ -32,6 +32,31 @@ def get_rest_price(symbol: str) -> float | None:
         return None
 
 
+_TIMEFRAME_FREQ_MAP = {
+    "1m": "min", "3m": "3min", "5m": "5min", "15m": "15min", "30m": "30min",
+    "1h": "h", "2h": "2h", "4h": "4h", "6h": "6h", "8h": "8h", "12h": "12h",
+    "1d": "D", "3d": "3D", "1w": "W",
+}
+
+
+def _kline_timestamps(limit: int, timeframe: str) -> pd.DatetimeIndex:
+    """Compute synthetic open-time timestamps for kline bars."""
+    freq = _TIMEFRAME_FREQ_MAP.get(timeframe, "h")
+    end = pd.Timestamp.now().floor(freq)
+    return pd.date_range(end=end, periods=limit, freq=freq)
+
+
+def _match_signal_to_bar(sig_ts_str: str, timestamps: pd.DatetimeIndex) -> int | None:
+    """Return bar index for a signal timestamp, or None if outside the window."""
+    sig_ts = pd.to_datetime(sig_ts_str)
+    diffs = abs(timestamps - sig_ts)
+    idx = int(diffs.argmin())
+    interval_secs = (timestamps[1] - timestamps[0]).total_seconds()
+    if diffs[idx].total_seconds() > interval_secs * 0.5:
+        return None
+    return idx
+
+
 @st.fragment(run_every=5)
 def live_price_section(db: Database) -> None:
     tick       = db.get_live_tick(settings.symbol)
@@ -70,8 +95,9 @@ def live_price_section(db: Database) -> None:
         if df_k.empty:
             st.caption("chart data unavailable")
             return
+        timestamps = _kline_timestamps(len(df_k), settings.timeframe)
         fig = go.Figure(data=go.Candlestick(
-            x=df_k.index,
+            x=timestamps,
             open=df_k["open"],
             high=df_k["high"],
             low=df_k["low"],
@@ -79,6 +105,36 @@ def live_price_section(db: Database) -> None:
             increasing_line_color="#F5F5F5",
             decreasing_line_color="#FF0000",
         ))
+        signals = db.get_recent_signals(50)
+        buy_sigs  = [s for s in signals if s["action"] == "BUY"]
+        sell_sigs = [s for s in signals if s["action"] == "SELL"]
+
+        bx, by = [], []
+        for s in buy_sigs:
+            idx = _match_signal_to_bar(s["timestamp"], timestamps)
+            if idx is not None:
+                bx.append(timestamps[idx])
+                by.append(float(df_k["low"].iloc[idx]) * 0.999)
+        if bx:
+            fig.add_trace(go.Scatter(
+                x=bx, y=by, mode="markers",
+                marker=dict(symbol="triangle-up", size=10, color="#00C853", opacity=0.9),
+                showlegend=False, hoverinfo="skip",
+            ))
+
+        sx, sy = [], []
+        for s in sell_sigs:
+            idx = _match_signal_to_bar(s["timestamp"], timestamps)
+            if idx is not None:
+                sx.append(timestamps[idx])
+                sy.append(float(df_k["high"].iloc[idx]) * 1.001)
+        if sx:
+            fig.add_trace(go.Scatter(
+                x=sx, y=sy, mode="markers",
+                marker=dict(symbol="triangle-down", size=10, color="#FF0000", opacity=0.9),
+                showlegend=False, hoverinfo="skip",
+            ))
+
         fig.add_hline(
             y=live_price,
             line_dash="dash",

@@ -9,12 +9,50 @@ from dashboard.utils import _regime_badge
 
 PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
 
+_REGIME_COLORS = {
+    "TRENDING": "#F5F5F5",
+    "RANGING":  "#555555",
+    "VOLATILE": "#FF0000",
+}
+
+
+def _render_regime_timeline(signals: list[dict]) -> None:
+    """Render a compact horizontal stacked bar showing regime transitions."""
+    if len(signals) < 2:
+        return
+    ordered = list(reversed(signals))
+    runs: list[tuple[str, int]] = []
+    for sig in ordered:
+        regime = sig.get("regime", "RANGING")
+        if runs and runs[-1][0] == regime:
+            runs[-1] = (regime, runs[-1][1] + 1)
+        else:
+            runs.append((regime, 1))
+    fig = go.Figure()
+    for regime, count in runs:
+        fig.add_trace(go.Bar(
+            x=[count], y=["regime"],
+            orientation="h",
+            marker_color=_REGIME_COLORS.get(regime, "#333"),
+            showlegend=False,
+            hovertemplate=f"{regime} ({count})<extra></extra>",
+        ))
+    fig.update_layout(
+        **PLOTLY_LAYOUT,
+        height=30,
+        barmode="stack",
+        margin=dict(l=0, r=0, t=0, b=0),
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
 
 @st.fragment(run_every=10)
 def open_position_section(db: Database) -> None:
     equity_curve   = db.get_equity_curve()
     open_trade     = db.get_open_trade()
-    recent_signals = db.get_recent_signals(1)
+    recent_signals = db.get_recent_signals(50)
 
     last_regime   = recent_signals[0]["regime"]   if recent_signals else "RANGING"
     last_strategy = recent_signals[0]["strategy"] if recent_signals else "—"
@@ -25,6 +63,7 @@ def open_position_section(db: Database) -> None:
         f"<code>{last_strategy}</code>",
         unsafe_allow_html=True,
     )
+    _render_regime_timeline(recent_signals)
     st.markdown("## Drawdown")
     if len(equity_curve) >= 2:
         dd_ts  = [r["timestamp"] for r in equity_curve]
