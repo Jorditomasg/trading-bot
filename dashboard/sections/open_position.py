@@ -37,14 +37,15 @@ def _render_regime_timeline(signals: list[dict]) -> None:
             showlegend=False,
             hovertemplate=f"{regime} ({count})<extra></extra>",
         ))
-    layout = {**PLOTLY_LAYOUT, "margin": dict(l=0, r=0, t=0, b=0)}
-    fig.update_layout(
-        **layout,
-        height=30,
-        barmode="stack",
-        xaxis=dict(visible=False),
-        yaxis=dict(visible=False),
-    )
+    layout = {
+        **PLOTLY_LAYOUT,
+        "margin": dict(l=0, r=0, t=0, b=0),
+        "height": 30,
+        "barmode": "stack",
+        "xaxis": dict(visible=False),
+        "yaxis": dict(visible=False),
+    }
+    fig.update_layout(**layout)
     st.plotly_chart(fig, use_container_width=True)
 
 
