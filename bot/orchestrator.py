@@ -3,6 +3,7 @@ from typing import Optional
 
 import pandas as pd
 
+from bot.bias.filter import Bias, BiasFilter
 from bot.constants import ExitReason, TradeAction, StrategyName
 from bot.database.db import Database
 from bot.regime.detector import MarketRegime, RegimeDetector
@@ -11,6 +12,7 @@ from bot.strategy.base import BaseStrategy, Signal
 from bot.strategy.breakout import BreakoutStrategy
 from bot.strategy.ema_crossover import EMACrossoverStrategy
 from bot.strategy.mean_reversion import MeanReversionStrategy
+from bot.strategy.signal_factory import hold_signal
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +32,13 @@ class StrategyOrchestrator:
         db: Database,
         symbol: str,
         risk_config: Optional[RiskConfig] = None,
+        bias_filter: Optional[BiasFilter] = None,
     ) -> None:
         self.db = db
         self.symbol = symbol
         self.risk_manager = RiskManager(risk_config or RiskConfig())
         self.regime_detector = RegimeDetector()
+        self.bias_filter = bias_filter
 
         self._strategies: dict[StrategyName, BaseStrategy] = {
             StrategyName.EMA_CROSSOVER: EMACrossoverStrategy(),
@@ -43,7 +47,12 @@ class StrategyOrchestrator:
         }
         self._peak_capital: float = 0.0
 
-    def step(self, df: pd.DataFrame, current_balance: float) -> Optional[dict]:
+    def step(
+        self,
+        df: pd.DataFrame,
+        current_balance: float,
+        df_high: Optional[pd.DataFrame] = None,
+    ) -> Optional[dict]:
         if self._peak_capital < current_balance:
             self._peak_capital = current_balance
 
@@ -57,16 +66,28 @@ class StrategyOrchestrator:
         strategy = self._select_strategy(regime)
         signal: Signal = strategy.generate_signal(df)
 
+        bias: Optional[Bias] = None
+        if self.bias_filter is not None:
+            bias = self.bias_filter.get_bias(df_high)
+            if not self.bias_filter.allows_signal(signal, bias):
+                logger.info(
+                    "BiasFilter blocked signal action=%s bias=%s — holding",
+                    signal.action, bias.value,
+                )
+                signal = hold_signal(atr=signal.atr)
+
         self.db.insert_signal(
             symbol=self.symbol,
             strategy=strategy.name,
             regime=regime.value,
             action=signal.action,
             strength=signal.strength,
+            bias=bias.value if bias is not None else None,
         )
         logger.info(
-            "Orchestrator: signal action=%s strength=%.2f strategy=%s",
+            "Orchestrator: signal action=%s strength=%.2f strategy=%s bias=%s",
             signal.action, signal.strength, strategy.name,
+            bias.value if bias is not None else "N/A",
         )
 
         open_trade = self.db.get_open_trade()

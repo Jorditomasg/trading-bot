@@ -13,6 +13,7 @@ from pathlib import Path
 import schedule
 
 from bot.adaptive.adaptor import ParameterAdaptor
+from bot.bias.filter import BiasFilter, BiasFilterConfig
 from bot.config import settings
 from bot.constants import ExitReason, StrategyName, TradeAction
 from bot.database.db import Database
@@ -136,6 +137,14 @@ def run_cycle(
         logger.error("Failed to fetch klines: %s", exc)
         return
 
+    df_4h = None
+    try:
+        df_4h = client.get_klines(settings.symbol, "4h", 150)
+    except Exception as exc:
+        logger.warning(
+            "Failed to fetch 4h klines: %s — bias filter will block signals this cycle", exc
+        )
+
     try:
         balance = client.get_balance("USDT")
     except Exception as exc:
@@ -146,7 +155,7 @@ def run_cycle(
     # Snapshot circuit breaker state before step to detect new triggers
     breaker_was_active = orchestrator.risk_manager._breaker_triggered_at is not None
 
-    order = orchestrator.step(df, balance)
+    order = orchestrator.step(df, balance, df_4h)
 
     # Notify if circuit breaker just fired this cycle
     if notifier and not breaker_was_active:
@@ -321,7 +330,13 @@ def main() -> None:
 
     db = Database()
     risk_config = RiskConfig(risk_per_trade=settings.risk_per_trade)
-    orchestrator = StrategyOrchestrator(db=db, symbol=settings.symbol, risk_config=risk_config)
+    bias_filter = BiasFilter(BiasFilterConfig())
+    orchestrator = StrategyOrchestrator(
+        db=db,
+        symbol=settings.symbol,
+        risk_config=risk_config,
+        bias_filter=bias_filter,
+    )
     adaptor = ParameterAdaptor(
         db=db,
         mean_reversion_strategy=orchestrator._strategies[StrategyName.MEAN_REVERSION],

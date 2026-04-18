@@ -88,7 +88,7 @@ class Database:
     def _migrate_schema(self) -> None:
         """Add columns introduced after initial schema creation (safe, idempotent)."""
         with self._conn() as conn:
-            existing = {
+            trades_cols = {
                 row[1]
                 for row in conn.execute("PRAGMA table_info(trades)").fetchall()
             }
@@ -96,9 +96,20 @@ class Database:
                 ("atr",         "REAL"),
                 ("trailing_sl", "REAL"),
             ]:
-                if col not in existing:
+                if col not in trades_cols:
                     conn.execute(f"ALTER TABLE trades ADD COLUMN {col} {definition}")
                     logger.info("Migration: added column trades.%s", col)
+
+            signals_cols = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(signals)").fetchall()
+            }
+            for col, definition in [
+                ("bias", "TEXT"),
+            ]:
+                if col not in signals_cols:
+                    conn.execute(f"ALTER TABLE signals ADD COLUMN {col} {definition}")
+                    logger.info("Migration: added column signals.%s", col)
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
@@ -203,15 +214,16 @@ class Database:
         action: str,
         strength: float,
         timestamp: Optional[datetime] = None,
+        bias: Optional[str] = None,
     ) -> None:
         ts = (timestamp or datetime.now()).isoformat()
         with self._conn() as conn:
             conn.execute(
-                """INSERT INTO signals (timestamp, symbol, strategy, regime, action, strength)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (ts, symbol, strategy, regime, action, strength),
+                """INSERT INTO signals (timestamp, symbol, strategy, regime, action, strength, bias)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (ts, symbol, strategy, regime, action, strength, bias),
             )
-        logger.debug("Signal recorded action=%s strength=%.2f", action, strength)
+        logger.debug("Signal recorded action=%s strength=%.2f bias=%s", action, strength, bias)
 
     def get_all_trades(self) -> list[dict]:
         with self._conn() as conn:
