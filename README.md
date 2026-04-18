@@ -160,15 +160,17 @@ All configuration is read from environment variables (`.env` file or Docker env)
 
 | Variable | Default | Valid Range | Description |
 |---|---|---|---|
-| `BINANCE_API_KEY` | — | required (live) | Binance Testnet HMAC API key |
-| `BINANCE_API_SECRET` | — | required (live) | Binance Testnet API secret |
-| `BINANCE_TESTNET` | `true` | `true` / `false` | Use testnet endpoint |
+| `BINANCE_API_KEY` | — | required (live) | Binance HMAC API key |
+| `BINANCE_API_SECRET` | — | required (live) | Binance API secret |
+| `BINANCE_TESTNET` | `true` | `true` / `false` | Route requests to testnet endpoint |
 | `SYMBOL` | `BTCUSDT` | any Binance pair | Trading pair |
 | `TIMEFRAME` | `1h` | Binance intervals | Candle interval for strategy |
-| `INITIAL_CAPITAL` | `10000` | > 0 | Starting USDT capital (equity tracking) |
+| `INITIAL_CAPITAL` | `10000` | > 0 | Fallback balance when Binance API is unreachable |
 | `RISK_PER_TRADE` | `0.01` | 0.001 – 0.05 | Fraction of capital risked per trade |
-| `DB_PATH` | `trading_bot.db` | writable path | SQLite database location |
-| `LOG_LEVEL` | `INFO` | DEBUG / INFO / WARNING / ERROR | Python log level |
+| `DB_PATH` | `trading_bot.db` | writable path | SQLite database file location |
+| `LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` | Python log level |
+| `TZ` | `UTC` | any IANA timezone | Timezone for log timestamps (e.g. `Europe/Madrid`) |
+| `DECIMAL_SEPARATOR` | `dot` | `dot` / `comma` | Dashboard number format — `dot`: 1,234.56 · `comma`: 1.234,56 |
 
 `RISK_PER_TRADE` must be between 0 and 0.05 (5%). The bot exits on startup if this is violated
 (except in `--dry-run` mode, where validation is skipped).

@@ -503,10 +503,12 @@ as the `name` property matches the `StrategyName` enum value exactly.
 | `BINANCE_TESTNET` | `true` | `true` / `false` | Route to testnet endpoint |
 | `SYMBOL` | `BTCUSDT` | any valid Binance pair | Trading pair |
 | `TIMEFRAME` | `1h` | Binance kline intervals | Candle interval |
-| `INITIAL_CAPITAL` | `10000` | > 0 | Starting capital in USDT (for equity tracking) |
+| `INITIAL_CAPITAL` | `10000` | > 0 | Fallback balance when Binance API is unreachable |
 | `RISK_PER_TRADE` | `0.01` | 0.001 – 0.05 | Fraction of capital risked per trade (validated on startup) |
 | `DB_PATH` | `trading_bot.db` | any writable path | SQLite database file location |
 | `LOG_LEVEL` | `INFO` | DEBUG / INFO / WARNING / ERROR | Python logging level |
+| `TZ` | `UTC` | any IANA timezone | Timezone for log timestamps (e.g. `Europe/Madrid`) |
+| `DECIMAL_SEPARATOR` | `dot` | `dot` / `comma` | Dashboard number format — `dot`: 1,234.56 · `comma`: 1.234,56 |
 
 `RISK_PER_TRADE` validation: `settings.validate()` raises `ValueError` if outside (0, 0.05].
 Validation is skipped in `--dry-run` mode — the bot starts even with missing API keys.

@@ -69,10 +69,13 @@ def _topbar(db: Database) -> None:
 def render() -> None:
     db = get_db()
 
-    # Topbar + minimal config button
-    bar_col, cfg_col = st.columns([14, 1])
+    # Topbar + action buttons (export · config)
+    bar_col, exp_col, cfg_col = st.columns([13, 1, 1])
     with bar_col:
         _topbar(db)
+    with exp_col:
+        with st.popover("⬇"):
+            export_section(db)
     with cfg_col:
         with st.popover("⚙"):
             settings_section(db)
@@ -110,10 +113,6 @@ def render() -> None:
 
     # Strategy performance breakdown
     performance_section(db)
-    st.divider()
-
-    # Data export
-    export_section(db)
 
     st.markdown(
         "<div style='text-align:right;font-size:0.55rem;color:#1A1A1A;"
