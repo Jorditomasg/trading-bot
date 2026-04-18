@@ -71,7 +71,8 @@ Developer reference for this codebase. Read this before touching anything.
 | `main.py` | Entry point, CLI flags, scheduler, run_cycle loop |
 | `bot/config.py` | Settings dataclass, reads `.env` via python-dotenv |
 | `bot/constants.py` | All enums: ExitReason, TradeAction, OrderSide, StrategyName |
-| `bot/orchestrator.py` | Coordinates regime → strategy → risk → order dict |
+| `bot/orchestrator.py` | Coordinates regime → strategy → bias filter → risk → order dict |
+| `bot/bias/filter.py` | `BiasFilter` — EMA9/21 on 4h candles; returns BULLISH/BEARISH/NEUTRAL; injected into orchestrator as hard gate before signal execution |
 | `bot/regime/detector.py` | 3-level regime detection: ATR volatility → ADX → Hurst |
 | `bot/risk/manager.py` | Circuit breaker, position sizing, signal validation |
 | `bot/strategy/base.py` | Abstract BaseStrategy + Signal dataclass |
@@ -84,8 +85,8 @@ Developer reference for this codebase. Read this before touching anything.
 | `bot/database/db.py` | SQLite wrapper, DDL, migrations, all queries; `bot_config` KV store for Telegram config and pause state |
 | `bot/metrics.py` | Pure functions: Sharpe, max drawdown, profit factor, max loss streak |
 | `bot/exchange/binance_client.py` | Binance API client (testnet-aware) |
-| `bot/telegram_notifier.py` | `TelegramNotifier` — sends trade/circuit-breaker/lifecycle events; lazy DB config reads |
-| `bot/telegram_commands.py` | `TelegramCommandHandler` — daemon thread, long-polls Telegram, handles `/pause` `/resume` `/status` |
+| `bot/telegram_notifier.py` | `TelegramNotifier` — sends trade/circuit-breaker/lifecycle events; `register_commands()` registers bot menu via `setMyCommands`; lazy DB config reads |
+| `bot/telegram_commands.py` | `TelegramCommandHandler` — daemon thread, long-polls Telegram, handles `/pause` `/resume` `/status` `/report` |
 | `dashboard/app.py` | Streamlit app; `_topbar()` fragment (5s refresh) with live mode pill and settings popover; section order: KPIs → Live → [Equity | Drawdown + State] → Signals → Performance |
 | `dashboard/sections/open_position.py` | Regime badge + CSS flex timeline strip + open position; `drawdown_section` as separate `@st.fragment(run_every=10)` |
 | `dashboard/themes.py` | NothingOS palette + PLOTLY_LAYOUT definition |
@@ -282,6 +283,19 @@ calling `orchestrator.step()` and compares it AFTER. The Telegram notification i
 only when the value transitions from `None` to a timestamp — i.e., the first cycle that
 triggers the breaker. Subsequent cycles where the breaker is still active do NOT re-notify.
 
+### 14. `BiasFilter` is fail-closed — network errors block signals, not bypass them
+
+`BiasFilter.get_bias()` returns `Bias.NEUTRAL` in three situations: `df_4h is None`,
+fewer bars than `slow_period + 1`, or EMA gap below `neutral_threshold_pct` (0.1%).
+`NEUTRAL` blocks all directional signals — no BUY, no SELL, only HOLD passes.
+
+If the 4h `get_klines()` call raises an exception in `run_cycle()`, `df_4h` is set to
+`None` and passed to the orchestrator. The filter receives `None` → returns `NEUTRAL` →
+no trades that cycle. A network error **never silently disables** the bias filter.
+
+To disable the filter intentionally: `BiasFilterConfig(enabled=False)`. With `enabled=False`
+`get_bias()` returns `BULLISH` (sentinel) and `allows_signal()` always returns `True`.
+
 ### 13. `bot_paused` stops `run_cycle` but NOT `position_manager`
 
 When `db.get_bot_paused()` is True, `run_cycle()` returns immediately (no new signals,
@@ -336,7 +350,9 @@ Relevant `Database` methods:
 | `trade_opened(trade, mode)` | After `_execute_order()` writes an OPEN trade to DB |
 | `trade_closed(trade, pnl, exit_reason, mode)` | After `_execute_order()` writes a CLOSE trade to DB |
 | `circuit_breaker(drawdown, mode)` | On the cycle the breaker first triggers |
-| `status(balance, open_trade, mode)` | In response to `/status` command |
+| `status(balance, open_trade, mode, paused)` | In response to `/status` command; includes bot state (Running/Paused) |
+| `report(closed_trades, equity_curve, perf_by_strategy, balance, mode, initial_capital)` | In response to `/report` command; sends full performance summary (win rate, PnL, Sharpe, drawdown, profit factor, best strategy) |
+| `register_commands()` | Called once on bot startup; registers the 4 commands in the Telegram chat menu via `setMyCommands` |
 
 ### Mode tags
 
@@ -349,7 +365,8 @@ and `🔴 MAINNET` for live trading. Mode is read from `db.get_active_mode()`.
 |---|---|
 | `/pause` | Sets `bot_paused=True` in DB; sends `paused()` notification |
 | `/resume` | Sets `bot_paused=False` in DB; sends `resumed()` notification |
-| `/status` | Sends current balance + open position summary |
+| `/status` | Sends current balance, bot state (Running/Paused), and open position summary |
+| `/report` | Sends full historical performance: win rate, total PnL, profit factor, Sharpe, max drawdown, max loss streak, best strategy |
 
 The command handler reads token and chat_id from DB on every poll cycle — config changes
 take effect without restarting the bot.

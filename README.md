@@ -12,17 +12,19 @@ Regime-adaptive algorithmic trading bot for Binance (Testnet and Mainnet). Autom
 
 The bot runs on a 1-hour candle cycle. Each cycle it:
 
-1. Fetches the last 200 OHLCV candles from Binance
+1. Fetches the last 200 OHLCV candles (1h) and 150 candles (4h) from Binance
 2. Classifies the market as TRENDING, RANGING, or VOLATILE using a 3-level detection cascade
 3. Selects the best-fit strategy for the current regime (with live win-rate fallback logic)
-4. Generates a signal and validates it through a risk manager
-5. Opens or closes a position on Binance, writes results to SQLite
-6. Records an equity snapshot for the dashboard
+4. Generates a signal and filters it through the multi-timeframe BiasFilter (4h EMA9/21 alignment)
+5. Validates the signal through the risk manager
+6. Opens or closes a position on Binance, writes results to SQLite
+7. Records an equity snapshot for the dashboard
 
 **Key features:**
 
 - 3-level regime detection: ATR volatility spike → ADX → Hurst exponent (R/S analysis)
 - 3 strategies, each tuned to a different market condition
+- **Multi-timeframe BiasFilter**: EMA9/21 on 4h candles gates 1h signals — only trades in the direction of the higher-timeframe trend; fail-closed (network errors block signals, not bypass them)
 - Dynamic position sizing: risk a fixed % of capital per trade (default 1%)
 - Trailing stop-loss that activates after a configurable ATR distance
 - Circuit breaker: halts trading on >15% drawdown; auto-resets after 4 hours or recovery
@@ -31,7 +33,7 @@ The bot runs on a 1-hour candle cycle. Each cycle it:
 - Full dry-run mode: no exchange calls, but equity curve is still recorded
 - DEMO / MAINNET mode switch from the dashboard settings panel
 - Telegram notifications: trade open/close, circuit breaker trigger, bot start/stop — tagged with `🧪 DEMO` or `🔴 MAINNET`
-- Telegram commands: `/pause`, `/resume`, `/status` — control the bot from any Telegram chat
+- Telegram commands: `/pause`, `/resume`, `/status`, `/report` — control and monitor the bot from any Telegram chat
 
 ---
 
@@ -45,14 +47,15 @@ The bot runs on a 1-hour candle cycle. Each cycle it:
                   ┌────────────▼────────────┐
                   │     BinanceClient        │
                   │  200 OHLCV candles (1h)  │
+                  │  150 OHLCV candles (4h)  │
                   └────────────┬────────────┘
-                               │ pd.DataFrame
+                               │ df_1h + df_4h
                   ┌────────────▼────────────┐
                   │   StrategyOrchestrator   │
                   │                          │
                   │  ┌────────────────────┐  │
                   │  │  RegimeDetector    │  │
-                  │  │                    │  │
+                  │  │  (on df_1h)        │  │
                   │  │  L1: ATR spike?    │  │──► VOLATILE  → Breakout
                   │  │  L2: ADX >= 25?    │  │──► TRENDING  → EMA Crossover
                   │  │  L3: Hurst H?      │  │──► RANGING   → Mean Reversion
@@ -61,6 +64,14 @@ The bot runs on a 1-hour candle cycle. Each cycle it:
                   │  ┌────────────────────┐  │
                   │  │  Strategy          │  │
                   │  │  .generate_signal()│  │──► Signal(action, strength, SL, TP, ATR)
+                  │  └────────────────────┘  │
+                  │                          │
+                  │  ┌────────────────────┐  │
+                  │  │  BiasFilter        │  │
+                  │  │  (on df_4h)        │  │
+                  │  │  EMA9 > EMA21?     │  │──► BULLISH → only BUY passes
+                  │  │  EMA9 < EMA21?     │  │──► BEARISH → only SELL passes
+                  │  │  gap < 0.1%?       │  │──► NEUTRAL → no signal (fail-closed)
                   │  └────────────────────┘  │
                   │                          │
                   │  ┌────────────────────┐  │
@@ -78,7 +89,7 @@ The bot runs on a 1-hour candle cycle. Each cycle it:
                   ┌────────────▼────────────┐
                   │       SQLite DB          │
                   │  trades / equity /       │◄── equity snapshot every cycle
-                  │  signals tables          │
+                  │  signals (+ bias col)    │
                   └────────────┬────────────┘
                                │
                   ┌────────────▼────────────┐
@@ -234,7 +245,10 @@ Configuration is stored in the SQLite `bot_config` table and read on every notif
 |---|---|
 | `/pause` | Skip strategy cycles — SL/TP monitoring and Telegram polling continue |
 | `/resume` | Resume normal operation |
-| `/status` | Get current balance and open position summary |
+| `/status` | Current balance, bot state (Running/Paused), and open position summary |
+| `/report` | Full performance summary: win rate, PnL, profit factor, Sharpe, max drawdown, max loss streak, best strategy |
+
+Commands are registered in the Telegram chat menu automatically on bot startup (`setMyCommands`).
 
 All notifications include a mode tag (`🧪 DEMO` or `🔴 MAINNET`) so you always know which environment an alert is coming from.
 
@@ -264,9 +278,10 @@ Both the `bot` and `dashboard` services use the same image. No separate Dockerfi
 
 **Bot starts but no trades are opening**
 
-The circuit breaker may be active (drawdown > 15%). Check logs for `CIRCUIT BREAKER triggered`.
-It resets after 4 hours or when drawdown recovers. Also check that signal strength is reaching 0.4+
-— the signal log in the dashboard shows `STR` per signal.
+Two common causes:
+
+1. **Circuit breaker active** — drawdown > 15%. Check logs for `CIRCUIT BREAKER triggered`. Resets after 4 hours or on drawdown recovery.
+2. **BiasFilter blocking signals** — if the 4h EMA9/21 are too close (< 0.1% gap) or the 4h fetch is failing, the filter returns `NEUTRAL` and blocks all directional signals. Check logs for `BiasFilter blocked signal` or `Failed to fetch 4h klines`. Also check that signal strength is reaching 0.4+ in the dashboard signal log.
 
 **Dashboard shows "waiting for data..." on charts**
 
