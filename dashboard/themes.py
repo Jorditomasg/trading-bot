@@ -132,12 +132,20 @@ h2 { font-size: 0.85rem !important; letter-spacing: 0.18em; text-transform: uppe
 }
 
 /* ── Topbar action columns (⬇ ⚙ popovers) ──────────────── */
-[data-testid="column"]:has(> div > [data-testid="stPopover"]) {
+[data-testid="column"]:has([data-testid="stPopover"]) {
     max-width: 52px !important;
     min-width: 40px !important;
     flex: 0 0 52px !important;
     padding-left: 0 !important;
     padding-right: 2px !important;
+}
+[data-testid="column"]:has([data-testid="stPopover"]) button[kind="secondary"] {
+    width: 40px !important;
+    min-width: 40px !important;
+    max-width: 40px !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    justify-content: center !important;
 }
 
 /* ── Info box ────────────────────────────────────────────── */
