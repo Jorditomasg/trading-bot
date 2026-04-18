@@ -38,8 +38,10 @@ class Thresholds:
 # ─── Fragment refresh rates (seconds) ─────────────────────────────────────────
 class RefreshRates:
     TOPBAR      = 5
+    LIVE_PRICE  = 5
     KPI         = 10
     POSITION    = 10
+    DRAWDOWN    = 10
     CHARTS      = 30
     PERFORMANCE = 30
 
