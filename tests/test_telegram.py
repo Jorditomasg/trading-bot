@@ -22,10 +22,10 @@ def _notifier(token="tok", chat_id="123", enabled=True) -> TelegramNotifier:
 
 def _closed_trades(n_wins: int = 3, n_losses: int = 1) -> list[dict]:
     trades = []
-    for i in range(n_wins):
-        trades.append({"pnl": 100.0, "exit_price": 50000.0, "strategy": "EMA_CROSSOVER"})
-    for i in range(n_losses):
-        trades.append({"pnl": -50.0, "exit_price": 49000.0, "strategy": "EMA_CROSSOVER"})
+    for _ in range(n_wins):
+        trades.append({"pnl": 100.0, "exit_price": 50000.0, "strategy": "EMA_CROSSOVER", "side": "BUY"})
+    for _ in range(n_losses):
+        trades.append({"pnl": -50.0, "exit_price": 49000.0, "strategy": "EMA_CROSSOVER", "side": "SELL"})
     return trades
 
 
@@ -48,3 +48,33 @@ def _perf_by_strategy() -> list[dict]:
             "avg_pnl": 62.5,
         }
     ]
+
+
+# ── status() ──────────────────────────────────────────────────────────────────
+
+class TestStatus:
+    def test_status_running_no_position(self):
+        n = _notifier()
+        with patch.object(n, "_post") as mock_post:
+            n.status(10432.50, None, "TESTNET", paused=False)
+        text = mock_post.call_args[0][0]
+        assert "10,432.50" in text
+        assert "Running" in text
+        assert "No open position" in text
+
+    def test_status_paused(self):
+        n = _notifier()
+        with patch.object(n, "_post") as mock_post:
+            n.status(10000.0, None, "TESTNET", paused=True)
+        text = mock_post.call_args[0][0]
+        assert "Paused" in text
+
+    def test_status_with_open_position(self):
+        n = _notifier()
+        trade = {"side": "BUY", "entry_price": 50000.0, "stop_loss": 49000.0, "take_profit": 52000.0}
+        with patch.object(n, "_post") as mock_post:
+            n.status(10000.0, trade, "TESTNET", paused=False)
+        text = mock_post.call_args[0][0]
+        assert "50,000.00" in text
+        assert "49,000.00" in text
+        assert "52,000.00" in text

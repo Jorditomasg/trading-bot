@@ -95,7 +95,7 @@ class TelegramNotifier:
     def resumed(self) -> None:
         self._post("▶️ <b>BOT RESUMED</b>  (via Telegram)")
 
-    def status(self, balance: float, open_trade: dict | None, mode: str) -> None:
+    def status(self, balance: float, open_trade: dict | None, mode: str, *, paused: bool = False) -> None:
         if open_trade:
             pos = (
                 f"{open_trade['side']} @ <code>${open_trade['entry_price']:,.2f}</code>\n"
@@ -104,9 +104,11 @@ class TelegramNotifier:
             )
         else:
             pos = "No open position"
+        bot_state = "⏸ Paused" if paused else "▶️ Running"
         self._post(
             f"📊 <b>STATUS</b>  [{self._mode_tag(mode)}]\n"
             f"Balance: <code>${balance:,.2f}</code>\n"
+            f"Bot:     <code>{bot_state}</code>\n"
             f"{pos}"
         )
 
