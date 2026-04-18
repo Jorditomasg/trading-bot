@@ -91,6 +91,17 @@ class TelegramCommandHandler:
             mode       = self._db.get_active_mode()
             self._notifier.status(balance, open_trade, mode, paused=paused)
 
+        elif command == "/report":
+            from bot.config import settings
+            trades  = self._db.get_all_trades()
+            closed  = [t for t in trades if t.get("exit_price") is not None]
+            curve   = self._db.get_equity_curve()
+            perf    = self._db.get_performance_by_strategy()
+            balance = curve[-1]["balance"] if curve else 0.0
+            mode    = self._db.get_active_mode()
+            self._notifier.report(closed, curve, perf, balance, mode, settings.initial_capital)
+            logger.info("Report sent via Telegram command")
+
     def _poll_loop(self) -> None:
         while not self._stop.is_set():
             token, chat_id, enabled = self._cfg()

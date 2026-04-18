@@ -173,3 +173,56 @@ class TestReport:
             n.report([], [], [], 10000.0, "MAINNET", 10000.0)
         text = mock_post.call_args[0][0]
         assert "MAINNET" in text
+
+
+# ── TelegramCommandHandler ────────────────────────────────────────────────────
+
+def _handler() -> tuple[TelegramCommandHandler, MagicMock, MagicMock]:
+    """Return (handler, mock_db, mock_notifier)."""
+    db       = MagicMock()
+    notifier = MagicMock()
+    db.get_telegram_config.return_value = {"token": "tok", "chat_id": "123", "enabled": True}
+    handler  = TelegramCommandHandler(db, notifier)
+    return handler, db, notifier
+
+
+def _update(text: str, chat_id: str = "123") -> dict:
+    return {
+        "update_id": 1,
+        "message": {"chat": {"id": chat_id}, "text": text},
+    }
+
+
+class TestCommandHandler:
+    def test_report_calls_notifier_report(self):
+        h, db, notifier = _handler()
+        db.get_all_trades.return_value           = []
+        db.get_equity_curve.return_value         = []
+        db.get_performance_by_strategy.return_value = []
+        db.get_active_mode.return_value          = "TESTNET"
+        h._handle(_update("/report"), "123")
+        notifier.report.assert_called_once()
+
+    def test_report_filters_closed_trades(self):
+        h, db, notifier = _handler()
+        db.get_all_trades.return_value = [
+            {"pnl": 100.0, "exit_price": 50000.0},   # closed
+            {"pnl": None,  "exit_price": None},       # open — must be excluded
+        ]
+        db.get_equity_curve.return_value            = []
+        db.get_performance_by_strategy.return_value = []
+        db.get_active_mode.return_value             = "TESTNET"
+        h._handle(_update("/report"), "123")
+        closed_arg = notifier.report.call_args[0][0]
+        assert len(closed_arg) == 1
+
+    def test_unknown_chat_id_ignored(self):
+        h, db, notifier = _handler()
+        h._handle(_update("/report", chat_id="999"), "123")
+        notifier.report.assert_not_called()
+
+    def test_pause_still_works(self):
+        h, db, notifier = _handler()
+        h._handle(_update("/pause"), "123")
+        db.set_bot_paused.assert_called_once_with(True)
+        notifier.paused.assert_called_once()
