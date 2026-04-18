@@ -19,9 +19,10 @@ class TelegramCommandHandler:
     """Background thread that receives bot commands via Telegram long-polling.
 
     Supported commands:
-      /pause  — set bot_paused=True in DB (run_cycle will skip execution)
-      /resume — set bot_paused=False
-      /status — reply with current balance and open position
+      /pause   — set bot_paused=True in DB (run_cycle will skip execution)
+      /resume  — set bot_paused=False
+      /status  — reply with current balance, pause state, and open position
+      /report  — reply with full historical performance summary
     """
 
     def __init__(self, db: Database, notifier: TelegramNotifier) -> None:
@@ -87,8 +88,20 @@ class TelegramCommandHandler:
             curve      = self._db.get_equity_curve()
             balance    = curve[-1]["balance"] if curve else 0.0
             open_trade = self._db.get_open_trade()
+            paused     = self._db.get_bot_paused()
             mode       = self._db.get_active_mode()
-            self._notifier.status(balance, open_trade, mode)
+            self._notifier.status(balance, open_trade, mode, paused=paused)
+
+        elif command == "/report":
+            from bot.config import settings
+            trades  = self._db.get_all_trades()
+            closed  = [t for t in trades if t.get("exit_price") is not None]
+            curve   = self._db.get_equity_curve()
+            perf    = self._db.get_performance_by_strategy()
+            balance = curve[-1]["balance"] if curve else 0.0
+            mode    = self._db.get_active_mode()
+            self._notifier.report(closed, curve, perf, balance, mode, settings.initial_capital)
+            logger.info("Report sent via Telegram command")
 
     def _poll_loop(self) -> None:
         while not self._stop.is_set():

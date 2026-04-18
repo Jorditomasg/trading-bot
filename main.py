@@ -346,6 +346,7 @@ def main() -> None:
         settings.symbol, settings.timeframe, args.dry_run,
     )
     notifier.bot_started(args.dry_run, db.get_active_mode())
+    notifier.register_commands()
 
     # Run immediately on startup, then schedule hourly
     run_cycle(orchestrator, db, dry_run=args.dry_run, adaptor=adaptor, notifier=notifier)
