@@ -109,33 +109,65 @@ def settings_section(db: Database) -> None:
     st.markdown("---")
     st.markdown("### Telegram")
 
-    tg_cfg     = db.get_telegram_config()
-    tg_enabled = st.checkbox("Enable notifications", value=tg_cfg["enabled"], key="tg_enabled")
-    tg_token   = st.text_input(
-        "Bot token", value=tg_cfg["token"], type="password", key="tg_token",
-        placeholder="123456789:ABCdef...",
-    )
-    tg_chat_id = st.text_input(
-        "Chat ID", value=tg_cfg["chat_id"], key="tg_chat_id",
-        placeholder="-100123456789",
-        help="Your personal or group chat ID. Use @userinfobot to find it.",
-    )
+    tg_cfg      = db.get_telegram_config()
+    has_tg_token = bool(tg_cfg["token"])
+    tg_enabled  = st.checkbox("Enable notifications", value=tg_cfg["enabled"], key="tg_enabled")
 
-    col_save, col_test = st.columns(2)
-    with col_save:
-        if st.button("Save", key="tg_save", use_container_width=True):
-            db.save_telegram_config(tg_token.strip(), tg_chat_id.strip(), tg_enabled)
-            st.success("Saved.")
+    if has_tg_token and not st.session_state.get("show_tg_form", False):
+        st.markdown(
+            "<span style='font-size:0.75rem;color:#555;letter-spacing:0.1em'>"
+            "Bot token &nbsp; <code>••••••••••••••••</code></span>",
+            unsafe_allow_html=True,
+        )
+        st.text_input(
+            "Chat ID", value=tg_cfg["chat_id"], key="tg_chat_id_display",
+            disabled=True,
+        )
+        col_change, col_test = st.columns(2)
+        with col_change:
+            if st.button("Change credentials", key="tg_change", use_container_width=True):
+                st.session_state["show_tg_form"] = True
+                st.rerun()
+        with col_test:
+            if st.button("Test", key="tg_test", use_container_width=True):
+                with st.spinner("Sending..."):
+                    ok, msg = TelegramNotifier.test_send(tg_cfg["token"], tg_cfg["chat_id"])
+                if ok:
+                    st.success(msg)
+                else:
+                    st.error(msg)
 
-    with col_test:
-        test_disabled = not (tg_token.strip() and tg_chat_id.strip())
-        if st.button("Test", key="tg_test", disabled=test_disabled, use_container_width=True):
-            with st.spinner("Sending..."):
-                ok, msg = TelegramNotifier.test_send(tg_token.strip(), tg_chat_id.strip())
-            if ok:
-                st.success(msg)
-            else:
-                st.error(msg)
+        if st.session_state.get("tg_enabled_changed") != tg_enabled:
+            st.session_state["tg_enabled_changed"] = tg_enabled
+            db.save_telegram_config(tg_cfg["token"], tg_cfg["chat_id"], tg_enabled)
+    else:
+        tg_token = st.text_input(
+            "Bot token", type="password", key="tg_token",
+            placeholder="123456789:ABCdef...",
+        )
+        tg_chat_id = st.text_input(
+            "Chat ID", key="tg_chat_id",
+            placeholder="-100123456789",
+            help="Your personal or group chat ID. Use @userinfobot to find it.",
+        )
+
+        col_save, col_test = st.columns(2)
+        with col_save:
+            if st.button("Save", key="tg_save", use_container_width=True):
+                db.save_telegram_config(tg_token.strip(), tg_chat_id.strip(), tg_enabled)
+                st.session_state.pop("show_tg_form", None)
+                st.success("Saved.")
+                st.rerun()
+
+        with col_test:
+            test_disabled = not (tg_token.strip() and tg_chat_id.strip())
+            if st.button("Test", key="tg_test", disabled=test_disabled, use_container_width=True):
+                with st.spinner("Sending..."):
+                    ok, msg = TelegramNotifier.test_send(tg_token.strip(), tg_chat_id.strip())
+                if ok:
+                    st.success(msg)
+                else:
+                    st.error(msg)
 
     active_mode_label = db.get_active_mode()
     st.markdown(
