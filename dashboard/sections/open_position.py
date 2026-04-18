@@ -37,11 +37,11 @@ def _render_regime_timeline(signals: list[dict]) -> None:
             showlegend=False,
             hovertemplate=f"{regime} ({count})<extra></extra>",
         ))
+    layout = {**PLOTLY_LAYOUT, "margin": dict(l=0, r=0, t=0, b=0)}
     fig.update_layout(
-        **PLOTLY_LAYOUT,
+        **layout,
         height=30,
         barmode="stack",
-        margin=dict(l=0, r=0, t=0, b=0),
         xaxis=dict(visible=False),
         yaxis=dict(visible=False),
     )
