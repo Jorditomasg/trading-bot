@@ -94,8 +94,8 @@ def performance_section(db: Database) -> None:
 
         st.markdown("## Regime Performance")
         if regime_perf:
-            df_reg     = pd.DataFrame(regime_perf)
-                fig_reg = go.Figure(go.Bar(
+            df_reg  = pd.DataFrame(regime_perf)
+            fig_reg = go.Figure(go.Bar(
                 x=df_reg["win_rate"],
                 y=df_reg["regime"],
                 orientation="h",
