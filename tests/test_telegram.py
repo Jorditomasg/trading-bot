@@ -95,3 +95,28 @@ class TestStatusIntegration:
         update = {"update_id": 1, "message": {"chat": {"id": "123"}, "text": "/status"}}
         handler._handle(update, "123")
         notifier.status.assert_called_once_with(10000.0, None, "TESTNET", paused=True)
+
+
+# ── register_commands() ───────────────────────────────────────────────────────
+
+class TestRegisterCommands:
+    def test_calls_setMyCommands_with_all_four_commands(self):
+        n = _notifier()
+        with patch("requests.post") as mock_post:
+            mock_post.return_value.raise_for_status = MagicMock()
+            n.register_commands()
+        assert mock_post.called
+        payload = mock_post.call_args[1]["json"]
+        commands = {c["command"] for c in payload["commands"]}
+        assert commands == {"status", "report", "pause", "resume"}
+
+    def test_no_call_when_token_missing(self):
+        n = _notifier(token="")
+        with patch("requests.post") as mock_post:
+            n.register_commands()
+        mock_post.assert_not_called()
+
+    def test_silently_ignores_http_error(self):
+        n = _notifier()
+        with patch("requests.post", side_effect=Exception("network error")):
+            n.register_commands()  # must not raise

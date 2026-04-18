@@ -44,6 +44,30 @@ class TelegramNotifier:
     def _mode_tag(mode: str) -> str:
         return "🔴 MAINNET" if mode == "MAINNET" else "🧪 DEMO"
 
+    # ── Setup ─────────────────────────────────────────────────────────────────
+
+    def register_commands(self) -> None:
+        """Register bot commands with Telegram so they appear in the chat UI menu."""
+        token, _, _ = self._cfg()
+        if not token:
+            return
+        commands = [
+            {"command": "status", "description": "Balance actual y posición abierta"},
+            {"command": "report", "description": "Resumen histórico completo"},
+            {"command": "pause",  "description": "Pausar el bot (no nuevas entradas)"},
+            {"command": "resume", "description": "Reanudar el bot"},
+        ]
+        try:
+            resp = requests.post(
+                _API.format(token=token, method="setMyCommands"),
+                json={"commands": commands},
+                timeout=5,
+            )
+            resp.raise_for_status()
+            logger.info("Telegram commands registered")
+        except Exception as exc:
+            logger.warning("setMyCommands failed: %s", exc)
+
     # ── Trade events ──────────────────────────────────────────────────────────
 
     def trade_opened(self, trade: dict, mode: str) -> None:
