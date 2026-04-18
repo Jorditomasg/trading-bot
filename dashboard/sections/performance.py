@@ -7,6 +7,7 @@ import streamlit as st
 from bot.database.db import Database
 from bot.metrics import profit_factor, max_consecutive_losses
 from dashboard.themes import NothingOS
+from dashboard.utils import fmt, parse_fmt
 
 PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
 
@@ -87,8 +88,8 @@ def performance_section(db: Database) -> None:
         r1, r2 = st.columns(2)
         r1.metric("Profit Factor",   f"{pf:.2f}" if pf != float("inf") else "∞")
         r2.metric("Max Loss Streak", str(max_streak))
-        r1.metric("Avg Win",         f"${avg_win:+.2f}")
-        r2.metric("Avg Loss",        f"${avg_loss:+.2f}")
+        r1.metric("Avg Win",         f"${fmt(avg_win, '+.2f')}")
+        r2.metric("Avg Loss",        f"${fmt(avg_loss, '+.2f')}")
 
         st.markdown("## Regime Performance")
         if regime_perf:
@@ -126,18 +127,17 @@ def performance_section(db: Database) -> None:
                 "DATE":     (t["entry_time"] or "")[:19].replace("T", " "),
                 "SIDE":     t["side"],
                 "STRATEGY": t["strategy"],
-                "ENTRY":    f"{t['entry_price']:,.2f}",
-                "EXIT":     f"{t['exit_price']:,.2f}" if t.get("exit_price") else "—",
-                "PNL $":    f"{pnl:+.4f}",
-                "PNL %":    f"{pnl_pct:+.2f}%",
+                "ENTRY":    fmt(t["entry_price"], ",.2f"),
+                "EXIT":     fmt(t["exit_price"], ",.2f") if t.get("exit_price") else "—",
+                "PNL $":    fmt(pnl, "+.4f"),
+                "PNL %":    f"{fmt(pnl_pct, '+.2f')}%",
                 "REASON":   t.get("exit_reason") or "—",
             })
         df_t = pd.DataFrame(rows)
 
         def _style_row(val: str):
             try:
-                n = float(val.replace("+", "").replace("%", ""))
-                return f"color: {'#F5F5F5' if n >= 0 else '#FF0000'}; font-weight: 700"
+                return f"color: {'#F5F5F5' if parse_fmt(val) >= 0 else '#FF0000'}; font-weight: 700"
             except ValueError:
                 return ""
 

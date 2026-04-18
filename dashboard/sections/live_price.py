@@ -8,6 +8,7 @@ from bot.config import settings
 from bot.database.db import Database
 from bot.exchange.binance_client import BinanceClient
 from dashboard.themes import NothingOS
+from dashboard.utils import fmt
 
 PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
 
@@ -75,7 +76,7 @@ def live_price_section(db: Database) -> None:
     col_live, col_chart = st.columns([1, 3])
 
     with col_live:
-        st.metric("BTC/USDT LIVE", f"${live_price:,.2f}")
+        st.metric("BTC/USDT LIVE", f"${fmt(live_price)}")
         if open_trade:
             entry    = open_trade["entry_price"]
             qty      = open_trade["quantity"]
@@ -85,8 +86,8 @@ def live_price_section(db: Database) -> None:
             upnl_pct = sign * (live_price - entry) / entry * 100
             st.metric(
                 "Unrealized P&L",
-                f"${upnl:+.4f}",
-                delta=f"{upnl_pct:+.2f}%",
+                f"${fmt(upnl, '+.4f')}",
+                delta=f"{fmt(upnl_pct, '+.2f')}%",
             )
 
     with col_chart:
@@ -140,7 +141,7 @@ def live_price_section(db: Database) -> None:
             line_dash="dash",
             line_color="#888",
             line_width=1,
-            annotation_text=f"${live_price:,.0f}",
+            annotation_text=f"${fmt(live_price, ',.0f')}",
             annotation_position="right",
         )
         fig.update_layout(**PLOTLY_LAYOUT, height=200, showlegend=False)

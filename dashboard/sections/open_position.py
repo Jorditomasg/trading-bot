@@ -5,7 +5,7 @@ import streamlit as st
 
 from bot.database.db import Database
 from dashboard.themes import NothingOS
-from dashboard.utils import _regime_badge
+from dashboard.utils import _regime_badge, fmt
 
 PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
 
@@ -115,9 +115,9 @@ def open_position_section(db: Database) -> None:
                 unsafe_allow_html=True,
             )
             c1, c2, c3 = st.columns(3)
-            c1.metric("Entry", f"${entry:,.0f}")
-            c2.metric("SL",    f"${sl:,.0f}")
-            c3.metric("TP",    f"${tp:,.0f}")
+            c1.metric("Entry", f"${fmt(entry, ',.0f')}")
+            c2.metric("SL",    f"${fmt(sl, ',.0f')}")
+            c3.metric("TP",    f"${fmt(tp, ',.0f')}")
             st.caption(f"{open_trade['strategy']} · {open_trade['regime']}")
         else:
             st.markdown(
