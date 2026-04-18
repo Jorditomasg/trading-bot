@@ -1,7 +1,7 @@
 python-binance==1.0.19
 pandas==2.2.2
 numpy==1.26.4
-streamlit==1.35.0
+streamlit==1.37.0
 plotly==5.22.0
 streamlit-autorefresh==1.0.1
 python-dotenv==1.0.1
