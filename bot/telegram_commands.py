@@ -19,9 +19,10 @@ class TelegramCommandHandler:
     """Background thread that receives bot commands via Telegram long-polling.
 
     Supported commands:
-      /pause  — set bot_paused=True in DB (run_cycle will skip execution)
-      /resume — set bot_paused=False
-      /status — reply with current balance and open position
+      /pause   — set bot_paused=True in DB (run_cycle will skip execution)
+      /resume  — set bot_paused=False
+      /status  — reply with current balance, pause state, and open position
+      /report  — reply with full historical performance summary
     """
 
     def __init__(self, db: Database, notifier: TelegramNotifier) -> None:

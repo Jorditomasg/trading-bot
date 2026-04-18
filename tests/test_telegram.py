@@ -196,12 +196,15 @@ def _update(text: str, chat_id: str = "123") -> dict:
 class TestCommandHandler:
     def test_report_calls_notifier_report(self):
         h, db, notifier = _handler()
-        db.get_all_trades.return_value           = []
-        db.get_equity_curve.return_value         = []
+        db.get_all_trades.return_value              = []
+        db.get_equity_curve.return_value            = []
         db.get_performance_by_strategy.return_value = []
-        db.get_active_mode.return_value          = "TESTNET"
+        db.get_active_mode.return_value             = "TESTNET"
         h._handle(_update("/report"), "123")
         notifier.report.assert_called_once()
+        args = notifier.report.call_args[0]
+        assert len(args) == 6                    # all 6 positional args passed
+        assert isinstance(args[5], float)        # initial_capital is a float
 
     def test_report_filters_closed_trades(self):
         h, db, notifier = _handler()
@@ -226,3 +229,14 @@ class TestCommandHandler:
         h._handle(_update("/pause"), "123")
         db.set_bot_paused.assert_called_once_with(True)
         notifier.paused.assert_called_once()
+
+    def test_status_passes_paused_flag(self):
+        h, db, notifier = _handler()
+        db.get_equity_curve.return_value  = [{"balance": 10000.0}]
+        db.get_open_trade.return_value    = None
+        db.get_bot_paused.return_value    = True
+        db.get_active_mode.return_value   = "TESTNET"
+        h._handle(_update("/status"), "123")
+        notifier.status.assert_called_once()
+        _, kwargs = notifier.status.call_args
+        assert kwargs.get("paused") is True
