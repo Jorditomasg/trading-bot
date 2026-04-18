@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 
 import requests
 
+from bot.metrics import sharpe_ratio, max_drawdown, profit_factor, max_consecutive_losses
+
 if TYPE_CHECKING:
     from bot.database.db import Database
 
@@ -145,8 +147,6 @@ class TelegramNotifier:
         mode: str,
         initial_capital: float,
     ) -> None:
-        from bot.metrics import sharpe_ratio, max_drawdown, profit_factor, max_consecutive_losses
-
         if not closed_trades:
             self._post(
                 f"📈 <b>REPORT</b>  [{self._mode_tag(mode)}]\n"

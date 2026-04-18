@@ -144,6 +144,10 @@ class TestReport:
         assert "75.0" in text or "75%" in text      # win rate
         assert "EMA_CROSSOVER" in text              # best strategy
         assert "10,350.00" in text                  # balance
+        assert "Sharpe" in text                     # sharpe ratio label
+        assert "drawdown" in text.lower()           # max drawdown label
+        assert "streak" in text.lower()             # max loss streak label
+        assert "Profit" in text                     # profit factor label
 
     def test_win_rate_calculation(self):
         n = _notifier()
