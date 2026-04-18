@@ -14,7 +14,7 @@ import schedule
 
 from bot.adaptive.adaptor import ParameterAdaptor
 from bot.config import settings
-from bot.constants import StrategyName
+from bot.constants import ExitReason, StrategyName, TradeAction
 from bot.database.db import Database
 from bot.exchange.binance_client import BinanceClient
 from bot.orchestrator import StrategyOrchestrator
@@ -210,6 +210,63 @@ def _execute_order(client: BinanceClient, db: Database, order: dict) -> None:
             logger.error("Failed to close position: %s", exc)
 
 
+def position_manager(db: Database, dry_run: bool) -> None:
+    """Check SL/TP on open position using live WebSocket price. Runs every 60s."""
+    trade = db.get_open_trade()
+    if trade is None:
+        return
+
+    tick = db.get_live_tick(settings.symbol)
+    if tick is None:
+        logger.debug("position_manager: no live tick — skipping")
+        return
+
+    price       = tick["price"]
+    side        = trade["side"]
+    trailing_sl = trade.get("trailing_sl")
+    stop_loss   = trade["stop_loss"]
+    take_profit = trade["take_profit"]
+    trade_id    = trade["id"]
+
+    reason: str | None = None
+
+    if trailing_sl is not None:
+        if (side == "BUY" and price <= trailing_sl) or \
+           (side == "SELL" and price >= trailing_sl):
+            reason = ExitReason.TRAILING_STOP
+
+    if reason is None:
+        if (side == "BUY" and price <= stop_loss) or \
+           (side == "SELL" and price >= stop_loss):
+            reason = ExitReason.STOP_LOSS
+        elif (side == "BUY" and price >= take_profit) or \
+             (side == "SELL" and price <= take_profit):
+            reason = ExitReason.TAKE_PROFIT
+
+    if reason is None:
+        return
+
+    logger.info(
+        "position_manager: closing trade id=%d reason=%s price=%.2f",
+        trade_id, reason, price,
+    )
+
+    if dry_run:
+        logger.info("[DRY-RUN] position_manager would close trade id=%d", trade_id)
+        return
+
+    client     = _build_client(db)
+    close_side = "SELL" if side == "BUY" else "BUY"
+    _execute_order(client, db, {
+        "action":      TradeAction.CLOSE,
+        "side":        close_side,
+        "trade_id":    trade_id,
+        "quantity":    trade["quantity"],
+        "exit_price":  price,
+        "exit_reason": reason,
+    })
+
+
 def main() -> None:
     args = parse_args()
     setup_logging(settings.log_level)
@@ -258,6 +315,7 @@ def main() -> None:
     schedule.every().hour.at(":00").do(
         run_cycle, orchestrator, db, args.dry_run, adaptor
     )
+    schedule.every(60).seconds.do(position_manager, db, args.dry_run)
 
     while not _shutdown:
         schedule.run_pending()

@@ -144,8 +144,6 @@ class StrategyOrchestrator:
     ) -> Optional[dict]:
         current_price = float(df["close"].iloc[-1])
         side          = trade["side"]
-        static_sl     = trade["stop_loss"]
-        static_tp     = trade["take_profit"]
         trade_id      = trade["id"]
         entry_price   = trade["entry_price"]
         trade_atr     = trade.get("atr")
@@ -179,31 +177,14 @@ class StrategyOrchestrator:
                             trailing_sl, current_price,
                         )
 
-        # ── Exit evaluation (trailing takes priority) ────────────────────────
-        reason: Optional[str] = None
-
-        if trailing_sl is not None:
-            if side == "BUY"  and current_price <= trailing_sl:
-                reason = ExitReason.TRAILING_STOP
-            elif side == "SELL" and current_price >= trailing_sl:
-                reason = ExitReason.TRAILING_STOP
-
-        if reason is None:
-            if (side == "BUY"  and current_price <= static_sl) or \
-               (side == "SELL" and current_price >= static_sl):
-                reason = ExitReason.STOP_LOSS
-            elif (side == "BUY"  and current_price >= static_tp) or \
-                 (side == "SELL" and current_price <= static_tp):
-                reason = ExitReason.TAKE_PROFIT
-
         # Opposite signal also closes position
-        if reason is None:
-            opposite = (
-                (side == "BUY"  and signal.action == "SELL") or
-                (side == "SELL" and signal.action == "BUY")
-            ) and signal.strength >= 0.5
-            if opposite:
-                reason = ExitReason.SIGNAL_REVERSAL
+        reason: Optional[str] = None
+        opposite = (
+            (side == "BUY"  and signal.action == "SELL") or
+            (side == "SELL" and signal.action == "BUY")
+        ) and signal.strength >= 0.5
+        if opposite:
+            reason = ExitReason.SIGNAL_REVERSAL
 
         if reason is None:
             return None
