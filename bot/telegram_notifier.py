@@ -136,6 +136,57 @@ class TelegramNotifier:
             f"{pos}"
         )
 
+    def report(
+        self,
+        closed_trades: list[dict],
+        equity_curve: list[dict],
+        perf_by_strategy: list[dict],
+        balance: float,
+        mode: str,
+        initial_capital: float,
+    ) -> None:
+        from bot.metrics import sharpe_ratio, max_drawdown, profit_factor, max_consecutive_losses
+
+        if not closed_trades:
+            self._post(
+                f"📈 <b>REPORT</b>  [{self._mode_tag(mode)}]\n"
+                f"Balance: <code>${balance:,.2f}</code>\n"
+                f"No closed trades yet."
+            )
+            return
+
+        total     = len(closed_trades)
+        wins      = sum(1 for t in closed_trades if t.get("pnl", 0) > 0)
+        win_rate  = wins / total * 100
+        total_pnl = sum(t.get("pnl", 0) for t in closed_trades)
+        pnl_pct   = (total_pnl / initial_capital * 100) if initial_capital > 0 else 0.0
+        sign      = "+" if total_pnl >= 0 else ""
+
+        pf     = profit_factor(closed_trades)
+        sr     = sharpe_ratio(equity_curve)
+        md     = max_drawdown(equity_curve) * 100
+        streak = max_consecutive_losses(closed_trades)
+
+        best = max(perf_by_strategy, key=lambda x: x["win_rate"]) if perf_by_strategy else None
+        best_line = (
+            f"\nBest strategy: <code>{best['strategy']}</code>  "
+            f"({best['win_rate']:.1f}% WR, {best['total_trades']} trades)"
+            if best else ""
+        )
+        pf_str = f"{pf:.2f}" if pf != float("inf") else "∞"
+
+        self._post(
+            f"📈 <b>REPORT</b>  [{self._mode_tag(mode)}]\n\n"
+            f"Balance:         <code>${balance:,.2f}  ({sign}{pnl_pct:.2f}%)</code>\n"
+            f"Trades:          <code>{total} closed  |  Win rate: {win_rate:.1f}%</code>\n"
+            f"PnL total:       <code>{sign}${total_pnl:.2f}</code>\n"
+            f"Profit factor:   <code>{pf_str}</code>\n"
+            f"Sharpe ratio:    <code>{sr:.2f}</code>\n"
+            f"Max drawdown:    <code>{md:.2f}%</code>\n"
+            f"Max loss streak: <code>{streak}</code>"
+            f"{best_line}"
+        )
+
     # ── Static test helper (used by dashboard) ────────────────────────────────
 
     @staticmethod

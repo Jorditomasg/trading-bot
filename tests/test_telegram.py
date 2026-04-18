@@ -120,3 +120,52 @@ class TestRegisterCommands:
         n = _notifier()
         with patch("requests.post", side_effect=Exception("network error")):
             n.register_commands()  # must not raise
+
+
+# ── report() ──────────────────────────────────────────────────────────────────
+
+class TestReport:
+    def test_no_trades_shows_no_data_message(self):
+        n = _notifier()
+        with patch.object(n, "_post") as mock_post:
+            n.report([], [], [], 10000.0, "TESTNET", 10000.0)
+        text = mock_post.call_args[0][0]
+        assert "REPORT" in text
+        assert "no" in text.lower()
+
+    def test_with_trades_shows_all_metrics(self):
+        n = _notifier()
+        closed = _closed_trades(n_wins=3, n_losses=1)
+        curve  = _equity_curve(start=10000.0, end=10350.0)
+        perf   = _perf_by_strategy()
+        with patch.object(n, "_post") as mock_post:
+            n.report(closed, curve, perf, 10350.0, "TESTNET", 10000.0)
+        text = mock_post.call_args[0][0]
+        assert "75.0" in text or "75%" in text      # win rate
+        assert "EMA_CROSSOVER" in text              # best strategy
+        assert "10,350.00" in text                  # balance
+
+    def test_win_rate_calculation(self):
+        n = _notifier()
+        closed = _closed_trades(n_wins=1, n_losses=3)
+        curve  = _equity_curve()
+        with patch.object(n, "_post") as mock_post:
+            n.report(closed, curve, [], 9850.0, "TESTNET", 10000.0)
+        text = mock_post.call_args[0][0]
+        assert "25.0" in text      # 1/4 = 25% win rate
+
+    def test_positive_pnl_shows_plus_sign(self):
+        n = _notifier()
+        closed = _closed_trades(n_wins=2, n_losses=0)
+        curve  = _equity_curve(start=10000.0, end=10200.0)
+        with patch.object(n, "_post") as mock_post:
+            n.report(closed, curve, [], 10200.0, "TESTNET", 10000.0)
+        text = mock_post.call_args[0][0]
+        assert "+" in text
+
+    def test_mainnet_tag_present(self):
+        n = _notifier()
+        with patch.object(n, "_post") as mock_post:
+            n.report([], [], [], 10000.0, "MAINNET", 10000.0)
+        text = mock_post.call_args[0][0]
+        assert "MAINNET" in text
