@@ -14,6 +14,7 @@ from dashboard.sections.open_position import drawdown_section, open_position_sec
 from dashboard.sections.performance import performance_section
 from dashboard.sections.settings import settings_section
 from dashboard.sections.signal_log import signal_log_section
+from dashboard.constants import RefreshRates
 from dashboard.themes import NothingOS
 from dashboard.utils import _regime_badge
 
@@ -38,7 +39,7 @@ def get_db() -> Database:
 
 
 # ─── Topbar fragment (updates clock + mode every 5s) ──────────────────────────
-@st.fragment(run_every=5)
+@st.fragment(run_every=RefreshRates.TOPBAR)
 def _topbar(db: Database) -> None:
     recent_signals = db.get_recent_signals(1)
     last_regime    = recent_signals[0]["regime"] if recent_signals else "RANGING"

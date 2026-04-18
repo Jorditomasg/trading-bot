@@ -4,10 +4,11 @@ import streamlit as st
 
 from bot.database.db import Database
 from bot.metrics import sharpe_ratio, max_drawdown
+from dashboard.constants import RefreshRates
 from dashboard.utils import fmt
 
 
-@st.fragment(run_every=10)
+@st.fragment(run_every=RefreshRates.KPI)
 def kpi_row_section(db: Database) -> None:
     equity_curve = db.get_equity_curve()
     trades       = db.get_all_trades()

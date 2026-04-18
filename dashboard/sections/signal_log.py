@@ -4,9 +4,10 @@ import pandas as pd
 import streamlit as st
 
 from bot.database.db import Database
+from dashboard.constants import RED, WHITE, MUTED, CAPTION, RefreshRates
 
 
-@st.fragment(run_every=10)
+@st.fragment(run_every=RefreshRates.POSITION)
 def signal_log_section(db: Database) -> None:
     recent_signals = db.get_recent_signals(20)
 
@@ -26,14 +27,14 @@ def signal_log_section(db: Database) -> None:
     ])
 
     def _style_action(val: str):
-        if val == "BUY":  return "color: #F5F5F5; font-weight: 700"
-        if val == "SELL": return "color: #FF0000; font-weight: 700"
-        return "color: #333"
+        if val == "BUY":  return f"color: {WHITE}; font-weight: 700"
+        if val == "SELL": return f"color: {RED}; font-weight: 700"
+        return f"color: {CAPTION}"
 
     def _style_regime(val: str):
-        if val == "VOLATILE": return "color: #FF0000"
-        if val == "TRENDING": return "color: #F5F5F5"
-        return "color: #555"
+        if val == "VOLATILE": return f"color: {RED}"
+        if val == "TRENDING": return f"color: {WHITE}"
+        return f"color: {MUTED}"
 
     styled_s = (
         df_s.style

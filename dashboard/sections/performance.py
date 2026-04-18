@@ -6,13 +6,14 @@ import streamlit as st
 
 from bot.database.db import Database
 from bot.metrics import profit_factor, max_consecutive_losses
+from dashboard.constants import RED, WHITE, MUTED, REGIME_COLORS, ChartConfig, Thresholds, RefreshRates
 from dashboard.themes import NothingOS
 from dashboard.utils import fmt, parse_fmt
 
 PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
 
 
-@st.fragment(run_every=30)
+@st.fragment(run_every=RefreshRates.PERFORMANCE)
 def performance_section(db: Database) -> None:
     strategy_perf = db.get_performance_by_strategy()
     regime_perf   = db.get_performance_by_regime()
@@ -26,7 +27,7 @@ def performance_section(db: Database) -> None:
         st.markdown("## Strategy Performance")
         if strategy_perf:
             df_p       = pd.DataFrame(strategy_perf)
-            bar_colors = ["#F5F5F5" if wr >= 50 else "#FF0000" for wr in df_p["win_rate"]]
+            bar_colors = [WHITE if wr >= Thresholds.WIN_RATE_MID else RED for wr in df_p["win_rate"]]
             fig = go.Figure(go.Bar(
                 x=df_p["win_rate"],
                 y=df_p["strategy"],
@@ -37,11 +38,11 @@ def performance_section(db: Database) -> None:
                 textfont=dict(family="Space Mono", size=10, color="#0A0A0A"),
                 textposition="inside",
             ))
-            fig.add_vline(x=50, line_dash="dot", line_color="#333", line_width=1)
+            fig.add_vline(x=Thresholds.WIN_RATE_MID, line_dash="dot", line_color="#333", line_width=1)
             fig.update_layout(
                 **PLOTLY_LAYOUT,
                 xaxis=dict(range=[0, 100], gridcolor="#111", showline=False, zeroline=False),
-                height=200,
+                height=ChartConfig.HEIGHT_PERFORMANCE,
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
@@ -56,17 +57,17 @@ def performance_section(db: Database) -> None:
             fig_hist = go.Figure()
             if neg_vals:
                 fig_hist.add_trace(go.Histogram(
-                    x=neg_vals, name="Loss", marker_color="#FF0000",
+                    x=neg_vals, name="Loss", marker_color=RED,
                     opacity=0.85, nbinsx=15,
                 ))
             if pos_vals:
                 fig_hist.add_trace(go.Histogram(
-                    x=pos_vals, name="Win", marker_color="#F5F5F5",
+                    x=pos_vals, name="Win", marker_color=WHITE,
                     opacity=0.85, nbinsx=15,
                 ))
             fig_hist.add_vline(x=0, line_color="#555", line_width=1)
             fig_hist.update_layout(
-                **PLOTLY_LAYOUT, barmode="overlay", showlegend=False, height=220,
+                **PLOTLY_LAYOUT, barmode="overlay", showlegend=False, height=ChartConfig.HEIGHT_HIST,
             )
             st.plotly_chart(fig_hist, use_container_width=True)
         else:
@@ -94,22 +95,21 @@ def performance_section(db: Database) -> None:
         st.markdown("## Regime Performance")
         if regime_perf:
             df_reg     = pd.DataFrame(regime_perf)
-            reg_colors = {"TRENDING": "#F5F5F5", "RANGING": "#888888", "VOLATILE": "#FF0000"}
-            fig_reg = go.Figure(go.Bar(
+                fig_reg = go.Figure(go.Bar(
                 x=df_reg["win_rate"],
                 y=df_reg["regime"],
                 orientation="h",
-                marker_color=[reg_colors.get(r, "#555") for r in df_reg["regime"]],
+                marker_color=[REGIME_COLORS.get(r, "#555") for r in df_reg["regime"]],
                 marker_line_width=0,
                 text=[f"{wr:.0f}%  ({t}T)" for wr, t in zip(df_reg["win_rate"], df_reg["total_trades"])],
                 textfont=dict(family="Space Mono", size=10, color="#0A0A0A"),
                 textposition="inside",
             ))
-            fig_reg.add_vline(x=50, line_dash="dot", line_color="#333", line_width=1)
+            fig_reg.add_vline(x=Thresholds.WIN_RATE_MID, line_dash="dot", line_color="#333", line_width=1)
             fig_reg.update_layout(
                 **PLOTLY_LAYOUT,
                 xaxis=dict(range=[0, 100], gridcolor="#111", showline=False, zeroline=False),
-                height=180,
+                height=ChartConfig.HEIGHT_REGIME,
             )
             st.plotly_chart(fig_reg, use_container_width=True)
         else:
@@ -137,12 +137,12 @@ def performance_section(db: Database) -> None:
 
         def _style_row(val: str):
             try:
-                return f"color: {'#F5F5F5' if parse_fmt(val) >= 0 else '#FF0000'}; font-weight: 700"
+                return f"color: {WHITE if parse_fmt(val) >= 0 else RED}; font-weight: 700"
             except ValueError:
                 return ""
 
         def _style_side(val: str):
-            return "color: #F5F5F5; font-weight: 700" if val == "BUY" else "color: #FF0000; font-weight: 700"
+            return f"color: {WHITE}; font-weight: 700" if val == "BUY" else f"color: {RED}; font-weight: 700"
 
         styled = (
             df_t.style

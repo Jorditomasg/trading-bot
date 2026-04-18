@@ -7,6 +7,7 @@ from bot.credentials import encrypt, decrypt
 from bot.database.db import Database
 from bot.exchange.binance_client import BinanceClient
 from bot.telegram_notifier import TelegramNotifier
+from dashboard.constants import RED, RefreshRates
 
 
 def _verify_mainnet_credentials(api_key: str, api_secret: str) -> tuple[bool, str]:
@@ -19,7 +20,7 @@ def _verify_mainnet_credentials(api_key: str, api_secret: str) -> tuple[bool, st
         return False, str(exc)
 
 
-@st.fragment(run_every=30)
+@st.fragment(run_every=RefreshRates.PERFORMANCE)
 def settings_section(db: Database) -> None:
     active_mode    = db.get_active_mode()
     has_creds      = db.has_mainnet_credentials()
@@ -40,7 +41,7 @@ def settings_section(db: Database) -> None:
 
     if has_creds:
         st.markdown(
-            "<span style='font-size:0.75rem;color:#555;letter-spacing:0.1em'>"
+            f"<span style='font-size:0.75rem;color:#555;letter-spacing:0.1em'>"
             "API KEY &nbsp; <code>••••••••••••••••</code> &nbsp;&nbsp; "
             "API SECRET &nbsp; <code>••••••••••••••••</code></span>",
             unsafe_allow_html=True,
@@ -72,7 +73,7 @@ def settings_section(db: Database) -> None:
         st.success(f"Connected — Balance: {st.session_state['mn_balance_msg']}")
 
         st.markdown(
-            "<span style='color:#FF0000;font-size:0.75rem;letter-spacing:0.08em'>"
+            f"<span style='color:{RED};font-size:0.75rem;letter-spacing:0.08em'>"
             "⚠ WARNING: activating MAINNET will execute REAL orders with real money "
             "on the next bot cycle.</span>",
             unsafe_allow_html=True,

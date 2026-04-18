@@ -4,12 +4,13 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from bot.database.db import Database
+from dashboard.constants import RED, WHITE, CAPTION, ChartConfig, RefreshRates
 from dashboard.themes import NothingOS
 
 PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
 
 
-@st.fragment(run_every=30)
+@st.fragment(run_every=RefreshRates.CHARTS)
 def equity_chart_section(db: Database) -> None:
     equity_curve = db.get_equity_curve()
 
@@ -25,7 +26,7 @@ def equity_chart_section(db: Database) -> None:
     fig.add_trace(go.Scatter(
         x=ts, y=bal,
         mode="lines",
-        line=dict(color="#FF0000", width=1.5),
+        line=dict(color=RED, width=ChartConfig.LINE_WIDTH),
         fill="tozeroy",
         fillcolor="rgba(255,0,0,0.04)",
         showlegend=False,
@@ -33,11 +34,11 @@ def equity_chart_section(db: Database) -> None:
     fig.add_trace(go.Scatter(
         x=ts, y=[b if b >= initial_balance else None for b in bal],
         mode="lines",
-        line=dict(color="#F5F5F5", width=1.5),
+        line=dict(color=WHITE, width=ChartConfig.LINE_WIDTH),
         fill="tozeroy",
         fillcolor="rgba(245,245,245,0.04)",
         showlegend=False,
     ))
-    fig.add_hline(y=initial_balance, line_dash="dot", line_color="#333", line_width=1)
-    fig.update_layout(**PLOTLY_LAYOUT, height=220)
+    fig.add_hline(y=initial_balance, line_dash="dot", line_color=CAPTION, line_width=1)
+    fig.update_layout(**PLOTLY_LAYOUT, height=ChartConfig.HEIGHT_EQUITY)
     st.plotly_chart(fig, use_container_width=True)

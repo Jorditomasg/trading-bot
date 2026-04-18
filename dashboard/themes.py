@@ -131,6 +131,15 @@ h2 { font-size: 0.85rem !important; letter-spacing: 0.18em; text-transform: uppe
     margin-right: 0.3rem;
 }
 
+/* ── Topbar action columns (⬇ ⚙ popovers) ──────────────── */
+[data-testid="column"]:has(> div > [data-testid="stPopover"]) {
+    max-width: 52px !important;
+    min-width: 40px !important;
+    flex: 0 0 52px !important;
+    padding-left: 0 !important;
+    padding-right: 2px !important;
+}
+
 /* ── Info box ────────────────────────────────────────────── */
 [data-testid="stInfo"], [data-testid="stSuccess"], [data-testid="stWarning"] {
     background: #111 !important;

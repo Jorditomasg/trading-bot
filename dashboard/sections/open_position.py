@@ -4,16 +4,11 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from bot.database.db import Database
+from dashboard.constants import RED, REGIME_COLORS, ChartConfig, Thresholds, RefreshRates
 from dashboard.themes import NothingOS
 from dashboard.utils import _regime_badge, fmt
 
 PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
-
-_REGIME_COLORS = {
-    "TRENDING": "#F5F5F5",
-    "RANGING":  "#555555",
-    "VOLATILE": "#FF0000",
-}
 
 
 def _render_regime_timeline(signals: list[dict]) -> None:
@@ -33,7 +28,7 @@ def _render_regime_timeline(signals: list[dict]) -> None:
     parts = []
     for regime, count in runs:
         pct   = count / total * 100
-        color = _REGIME_COLORS.get(regime, "#333")
+        color = REGIME_COLORS.get(regime, "#333")
         title = f"{regime} ({count})"
         parts.append(
             f'<div style="width:{pct:.1f}%;background:{color};height:5px" title="{title}"></div>'
@@ -47,7 +42,7 @@ def _render_regime_timeline(signals: list[dict]) -> None:
     )
 
 
-@st.fragment(run_every=10)
+@st.fragment(run_every=RefreshRates.DRAWDOWN)
 def drawdown_section(db: Database) -> None:
     """Drawdown chart — separate fragment so it can stand alone."""
     equity_curve = db.get_equity_curve()
@@ -63,13 +58,13 @@ def drawdown_section(db: Database) -> None:
     fig_dd.add_trace(go.Scatter(
         x=dd_ts, y=dd_val,
         mode="lines",
-        line=dict(color="#FF0000", width=1.5),
+        line=dict(color=RED, width=ChartConfig.LINE_WIDTH),
         fill="tozeroy",
         fillcolor="rgba(255,0,0,0.08)",
         showlegend=False,
     ))
-    fig_dd.add_hline(y=15.0, line_dash="dot", line_color="#333", line_width=1)
-    fig_dd.update_layout(**PLOTLY_LAYOUT, height=220)
+    fig_dd.add_hline(y=Thresholds.CIRCUIT_BREAKER_PCT, line_dash="dot", line_color="#333", line_width=1)
+    fig_dd.update_layout(**PLOTLY_LAYOUT, height=ChartConfig.HEIGHT_DRAWDOWN)
     fig_dd.update_yaxes(
         gridcolor="#111",
         showline=False,
@@ -80,7 +75,7 @@ def drawdown_section(db: Database) -> None:
     st.plotly_chart(fig_dd, use_container_width=True)
 
 
-@st.fragment(run_every=10)
+@st.fragment(run_every=RefreshRates.POSITION)
 def open_position_section(db: Database) -> None:
     """Regime status + open trade details — compact horizontal layout."""
     open_trade     = db.get_open_trade()

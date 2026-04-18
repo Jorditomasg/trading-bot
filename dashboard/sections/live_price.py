@@ -7,13 +7,14 @@ import streamlit as st
 from bot.config import settings
 from bot.database.db import Database
 from bot.exchange.binance_client import BinanceClient
+from dashboard.constants import RED, WHITE, GRAY, GREEN, ChartConfig, RefreshRates, CacheTTL
 from dashboard.themes import NothingOS
 from dashboard.utils import fmt
 
 PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CacheTTL.KLINES)
 def get_klines_cached(symbol: str, timeframe: str, limit: int = 50) -> list:
     try:
         client = BinanceClient()
@@ -23,7 +24,7 @@ def get_klines_cached(symbol: str, timeframe: str, limit: int = 50) -> list:
         return []
 
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=CacheTTL.LIVE_PRICE)
 def get_rest_price(symbol: str) -> float | None:
     """REST ticker price — fallback when WebSocket has not written yet."""
     try:
@@ -58,7 +59,7 @@ def _match_signal_to_bar(sig_ts_str: str, timestamps: pd.DatetimeIndex) -> int |
     return idx
 
 
-@st.fragment(run_every=5)
+@st.fragment(run_every=RefreshRates.LIVE_PRICE)
 def live_price_section(db: Database) -> None:
     tick       = db.get_live_tick(settings.symbol)
     open_trade = db.get_open_trade()
@@ -103,8 +104,8 @@ def live_price_section(db: Database) -> None:
             high=df_k["high"],
             low=df_k["low"],
             close=df_k["close"],
-            increasing_line_color="#F5F5F5",
-            decreasing_line_color="#FF0000",
+            increasing_line_color=WHITE,
+            decreasing_line_color=RED,
         ))
         signals = db.get_recent_signals(50)
         buy_sigs  = [s for s in signals if s["action"] == "BUY"]
@@ -119,7 +120,7 @@ def live_price_section(db: Database) -> None:
         if bx:
             fig.add_trace(go.Scatter(
                 x=bx, y=by, mode="markers",
-                marker=dict(symbol="triangle-up", size=10, color="#00C853", opacity=0.9),
+                marker=dict(symbol="triangle-up", size=ChartConfig.MARKER_SIZE, color=GREEN, opacity=ChartConfig.MARKER_OPACITY),
                 showlegend=False, hoverinfo="skip",
             ))
 
@@ -132,17 +133,17 @@ def live_price_section(db: Database) -> None:
         if sx:
             fig.add_trace(go.Scatter(
                 x=sx, y=sy, mode="markers",
-                marker=dict(symbol="triangle-down", size=10, color="#FF0000", opacity=0.9),
+                marker=dict(symbol="triangle-down", size=ChartConfig.MARKER_SIZE, color=RED, opacity=ChartConfig.MARKER_OPACITY),
                 showlegend=False, hoverinfo="skip",
             ))
 
         fig.add_hline(
             y=live_price,
             line_dash="dash",
-            line_color="#888",
-            line_width=1,
+            line_color=GRAY,
+            line_width=ChartConfig.LINE_WIDTH_THIN,
             annotation_text=f"${fmt(live_price, ',.0f')}",
             annotation_position="right",
         )
-        fig.update_layout(**PLOTLY_LAYOUT, height=200, showlegend=False)
+        fig.update_layout(**PLOTLY_LAYOUT, height=ChartConfig.HEIGHT_LIVE, showlegend=False)
         st.plotly_chart(fig, use_container_width=True)

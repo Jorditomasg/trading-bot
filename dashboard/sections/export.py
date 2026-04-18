@@ -54,7 +54,7 @@ def export_section(db: Database) -> None:
 
     # ── Dataset selection ─────────────────────────────────────────────────────
     st.markdown(
-        "<span style='font-size:0.65rem;letter-spacing:0.1em;color:#555'>DATASETS</span>",
+        f"<span style='font-size:0.65rem;letter-spacing:0.1em;color:#555'>DATASETS</span>",
         unsafe_allow_html=True,
     )
     c1, c2, c3, c4 = st.columns(4)
