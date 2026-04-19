@@ -147,8 +147,10 @@ The fallback can switch across regime boundaries (e.g., use EMA_CROSSOVER in a R
 ## Strategy Details
 
 ### EMA Crossover (TRENDING)
-- Signal: EMA9 crosses EMA21 (single-bar crossover detection)
-- Strength: `distance(fast, slow) / ATR`, capped at 1.0
+- Signal: EMA9/EMA21 crossover (single-bar) OR trend-continuation entry when price is within `max_distance_atr` (default 1.5) of EMA9
+- Crossover strength: `abs(fast_slope) / ATR × 5`, floor 0.6
+- Trend strength: `0.5 × (1 - dist_atr / max_distance_atr) + 0.4`, capped 0.4–0.8
+- Distance check uses `abs()` — filters overextension in both directions (above AND below EMA9)
 - SL: `1.5 × ATR` below/above entry
 - TP: `2.5 × ATR` above/below entry
 
@@ -173,17 +175,22 @@ The fallback can switch across regime boundaries (e.g., use EMA_CROSSOVER in a R
 
 These WILL bite you if you don't know them.
 
-### 1. Trailing SL is NULL until activation
+### 1. Trailing SL is NULL until activation — ratcheting happens in `position_manager`
 
 `trades.trailing_sl` is NULL in the DB until price moves `trail_activation_mult × ATR`
 (default: 1.0 × ATR) away from entry. The column exists from trade open but holds NULL.
 Do not assume a non-NULL trailing_sl on any open trade.
 
+The **ratcheting** (moving the stop up/down as price moves) runs in `position_manager()`
+every 60 seconds using the live WebSocket price — NOT in `orchestrator._evaluate_open_position()`
+which only runs hourly. `_evaluate_open_position()` handles signal-reversal exits only.
+
 ```python
-# in orchestrator.py _evaluate_open_position()
-activation = self.risk_manager.config.trail_activation_mult * trade_atr
-if side == "BUY":
-    activated = current_price >= entry_price + activation
+# in main.py position_manager() — runs every 60s
+if side == "BUY" and price >= entry_price + activation:
+    new_trail = price - trail_dist
+    if trailing_sl is None or new_trail > trailing_sl:
+        db.update_trailing_sl(trade_id, new_trail)
 ```
 
 ### 2. ADX uses Wilder smoothing, NOT simple rolling mean
@@ -303,6 +310,27 @@ no exchange calls). However, `position_manager()` runs on its own schedule and i
 gated by the pause flag — SL/TP checks and trailing stop updates continue uninterrupted
 even while the bot is paused. Pausing only prevents new trade entries.
 
+### 15. `enable_regime_exit` is OFF by default — opt-in at the `RiskConfig` level
+
+`RiskConfig.enable_regime_exit = False` by default. When enabled, `_evaluate_open_position()`
+compares the current regime against `trade["regime"]` (stored at open time) and closes the
+position with `ExitReason.REGIME_CHANGE` if they differ.
+
+Risk: regime can oscillate near ADX/ATR boundaries (e.g. TRENDING↔RANGING on the same ADX=25
+threshold), causing whipsaw exits. Enable only if you accept that tradeoff.
+
+```python
+# To enable:
+risk_config = RiskConfig(risk_per_trade=settings.risk_per_trade, enable_regime_exit=True)
+```
+
+### 16. `quantity_precision` is fetched from exchangeInfo at startup
+
+`RiskConfig.quantity_precision` defaults to 5 (BTC). At startup, `_init_quantity_precision()`
+calls `BinanceClient.get_quantity_precision(symbol)` which reads the `LOT_SIZE` filter from
+`exchangeInfo` (unauthenticated endpoint). On failure it logs a warning and keeps the default.
+This means multi-pair operation (SOL, ETH, etc.) gets the correct decimal places automatically.
+
 ---
 
 ## Telegram Integration
@@ -387,7 +415,7 @@ All tunable parameters go in `*Config` dataclasses, not hardcoded constants.
 
 | Config class | File | Controls |
 |---|---|---|
-| `RiskConfig` | `bot/risk/manager.py` | drawdown threshold, risk %, cooldown, trail mult |
+| `RiskConfig` | `bot/risk/manager.py` | drawdown threshold, risk %, cooldown, trail mult, `quantity_precision` (overridden at startup via exchangeInfo), `enable_regime_exit` (default False) |
 | `RegimeDetectorConfig` | `bot/regime/detector.py` | ATR/ADX/Hurst periods and thresholds |
 | `EMACrossoverConfig` | `bot/strategy/ema_crossover.py` | fast/slow EMA periods, ATR period |
 | `MeanReversionConfig` | `bot/strategy/mean_reversion.py` | BB period/std, RSI period/levels, ATR period |
