@@ -45,7 +45,7 @@ class StrategyOrchestrator:
             StrategyName.MEAN_REVERSION: MeanReversionStrategy(),
             StrategyName.BREAKOUT: BreakoutStrategy(),
         }
-        self._peak_capital: float = 0.0
+        self._peak_capital: float = db.get_peak_capital() or 0.0
 
     def step(
         self,
@@ -53,8 +53,11 @@ class StrategyOrchestrator:
         current_balance: float,
         df_high: Optional[pd.DataFrame] = None,
     ) -> Optional[dict]:
-        if self._peak_capital < current_balance:
+        # Update High Water Mark (HWM)
+        if current_balance > self._peak_capital:
             self._peak_capital = current_balance
+            self.db.set_peak_capital(self._peak_capital)
+            logger.info("Orchestrator: New High Water Mark (Peak Capital) = %.2f", self._peak_capital)
 
         if self.risk_manager.check_circuit_breaker(current_balance, self._peak_capital):
             logger.warning("Orchestrator: circuit breaker active — no trading this cycle")

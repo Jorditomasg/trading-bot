@@ -399,6 +399,13 @@ class Database:
 
     # ── Bot pause state ───────────────────────────────────────────────────────
 
+    def get_peak_capital(self) -> float | None:
+        val = self.get_config("peak_capital")
+        return float(val) if val else None
+
+    def set_peak_capital(self, value: float) -> None:
+        self.set_config("peak_capital", f"{value:.4f}")
+
     def get_bot_paused(self) -> bool:
         return self.get_config("bot_paused") == "1"
 

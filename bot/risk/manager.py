@@ -42,8 +42,8 @@ class RiskManager:
         quantity = round(quantity, self.config.quantity_precision)
 
         logger.info(
-            "Position size: capital=%.2f risk=%.2f entry=%.2f sl=%.2f → qty=%.5f BTC",
-            capital, risk_amount, entry, stop_loss, quantity,
+            "Position size: capital=%.2f risk=%.2f entry=%.2f sl=%.2f → qty=%.*f",
+            capital, risk_amount, entry, stop_loss, self.config.quantity_precision, quantity,
         )
         return quantity
 

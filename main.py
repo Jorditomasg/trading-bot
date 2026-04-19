@@ -121,10 +121,7 @@ def _init_quantity_precision(orchestrator: StrategyOrchestrator, db: Database) -
 
 
 def compute_drawdown(db: Database, current_balance: float) -> float:
-    curve = db.get_equity_curve()
-    if not curve:
-        return 0.0
-    peak = max(row["balance"] for row in curve)
+    peak = db.get_peak_capital() or current_balance
     if peak <= 0:
         return 0.0
     return (peak - current_balance) / peak
@@ -192,8 +189,7 @@ def run_cycle(
     logger.info("Equity snapshot balance=%.2f drawdown=%.4f", balance, drawdown)
 
     if adaptor is not None:
-        curve = db.get_equity_curve()
-        peak = max(row["balance"] for row in curve) if curve else balance
+        peak = db.get_peak_capital() or balance
         adaptor.maybe_adapt(
             circuit_breaker_active=orchestrator.risk_manager.check_circuit_breaker(balance, peak)
         )
