@@ -106,6 +106,20 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _init_quantity_precision(orchestrator: StrategyOrchestrator, db: Database) -> None:
+    """Fetch the real LOT_SIZE stepSize for the configured symbol and update risk config."""
+    try:
+        client    = _build_client(db)
+        precision = client.get_quantity_precision(settings.symbol)
+        orchestrator.risk_manager.config.quantity_precision = precision
+    except Exception as exc:
+        logger.warning(
+            "Could not fetch quantity precision for %s: %s — using default %d",
+            settings.symbol, exc,
+            orchestrator.risk_manager.config.quantity_precision,
+        )
+
+
 def compute_drawdown(db: Database, current_balance: float) -> float:
     curve = db.get_equity_curve()
     if not curve:
@@ -370,6 +384,7 @@ def main() -> None:
         breakout_strategy=orchestrator._strategies[StrategyName.BREAKOUT],
         risk_manager=orchestrator.risk_manager,
     )
+    _init_quantity_precision(orchestrator, db)
 
     # Telegram — always instantiated; no-ops when unconfigured
     notifier    = TelegramNotifier(db=db)

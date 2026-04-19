@@ -6,6 +6,7 @@ class ExitReason(str, Enum):
     STOP_LOSS        = "STOP_LOSS"
     TAKE_PROFIT      = "TAKE_PROFIT"
     SIGNAL_REVERSAL  = "SIGNAL_REVERSAL"
+    REGIME_CHANGE    = "REGIME_CHANGE"
 
 
 class TradeAction(str, Enum):

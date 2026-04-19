@@ -1,4 +1,5 @@
 import logging
+import math
 import time
 from typing import Callable, Optional
 
@@ -119,6 +120,27 @@ class BinanceClient:
         result = self._client.cancel_order(symbol=symbol, orderId=order_id)
         logger.info("Order cancelled symbol=%s orderId=%s", symbol, order_id)
         return result
+
+    def get_quantity_precision(self, symbol: str) -> int:
+        """Return the number of decimal places for quantity on the given symbol.
+
+        Reads the LOT_SIZE filter from exchangeInfo (unauthenticated endpoint).
+        Falls back to 5 if the filter is not found.
+        """
+        info = self._client.get_symbol_info(symbol)
+        if info is None:
+            logger.warning("Symbol %s not found in exchangeInfo — using precision=5", symbol)
+            return 5
+        for f in info.get("filters", []):
+            if f.get("filterType") == "LOT_SIZE":
+                step = float(f["stepSize"])
+                if step >= 1.0:
+                    return 0
+                precision = abs(int(math.floor(math.log10(step))))
+                logger.info("Symbol %s LOT_SIZE stepSize=%s → precision=%d", symbol, f["stepSize"], precision)
+                return precision
+        logger.warning("LOT_SIZE filter not found for %s — using precision=5", symbol)
+        return 5
 
     @_retry
     def get_ticker_price(self, symbol: str) -> float:

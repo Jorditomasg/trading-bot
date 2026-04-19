@@ -7,9 +7,6 @@ from bot.strategy.base import Signal
 
 logger = logging.getLogger(__name__)
 
-QUANTITY_PRECISION = 5  # BTC decimal places on Binance
-
-
 @dataclass
 class RiskConfig:
     max_drawdown: float = 0.15
@@ -19,6 +16,8 @@ class RiskConfig:
     cooldown_hours: int = 4
     trail_atr_mult: float = 1.5
     trail_activation_mult: float = 1.0
+    quantity_precision: int = 5   # overridden at startup via exchangeInfo LOT_SIZE
+    enable_regime_exit: bool = False
 
 
 class RiskManager:
@@ -40,7 +39,7 @@ class RiskManager:
             return 0.0
 
         quantity = risk_amount / risk_per_unit
-        quantity = round(quantity, QUANTITY_PRECISION)
+        quantity = round(quantity, self.config.quantity_precision)
 
         logger.info(
             "Position size: capital=%.2f risk=%.2f entry=%.2f sl=%.2f → qty=%.5f BTC",

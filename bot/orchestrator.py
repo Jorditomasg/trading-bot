@@ -94,7 +94,7 @@ class StrategyOrchestrator:
 
         # Check stop loss / take profit on open position
         if open_trade is not None:
-            exit_order = self._evaluate_open_position(open_trade, df, signal)
+            exit_order = self._evaluate_open_position(open_trade, df, signal, regime)
             if exit_order:
                 return exit_order
 
@@ -161,7 +161,7 @@ class StrategyOrchestrator:
         return self._strategies[default_name]
 
     def _evaluate_open_position(
-        self, trade: dict, df: pd.DataFrame, signal: Signal
+        self, trade: dict, df: pd.DataFrame, signal: Signal, current_regime: MarketRegime
     ) -> Optional[dict]:
         current_price = float(df["close"].iloc[-1])
         side          = trade["side"]
@@ -169,14 +169,25 @@ class StrategyOrchestrator:
         trailing_sl   = trade.get("trailing_sl")
 
         # Trailing SL ratcheting is handled by position_manager (every 60s).
-        # Here we only handle signal-based exits.
+        # Here we only handle signal-based and regime-based exits.
         reason: Optional[str] = None
-        opposite = (
-            (side == "BUY"  and signal.action == "SELL") or
-            (side == "SELL" and signal.action == "BUY")
-        ) and signal.strength >= 0.5
-        if opposite:
-            reason = ExitReason.SIGNAL_REVERSAL
+
+        if self.risk_manager.config.enable_regime_exit:
+            trade_regime = trade.get("regime")
+            if trade_regime and trade_regime != current_regime.value:
+                reason = ExitReason.REGIME_CHANGE
+                logger.info(
+                    "Regime exit: trade opened in %s, current regime=%s — closing id=%d",
+                    trade_regime, current_regime.value, trade_id,
+                )
+
+        if reason is None:
+            opposite = (
+                (side == "BUY"  and signal.action == "SELL") or
+                (side == "SELL" and signal.action == "BUY")
+            ) and signal.strength >= 0.5
+            if opposite:
+                reason = ExitReason.SIGNAL_REVERSAL
 
         if reason is None:
             return None
