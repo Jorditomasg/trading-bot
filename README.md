@@ -268,7 +268,7 @@ The project is designed for automated deployment via GitHub Actions and GitHub C
 **Setup:**
 
 Set the `GITHUB_REPO` environment variable to your `username/repository` slug. The `docker-compose.yml`
-references `ghcr.io/${GITHUB_REPO:-youruser/trading-bot}:latest`.
+references `ghcr.io/${GITHUB_REPO:-jorditomasg/trading-bot}:latest`.
 
 Both the `bot` and `dashboard` services use the same image. No separate Dockerfiles needed.
 
