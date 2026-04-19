@@ -250,9 +250,10 @@ def _execute_order(
 def position_manager(
     db: Database,
     dry_run: bool,
+    risk_config: "RiskConfig | None" = None,
     notifier: TelegramNotifier | None = None,
 ) -> None:
-    """Check SL/TP on open position using live WebSocket price. Runs every 60s."""
+    """Check SL/TP and ratchet trailing stop using live WebSocket price. Runs every 60s."""
     trade = db.get_open_trade()
     if trade is None:
         return
@@ -268,6 +269,32 @@ def position_manager(
     stop_loss   = trade["stop_loss"]
     take_profit = trade["take_profit"]
     trade_id    = trade["id"]
+    entry_price = trade["entry_price"]
+    trade_atr   = trade.get("atr")
+
+    # ── Ratchet trailing stop every 60s (was hourly in orchestrator) ──────────
+    if trade_atr and risk_config is not None:
+        trail_dist = risk_config.trail_atr_mult * trade_atr
+        activation = risk_config.trail_activation_mult * trade_atr
+
+        if side == "BUY" and price >= entry_price + activation:
+            new_trail = price - trail_dist
+            if trailing_sl is None or new_trail > trailing_sl:
+                db.update_trailing_sl(trade_id, new_trail)
+                trailing_sl = new_trail
+                logger.debug(
+                    "position_manager: trailing SL ratcheted to %.2f (price=%.2f)",
+                    new_trail, price,
+                )
+        elif side == "SELL" and price <= entry_price - activation:
+            new_trail = price + trail_dist
+            if trailing_sl is None or new_trail < trailing_sl:
+                db.update_trailing_sl(trade_id, new_trail)
+                trailing_sl = new_trail
+                logger.debug(
+                    "position_manager: trailing SL ratcheted to %.2f (price=%.2f)",
+                    new_trail, price,
+                )
 
     reason: str | None = None
 
@@ -369,7 +396,9 @@ def main() -> None:
     schedule.every().hour.at(":00").do(
         run_cycle, orchestrator, db, args.dry_run, adaptor, notifier
     )
-    schedule.every(60).seconds.do(position_manager, db, args.dry_run, notifier)
+    schedule.every(60).seconds.do(
+        position_manager, db, args.dry_run, orchestrator.risk_manager.config, notifier
+    )
 
     while not _shutdown:
         schedule.run_pending()

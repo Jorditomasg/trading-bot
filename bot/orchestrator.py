@@ -166,39 +166,10 @@ class StrategyOrchestrator:
         current_price = float(df["close"].iloc[-1])
         side          = trade["side"]
         trade_id      = trade["id"]
-        entry_price   = trade["entry_price"]
-        trade_atr     = trade.get("atr")
-        trailing_sl   = trade.get("trailing_sl")  # None until activated
+        trailing_sl   = trade.get("trailing_sl")
 
-        # ── Trailing SL update ──────────────────────────────────────────────
-        if trade_atr:
-            trail_dist    = self.risk_manager.config.trail_atr_mult * trade_atr
-            activation    = self.risk_manager.config.trail_activation_mult * trade_atr
-
-            if side == "BUY":
-                activated = current_price >= entry_price + activation
-                if activated:
-                    new_trail = current_price - trail_dist
-                    if trailing_sl is None or new_trail > trailing_sl:
-                        self.db.update_trailing_sl(trade_id, new_trail)
-                        trailing_sl = new_trail
-                        logger.debug(
-                            "Trailing SL ratcheted up to %.2f (price=%.2f)",
-                            trailing_sl, current_price,
-                        )
-            else:  # SELL
-                activated = current_price <= entry_price - activation
-                if activated:
-                    new_trail = current_price + trail_dist
-                    if trailing_sl is None or new_trail < trailing_sl:
-                        self.db.update_trailing_sl(trade_id, new_trail)
-                        trailing_sl = new_trail
-                        logger.debug(
-                            "Trailing SL ratcheted down to %.2f (price=%.2f)",
-                            trailing_sl, current_price,
-                        )
-
-        # Opposite signal also closes position
+        # Trailing SL ratcheting is handled by position_manager (every 60s).
+        # Here we only handle signal-based exits.
         reason: Optional[str] = None
         opposite = (
             (side == "BUY"  and signal.action == "SELL") or
