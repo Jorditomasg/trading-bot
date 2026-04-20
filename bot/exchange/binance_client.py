@@ -109,6 +109,127 @@ class BinanceClient:
         logger.info("Order placed orderId=%s status=%s", order["orderId"], order["status"])
         return order
 
+    def get_price_precision(self, symbol: str) -> int:
+        """Return decimal places for price from PRICE_FILTER → tickSize.
+
+        E.g. BTCUSDT tickSize="0.01" → 2 decimal places.
+        Falls back to 2 if the filter is not found.
+        """
+        info = self._client.get_symbol_info(symbol)
+        if info is None:
+            logger.warning("Symbol %s not found in exchangeInfo — using price_precision=2", symbol)
+            return 2
+        for f in info.get("filters", []):
+            if f.get("filterType") == "PRICE_FILTER":
+                tick = float(f["tickSize"])
+                if tick >= 1.0:
+                    return 0
+                precision = abs(int(math.floor(math.log10(tick))))
+                logger.info(
+                    "Symbol %s PRICE_FILTER tickSize=%s → price_precision=%d",
+                    symbol, f["tickSize"], precision,
+                )
+                return precision
+        logger.warning("PRICE_FILTER not found for %s — using price_precision=2", symbol)
+        return 2
+
+    def place_entry_order(
+        self,
+        symbol: str,
+        side: str,
+        quantity: float,
+        entry_price: float,
+        price_precision: int = 2,
+        wait_seconds: int = 30,
+    ) -> dict:
+        """Place a LIMIT_MAKER entry order; fall back to MARKET if rejected or unfilled.
+
+        LIMIT_MAKER ensures maker fee (0.02% vs 0.10% taker on Binance Spot).
+        The limit price is nudged slightly inside the spread to maximise fill probability.
+        If the order is rejected (would be taker) or not filled within *wait_seconds*,
+        the order is cancelled and a MARKET order is placed as fallback.
+
+        Returns the Binance order dict (status="FILLED" in all success paths).
+        """
+        # Nudge 0.01 % inside the spread to stay on the maker side
+        if side == "BUY":
+            limit_price = round(entry_price * (1 - 0.0001), price_precision)
+        else:
+            limit_price = round(entry_price * (1 + 0.0001), price_precision)
+
+        price_str = f"{limit_price:.{price_precision}f}"
+        logger.info(
+            "LIMIT_MAKER entry: symbol=%s side=%s qty=%.5f price=%s (signal=%.2f)",
+            symbol, side, quantity, price_str, entry_price,
+        )
+
+        try:
+            order = self._client.create_order(
+                symbol=symbol,
+                side=side,
+                type=Client.ORDER_TYPE_LIMIT_MAKER,
+                quantity=quantity,
+                price=price_str,
+            )
+            logger.info(
+                "LIMIT_MAKER placed orderId=%s status=%s",
+                order["orderId"], order["status"],
+            )
+
+            if order["status"] == "FILLED":
+                return order
+
+            # Poll for fill
+            order_id = order["orderId"]
+            deadline  = time.time() + wait_seconds
+            while time.time() < deadline:
+                time.sleep(2)
+                status = self._client.get_order(symbol=symbol, orderId=order_id)
+                logger.debug(
+                    "LIMIT_MAKER poll orderId=%s status=%s",
+                    order_id, status["status"],
+                )
+                if status["status"] == "FILLED":
+                    logger.info(
+                        "LIMIT_MAKER filled orderId=%s after %.0fs",
+                        order_id, wait_seconds - max(0, deadline - time.time()),
+                    )
+                    return status
+                if status["status"] in ("CANCELED", "REJECTED", "EXPIRED"):
+                    logger.warning(
+                        "LIMIT_MAKER order reached terminal state=%s — falling back to MARKET",
+                        status["status"],
+                    )
+                    break
+            else:
+                logger.info(
+                    "LIMIT_MAKER not filled within %ds — cancelling, falling back to MARKET",
+                    wait_seconds,
+                )
+
+            # Cancel unfilled limit order (best-effort)
+            try:
+                self._client.cancel_order(symbol=symbol, orderId=order_id)
+            except Exception as cancel_exc:
+                logger.warning("Could not cancel LIMIT_MAKER orderId=%s: %s", order_id, cancel_exc)
+
+        except BinanceAPIException as exc:
+            if exc.code == -2010:
+                # LIMIT_MAKER rejected because it would have matched immediately as taker
+                logger.info(
+                    "LIMIT_MAKER rejected (price=%s would be taker) — falling back to MARKET",
+                    price_str,
+                )
+            else:
+                logger.warning(
+                    "LIMIT_MAKER API error code=%s: %s — falling back to MARKET",
+                    exc.code, exc,
+                )
+
+        # Fallback: guaranteed-fill market order (pays taker fee)
+        logger.info("MARKET fallback: symbol=%s side=%s qty=%.5f", symbol, side, quantity)
+        return self.place_order(symbol=symbol, side=side, quantity=quantity)
+
     @_retry
     def get_open_orders(self, symbol: str) -> list:
         orders = self._client.get_open_orders(symbol=symbol)

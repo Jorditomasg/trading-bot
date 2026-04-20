@@ -120,6 +120,24 @@ def _init_quantity_precision(orchestrator: StrategyOrchestrator, db: Database) -
         )
 
 
+# Price precision for limit entry orders (decimal places for price, e.g. 2 for BTC)
+_price_precision: int = 2
+
+
+def _init_price_precision(db: Database) -> None:
+    """Fetch PRICE_FILTER tickSize for the configured symbol and cache globally."""
+    global _price_precision
+    try:
+        client = _build_client(db)
+        _price_precision = client.get_price_precision(settings.symbol)
+        logger.info("Price precision for %s: %d", settings.symbol, _price_precision)
+    except Exception as exc:
+        logger.warning(
+            "Could not fetch price precision for %s: %s — using default %d",
+            settings.symbol, exc, _price_precision,
+        )
+
+
 def compute_drawdown(db: Database, current_balance: float) -> float:
     peak = db.get_peak_capital() or current_balance
     if peak <= 0:
@@ -199,6 +217,22 @@ def run_cycle(
     logger.info("─── Cycle end ───")
 
 
+def _avg_fill_price(order_result: dict) -> float | None:
+    """Extract the average fill price from a Binance order result.
+
+    Uses cummulativeQuoteQty / executedQty (weighted average across fills).
+    Returns None if the fields are missing or zero.
+    """
+    try:
+        executed = float(order_result.get("executedQty", 0))
+        quote    = float(order_result.get("cummulativeQuoteQty", 0))
+        if executed > 0 and quote > 0:
+            return quote / executed
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
 def _execute_order(
     client: BinanceClient,
     db: Database,
@@ -210,17 +244,21 @@ def _execute_order(
 
     if action == "OPEN":
         try:
-            result = client.place_order(
+            result = client.place_entry_order(
                 symbol=settings.symbol,
                 side=order["side"],
                 quantity=order["quantity"],
+                entry_price=order["entry_price"],
+                price_precision=_price_precision,
             )
+            # Use the actual fill price from the exchange; fall back to signal price
+            actual_entry = _avg_fill_price(result) or order["entry_price"]
             trade_id = db.insert_trade(
                 symbol=settings.symbol,
                 side=order["side"],
                 strategy=order["strategy"],
                 regime=order["regime"],
-                entry_price=order["entry_price"],
+                entry_price=actual_entry,
                 quantity=order["quantity"],
                 stop_loss=order["stop_loss"],
                 take_profit=order["take_profit"],
@@ -410,6 +448,7 @@ def main() -> None:
         risk_manager=orchestrator.risk_manager,
     )
     _init_quantity_precision(orchestrator, db)
+    _init_price_precision(db)
 
     # Telegram — always instantiated; no-ops when unconfigured
     notifier    = TelegramNotifier(db=db)
