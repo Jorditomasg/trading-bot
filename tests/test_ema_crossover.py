@@ -32,39 +32,26 @@ def _uptrend(n: int = 60) -> pd.DataFrame:
 
 
 def _downtrend_with_bounce() -> pd.DataFrame:
-    """100 flat + 30-bar downtrend + 1 bar that bounces just below the fast EMA.
-
-    After 30 bars of -1/bar decline: fast EMA ≈ 75, slow EMA ≈ 80.
-    Bounce bar at 74 is 0.8 units below fast EMA (< 1.5 ATR) → valid SELL entry.
-    No EMA crossover occurs because fast was already below slow before the bounce.
-    """
+    """100 flat + 30-bar downtrend + 1 bar that bounces just below the fast EMA."""
     flat   = [100.0] * 100
-    trend  = [100.0 - i for i in range(1, 31)]   # 99 → 70
-    bounce = [74.0]                                # near fast EMA, within 1.5 ATR
+    trend  = [100.0 - i for i in range(1, 31)]
+    bounce = [74.0]
     return _make_df(flat + trend + bounce)
 
 
 def _uptrend_spike_down_no_cross() -> pd.DataFrame:
-    """100 flat + 30-bar uptrend + spike that stays above the EMA crossover threshold.
-
-    After the uptrend: fast EMA ≈ 126, slow EMA ≈ 120 (gap = 6).
-    Spike to 90 moves fast EMA to ~119 and slow EMA to ~117 — fast stays above slow,
-    so no EMA crossover occurs. But price is ~5 ATR from fast EMA → HOLD.
-
-    Without the abs() fix: (90 - 119) / ATR = -5.4 < 1.5 → spurious BUY.
-    With    the abs() fix: abs(90 - 119) / ATR = 5.4 > 1.5 → correctly HOLD.
-    """
+    """100 flat + 30-bar uptrend + spike down (fast stays above slow → no cross, overextended → HOLD)."""
     flat  = [100.0] * 100
-    trend = [100.0 + i for i in range(1, 31)]   # 101 → 130
+    trend = [100.0 + i for i in range(1, 31)]
     spike = [90.0]
     return _make_df(flat + trend + spike)
 
 
 def _uptrend_with_shallow_pullback() -> pd.DataFrame:
-    """100 flat + 30-bar uptrend + 1 bar pulling back to near fast EMA (within 1.5 ATR)."""
+    """100 flat + 30-bar uptrend + 1 bar pulling back within max_distance_atr → BUY."""
     flat     = [100.0] * 100
-    trend    = [100.0 + i for i in range(1, 31)]   # 101 → 130
-    pullback = [125.0]                              # just below fast EMA (~126)
+    trend    = [100.0 + i for i in range(1, 31)]
+    pullback = [125.0]
     return _make_df(flat + trend + pullback)
 
 
@@ -92,7 +79,6 @@ class TestTrendContinuation:
         assert s.generate_signal(_uptrend()).action == "BUY"
 
     def test_sell_during_downtrend_bounce(self):
-        """In-trend SELL: price bounces back near fast EMA during a downtrend."""
         s = EMACrossoverStrategy()
         assert s.generate_signal(_downtrend_with_bounce()).action == "SELL"
 
@@ -102,7 +88,6 @@ class TestTrendContinuation:
         assert 0.4 <= signal.strength <= 0.8
 
     def test_hold_when_overextended_above_fast_ema(self):
-        """Price far above fast EMA → overextended upside → HOLD."""
         df = _uptrend()
         df.loc[df.index[-1], "close"] = 300.0
         df.loc[df.index[-1], "high"]  = 303.0
@@ -111,17 +96,10 @@ class TestTrendContinuation:
         assert s.generate_signal(df).action == "HOLD"
 
     def test_hold_when_overextended_below_fast_ema(self):
-        """Price >> 1.5 ATR below fast EMA while uptrend intact → HOLD.
-
-        Regression for the abs() fix. Without it, a large negative distance
-        (current_price - fast_ema) passes the '< max_distance_atr' check and
-        generates a spurious BUY on deep downward spikes.
-        """
         s = EMACrossoverStrategy()
         assert s.generate_signal(_uptrend_spike_down_no_cross()).action == "HOLD"
 
     def test_buy_on_shallow_pullback_below_fast_ema(self):
-        """Price slightly below fast EMA (< 1.5 ATR) → valid pullback entry → BUY."""
         s = EMACrossoverStrategy()
         assert s.generate_signal(_uptrend_with_shallow_pullback()).action == "BUY"
 
@@ -134,7 +112,6 @@ class TestEdgeCases:
         assert s.generate_signal(_make_df([100.0] * 5)).action == "HOLD"
 
     def test_custom_max_distance_atr_tighter(self):
-        """A tighter max_distance_atr rejects entries the default config would allow."""
         df = _uptrend()
         default_signal = EMACrossoverStrategy().generate_signal(df)
         tight_signal   = EMACrossoverStrategy(EMACrossoverConfig(max_distance_atr=0.01)).generate_signal(df)

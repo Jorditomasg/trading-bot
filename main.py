@@ -148,12 +148,14 @@ def run_cycle(
         logger.error("Failed to fetch klines: %s", exc)
         return
 
+    # Daily klines for BiasFilter — backtest-proven: daily EMA9/21 gate
+    # outperforms 4h EMA gate (PF 1.19-1.30 vs 0.82-0.93 with taker fees)
     df_4h = None
     try:
-        df_4h = client.get_klines(settings.symbol, "4h", 150)
+        df_4h = client.get_klines(settings.symbol, "1d", 60)
     except Exception as exc:
         logger.warning(
-            "Failed to fetch 4h klines: %s — bias filter will block signals this cycle", exc
+            "Failed to fetch daily klines: %s — bias filter will block signals this cycle", exc
         )
 
     try:
@@ -166,7 +168,7 @@ def run_cycle(
     # Snapshot circuit breaker state before step to detect new triggers
     breaker_was_active = orchestrator.risk_manager._breaker_triggered_at is not None
 
-    order = orchestrator.step(df, balance, df_4h)
+    orders = orchestrator.step(df, balance, df_4h)
 
     # Notify if circuit breaker just fired this cycle
     if notifier and not breaker_was_active:
@@ -174,15 +176,15 @@ def run_cycle(
             drawdown = compute_drawdown(db, balance)
             notifier.circuit_breaker(drawdown, db.get_active_mode())
 
-    if order is not None:
-        logger.info("Orchestrator returned order: %s", order)
-
-        if dry_run:
-            logger.info("[DRY-RUN] Would execute: %s", order)
-        else:
-            _execute_order(client, db, order, notifier)
+    if orders:
+        for order in orders:
+            logger.info("Orchestrator returned order: %s", order)
+            if dry_run:
+                logger.info("[DRY-RUN] Would execute: %s", order)
+            else:
+                _execute_order(client, db, order, notifier)
     else:
-        logger.info("No order this cycle")
+        logger.info("No orders this cycle")
 
     drawdown = compute_drawdown(db, balance)
     db.insert_equity_snapshot(balance=balance, drawdown=drawdown)
@@ -223,6 +225,7 @@ def _execute_order(
                 stop_loss=order["stop_loss"],
                 take_profit=order["take_profit"],
                 atr=order.get("atr"),
+                timeframe=order.get("timeframe", "1h"),
             )
             logger.info(
                 "Opened trade id=%d orderId=%s",
@@ -257,32 +260,30 @@ def _execute_order(
             logger.error("Failed to close position: %s", exc)
 
 
-def position_manager(
+def _manage_single_position(
+    trade: dict,
+    price: float,
     db: Database,
     dry_run: bool,
-    risk_config: "RiskConfig | None" = None,
-    notifier: TelegramNotifier | None = None,
+    risk_config: "RiskConfig | None",
+    notifier: "TelegramNotifier | None",
 ) -> None:
-    """Check SL/TP and ratchet trailing stop using live WebSocket price. Runs every 60s."""
-    trade = db.get_open_trade()
-    if trade is None:
-        return
-
-    tick = db.get_live_tick(settings.symbol)
-    if tick is None:
-        logger.debug("position_manager: no live tick — skipping")
-        return
-
-    price       = tick["price"]
+    """Manage trailing stop ratchet and SL/TP exit for one open trade."""
+    trade_id    = trade["id"]
     side        = trade["side"]
-    trailing_sl = trade.get("trailing_sl")
+    entry_price = trade["entry_price"]
     stop_loss   = trade["stop_loss"]
     take_profit = trade["take_profit"]
-    trade_id    = trade["id"]
-    entry_price = trade["entry_price"]
     trade_atr   = trade.get("atr")
+    trailing_sl = trade.get("trailing_sl")
 
-    # ── Ratchet trailing stop every 60s (was hourly in orchestrator) ──────────
+    # Guard: re-verify trade is still open (race condition with run_cycle)
+    fresh = db.get_trade(trade_id)
+    if fresh is None or fresh.get("exit_price") is not None:
+        logger.debug("position_manager: trade id=%d already closed — skipping", trade_id)
+        return
+
+    # ── Ratchet trailing stop ─────────────────────────────────────────────────
     if trade_atr and risk_config is not None:
         trail_dist = risk_config.trail_atr_mult * trade_atr
         activation = risk_config.trail_activation_mult * trade_atr
@@ -306,6 +307,7 @@ def position_manager(
                     new_trail, price,
                 )
 
+    # ── Exit condition check ──────────────────────────────────────────────────
     reason: str | None = None
 
     if trailing_sl is not None:
@@ -333,16 +335,42 @@ def position_manager(
         logger.info("[DRY-RUN] position_manager would close trade id=%d", trade_id)
         return
 
-    client     = _build_client(db)
-    close_side = "SELL" if side == "BUY" else "BUY"
-    _execute_order(client, db, {
-        "action":      TradeAction.CLOSE,
-        "side":        close_side,
-        "trade_id":    trade_id,
-        "quantity":    trade["quantity"],
-        "exit_price":  price,
-        "exit_reason": reason,
-    }, notifier)
+    try:
+        client     = _build_client(db)
+        close_side = "SELL" if side == "BUY" else "BUY"
+        _execute_order(client, db, {
+            "action":      TradeAction.CLOSE,
+            "side":        close_side,
+            "trade_id":    trade_id,
+            "quantity":    trade["quantity"],
+            "exit_price":  price,
+            "exit_reason": reason,
+        }, notifier)
+    except Exception as exc:
+        logger.error(
+            "position_manager: failed to close trade id=%d: %s", trade_id, exc
+        )
+
+
+def position_manager(
+    db: Database,
+    dry_run: bool,
+    risk_config: "RiskConfig | None" = None,
+    notifier: "TelegramNotifier | None" = None,
+) -> None:
+    """Check SL/TP and ratchet trailing stop for all open trades. Runs every 60s."""
+    trades = db.get_open_trades()
+    if not trades:
+        return
+
+    tick = db.get_live_tick(settings.symbol)
+    if tick is None:
+        logger.debug("position_manager: no live tick — skipping")
+        return
+
+    price = tick["price"]
+    for trade in trades:
+        _manage_single_position(trade, price, db, dry_run, risk_config, notifier)
 
 
 def main() -> None:
@@ -373,6 +401,7 @@ def main() -> None:
         symbol=settings.symbol,
         risk_config=risk_config,
         bias_filter=bias_filter,
+        timeframe=settings.timeframe,
     )
     adaptor = ParameterAdaptor(
         db=db,

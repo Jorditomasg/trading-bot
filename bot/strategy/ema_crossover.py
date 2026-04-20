@@ -11,14 +11,14 @@ from bot.strategy.levels import calculate_levels
 logger = logging.getLogger(__name__)
 
 STOP_ATR_MULT = 1.5
-TP_ATR_MULT = 2.5
+TP_ATR_MULT   = 3.5
 
 
 @dataclass
 class EMACrossoverConfig:
-    fast_period: int = 9
-    slow_period: int = 21
-    atr_period: int = 14
+    fast_period:      int   = 9
+    slow_period:      int   = 21
+    atr_period:       int   = 14
     max_distance_atr: float = 1.5
 
 
@@ -37,24 +37,20 @@ class EMACrossoverStrategy(BaseStrategy):
             return hold_signal(atr=0.0)
 
         close = df["close"]
-        fast = close.ewm(span=self.config.fast_period, adjust=False).mean()
-        slow = close.ewm(span=self.config.slow_period, adjust=False).mean()
-        atr = compute_atr(df, self.config.atr_period)
+        fast  = close.ewm(span=self.config.fast_period, adjust=False).mean()
+        slow  = close.ewm(span=self.config.slow_period, adjust=False).mean()
+        atr   = compute_atr(df, self.config.atr_period)
 
-        current_atr = atr.iloc[-1]
+        current_atr   = atr.iloc[-1]
         current_price = float(close.iloc[-1])
 
-        # Crossover detection: compare current bar vs previous bar
-        crossed_up = fast.iloc[-2] <= slow.iloc[-2] and fast.iloc[-1] > slow.iloc[-1]
+        crossed_up   = fast.iloc[-2] <= slow.iloc[-2] and fast.iloc[-1] > slow.iloc[-1]
         crossed_down = fast.iloc[-2] >= slow.iloc[-2] and fast.iloc[-1] < slow.iloc[-1]
 
-        # Trend pullback entry: allow entry when price is within max_distance_atr of fast EMA.
-        # Uses abs() to filter overextension in BOTH directions (above and below fast EMA).
-        dist_atr = abs(current_price - float(fast.iloc[-1])) / current_atr if current_atr > 0 else float("inf")
+        dist_atr     = abs(current_price - float(fast.iloc[-1])) / current_atr if current_atr > 0 else float("inf")
         in_trend_buy  = float(fast.iloc[-1]) > float(slow.iloc[-1]) and dist_atr < self.config.max_distance_atr
         in_trend_sell = float(fast.iloc[-1]) < float(slow.iloc[-1]) and dist_atr < self.config.max_distance_atr
 
-        # Decide signal action
         action = "HOLD"
         if crossed_up or in_trend_buy:
             action = "BUY"
@@ -62,15 +58,11 @@ class EMACrossoverStrategy(BaseStrategy):
             action = "SELL"
 
         if action == "BUY":
-            # Crossover is stronger; pullback strength depends on distance to EMA
             if crossed_up:
                 fast_slope = fast.iloc[-1] - fast.iloc[-2]
                 strength = max(min(abs(fast_slope) / current_atr * 5, 1.0), 0.6) if current_atr > 0 else 0.6
-                logger.info("EMACrossover: BUY (crossover) strength=%.2f price=%.2f", strength, current_price)
             else:
                 strength = max(min(0.5 * (1 - dist_atr / self.config.max_distance_atr) + 0.4, 0.8), 0.4)
-                logger.info("EMACrossover: BUY (trend) strength=%.2f price=%.2f dist_atr=%.2f", strength, current_price, dist_atr)
-
             sl, tp = calculate_levels("BUY", current_price, current_atr, STOP_ATR_MULT, TP_ATR_MULT)
             return buy_signal(strength=strength, stop_loss=sl, take_profit=tp, atr=current_atr)
 
@@ -78,13 +70,9 @@ class EMACrossoverStrategy(BaseStrategy):
             if crossed_down:
                 fast_slope = fast.iloc[-1] - fast.iloc[-2]
                 strength = max(min(abs(fast_slope) / current_atr * 5, 1.0), 0.6) if current_atr > 0 else 0.6
-                logger.info("EMACrossover: SELL (crossover) strength=%.2f price=%.2f", strength, current_price)
             else:
                 strength = max(min(0.5 * (1 - dist_atr / self.config.max_distance_atr) + 0.4, 0.8), 0.4)
-                logger.info("EMACrossover: SELL (trend) strength=%.2f price=%.2f dist_atr=%.2f", strength, current_price, dist_atr)
-
             sl, tp = calculate_levels("SELL", current_price, current_atr, STOP_ATR_MULT, TP_ATR_MULT)
             return sell_signal(strength=strength, stop_loss=sl, take_profit=tp, atr=current_atr)
 
-        logger.debug("EMACrossover: HOLD fast=%.2f slow=%.2f", fast.iloc[-1], slow.iloc[-1])
         return hold_signal(atr=current_atr)

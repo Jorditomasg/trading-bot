@@ -12,12 +12,15 @@ class RiskConfig:
     max_drawdown: float = 0.15
     risk_per_trade: float = 0.01
     max_concurrent_trades: int = 1
-    min_signal_strength: float = 0.4
+    min_signal_strength: float = 0.5
     cooldown_hours: int = 4
     trail_atr_mult: float = 1.5
     trail_activation_mult: float = 1.0
-    quantity_precision: int = 5   # overridden at startup via exchangeInfo LOT_SIZE
+    quantity_precision: int = 5
     enable_regime_exit: bool = False
+    reversal_strength_threshold: float = 0.75
+    reversal_only_if_loss: bool = True
+    disable_reversal_exits: bool = True  # only close via SL/TP; proven better in backtests
 
 
 class RiskManager:
@@ -26,9 +29,15 @@ class RiskManager:
         self._breaker_triggered_at: Optional[datetime] = None
 
     def compute_position_size(
-        self, capital: float, entry: float, stop_loss: float
+        self,
+        capital: float,
+        entry: float,
+        stop_loss: float,
+        n_open_trades: int = 0,
     ) -> float:
-        risk_amount = capital * self.config.risk_per_trade
+        # Portfolio-level risk: divide total risk budget evenly across max concurrent slots.
+        # With max_concurrent_trades=1 (default) the formula is identical to the old one.
+        risk_amount = capital * self.config.risk_per_trade / self.config.max_concurrent_trades
         risk_per_unit = abs(entry - stop_loss)
 
         if risk_per_unit <= 0:
@@ -42,8 +51,9 @@ class RiskManager:
         quantity = round(quantity, self.config.quantity_precision)
 
         logger.info(
-            "Position size: capital=%.2f risk=%.2f entry=%.2f sl=%.2f → qty=%.*f",
-            capital, risk_amount, entry, stop_loss, self.config.quantity_precision, quantity,
+            "Position size: capital=%.2f risk=%.2f max_concurrent=%d entry=%.2f sl=%.2f → qty=%.*f",
+            capital, risk_amount, self.config.max_concurrent_trades,
+            entry, stop_loss, self.config.quantity_precision, quantity,
         )
         return quantity
 
@@ -84,7 +94,7 @@ class RiskManager:
         )
         return True
 
-    def validate_signal(self, signal: Signal, open_position: Optional[dict]) -> bool:
+    def validate_signal(self, signal: Signal, open_positions: list[dict]) -> bool:
         if signal.action == "HOLD":
             logger.debug("Signal skipped: action=HOLD")
             return False
@@ -96,12 +106,10 @@ class RiskManager:
             )
             return False
 
-        if open_position is not None:
-            # Allow opposite-direction signal (to close), reject same direction
-            existing_side = open_position.get("side", "")
-            if signal.action == existing_side:
+        for pos in open_positions:
+            if pos.get("side") == signal.action:
                 logger.info(
-                    "Signal rejected: already have an open %s position", existing_side
+                    "Signal rejected: already have an open %s position", signal.action
                 )
                 return False
 

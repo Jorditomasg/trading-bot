@@ -78,7 +78,7 @@ def drawdown_section(db: Database) -> None:
 @st.fragment(run_every=RefreshRates.POSITION)
 def open_position_section(db: Database) -> None:
     """Regime status + open trade details — compact horizontal layout."""
-    open_trade     = db.get_open_trade()
+    open_trades    = db.get_open_trades()
     recent_signals = db.get_recent_signals(50)
 
     last_regime   = recent_signals[0]["regime"]   if recent_signals else "RANGING"
@@ -96,27 +96,33 @@ def open_position_section(db: Database) -> None:
         _render_regime_timeline(recent_signals)
 
     with col_pos:
-        if open_trade:
-            entry    = open_trade["entry_price"]
-            sl       = open_trade["stop_loss"]
-            tp       = open_trade["take_profit"]
-            side     = open_trade["side"]
-            qty      = open_trade["quantity"]
-            pill_cls = "pill-running" if side == "BUY" else "pill-stopped"
+        if open_trades:
+            for i, trade in enumerate(open_trades):
+                if i > 0:
+                    st.divider()
+                entry    = trade["entry_price"]
+                sl       = trade["stop_loss"]
+                tp       = trade["take_profit"]
+                side     = trade["side"]
+                qty      = trade["quantity"]
+                tf       = trade.get("timeframe", "1h")
+                pill_cls = "pill-running" if side == "BUY" else "pill-stopped"
 
-            st.markdown(
-                f"<span class='pill {pill_cls}'>{side}</span> &nbsp; "
-                f"<span style='font-size:0.8rem'>{qty:.5f} BTC</span>",
-                unsafe_allow_html=True,
-            )
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Entry", f"${fmt(entry, ',.0f')}")
-            c2.metric("SL",    f"${fmt(sl, ',.0f')}")
-            c3.metric("TP",    f"${fmt(tp, ',.0f')}")
-            st.caption(f"{open_trade['strategy']} · {open_trade['regime']}")
+                st.markdown(
+                    f"<span class='pill {pill_cls}'>{side}</span> &nbsp; "
+                    f"<span style='font-size:0.8rem'>{qty:.5f} BTC</span> &nbsp; "
+                    f"<code style='font-size:0.7rem;color:#888'>{tf}</code>",
+                    unsafe_allow_html=True,
+                )
+                c1, c2, c3 = st.columns(3)
+                active_sl = trade.get("trailing_sl") or sl
+                c1.metric("Entry", f"${fmt(entry, ',.0f')}")
+                c2.metric("SL",    f"${fmt(active_sl, ',.0f')}")
+                c3.metric("TP",    f"${fmt(tp, ',.0f')}")
+                st.caption(f"{trade['strategy']} · {trade['regime']}")
         else:
             st.markdown(
                 "<span style='font-size:0.75rem;color:#333;letter-spacing:0.1em'>"
-                "NO OPEN POSITION</span>",
+                "NO OPEN POSITIONS</span>",
                 unsafe_allow_html=True,
             )

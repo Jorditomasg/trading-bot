@@ -95,6 +95,7 @@ class Database:
             for col, definition in [
                 ("atr",         "REAL"),
                 ("trailing_sl", "REAL"),
+                ("timeframe",   "TEXT DEFAULT '1h'"),
             ]:
                 if col not in trades_cols:
                     conn.execute(f"ALTER TABLE trades ADD COLUMN {col} {definition}")
@@ -136,19 +137,23 @@ class Database:
         take_profit: float,
         entry_time: Optional[datetime] = None,
         atr: Optional[float] = None,
+        timeframe: str = "1h",
     ) -> int:
         ts = (entry_time or datetime.now()).isoformat()
         with self._conn() as conn:
             cursor = conn.execute(
                 """INSERT INTO trades
                    (symbol, side, strategy, regime, entry_price, quantity,
-                    stop_loss, take_profit, entry_time, atr)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    stop_loss, take_profit, entry_time, atr, timeframe)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (symbol, side, strategy, regime, entry_price, quantity,
-                 stop_loss, take_profit, ts, atr),
+                 stop_loss, take_profit, ts, atr, timeframe),
             )
             trade_id = cursor.lastrowid
-        logger.info("Trade inserted id=%s side=%s entry=%.2f", trade_id, side, entry_price)
+        logger.info(
+            "Trade inserted id=%s side=%s entry=%.2f timeframe=%s",
+            trade_id, side, entry_price, timeframe,
+        )
         return trade_id
 
     def close_trade(
@@ -161,10 +166,12 @@ class Database:
         ts = (exit_time or datetime.now()).isoformat()
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT entry_price, quantity, side FROM trades WHERE id = ?", (trade_id,)
+                "SELECT entry_price, quantity, side FROM trades WHERE id = ? AND exit_price IS NULL",
+                (trade_id,),
             ).fetchone()
             if row is None:
-                raise ValueError(f"Trade id={trade_id} not found")
+                logger.warning("close_trade: trade id=%d already closed or not found — no-op", trade_id)
+                return
 
             entry_price: float = row["entry_price"]
             quantity: float = row["quantity"]
@@ -181,7 +188,7 @@ class Database:
                 """UPDATE trades
                    SET exit_price = ?, exit_time = ?, exit_reason = ?,
                        pnl = ?, pnl_pct = ?
-                   WHERE id = ?""",
+                   WHERE id = ? AND exit_price IS NULL""",
                 (exit_price, ts, exit_reason, pnl, pnl_pct, trade_id),
             )
         logger.info(
@@ -239,12 +246,18 @@ class Database:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def get_open_trade(self) -> Optional[dict]:
+    def get_open_trades(self) -> list[dict]:
+        """Return all open trades, ordered by entry_time descending."""
         with self._conn() as conn:
-            row = conn.execute(
-                "SELECT * FROM trades WHERE exit_price IS NULL ORDER BY entry_time DESC LIMIT 1"
-            ).fetchone()
-        return dict(row) if row else None
+            rows = conn.execute(
+                "SELECT * FROM trades WHERE exit_price IS NULL ORDER BY entry_time DESC"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_open_trade(self) -> Optional[dict]:
+        """Shim for backward compatibility — returns the most recent open trade or None."""
+        trades = self.get_open_trades()
+        return trades[0] if trades else None
 
     def get_performance_by_strategy(self) -> list[dict]:
         with self._conn() as conn:

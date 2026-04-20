@@ -4,14 +4,15 @@ from typing import Optional
 import pandas as pd
 
 from bot.bias.filter import Bias, BiasFilter
+from bot.config_presets import get_regime_config, get_strategy_configs
 from bot.constants import ExitReason, TradeAction, StrategyName
 from bot.database.db import Database
 from bot.regime.detector import MarketRegime, RegimeDetector
 from bot.risk.manager import RiskConfig, RiskManager
 from bot.strategy.base import BaseStrategy, Signal
-from bot.strategy.breakout import BreakoutStrategy
-from bot.strategy.ema_crossover import EMACrossoverStrategy
-from bot.strategy.mean_reversion import MeanReversionStrategy
+from bot.strategy.breakout import BreakoutConfig, BreakoutStrategy
+from bot.strategy.ema_crossover import EMACrossoverConfig, EMACrossoverStrategy
+from bot.strategy.mean_reversion import MeanReversionConfig, MeanReversionStrategy
 from bot.strategy.signal_factory import hold_signal
 
 logger = logging.getLogger(__name__)
@@ -33,17 +34,26 @@ class StrategyOrchestrator:
         symbol: str,
         risk_config: Optional[RiskConfig] = None,
         bias_filter: Optional[BiasFilter] = None,
+        timeframe: str = "1h",
     ) -> None:
         self.db = db
         self.symbol = symbol
+        self.timeframe = timeframe
         self.risk_manager = RiskManager(risk_config or RiskConfig())
-        self.regime_detector = RegimeDetector()
+        self.regime_detector = RegimeDetector(config=get_regime_config(timeframe))
         self.bias_filter = bias_filter
 
+        strategy_cfgs = get_strategy_configs(timeframe)
         self._strategies: dict[StrategyName, BaseStrategy] = {
-            StrategyName.EMA_CROSSOVER: EMACrossoverStrategy(),
-            StrategyName.MEAN_REVERSION: MeanReversionStrategy(),
-            StrategyName.BREAKOUT: BreakoutStrategy(),
+            StrategyName.EMA_CROSSOVER: EMACrossoverStrategy(
+                EMACrossoverConfig(**strategy_cfgs[StrategyName.EMA_CROSSOVER])
+            ),
+            StrategyName.MEAN_REVERSION: MeanReversionStrategy(
+                MeanReversionConfig(**strategy_cfgs[StrategyName.MEAN_REVERSION])
+            ),
+            StrategyName.BREAKOUT: BreakoutStrategy(
+                BreakoutConfig(**strategy_cfgs[StrategyName.BREAKOUT])
+            ),
         }
         self._peak_capital: float = db.get_peak_capital() or 0.0
 
@@ -52,7 +62,7 @@ class StrategyOrchestrator:
         df: pd.DataFrame,
         current_balance: float,
         df_high: Optional[pd.DataFrame] = None,
-    ) -> Optional[dict]:
+    ) -> list[dict]:
         # Update High Water Mark (HWM)
         if current_balance > self._peak_capital:
             self._peak_capital = current_balance
@@ -61,7 +71,7 @@ class StrategyOrchestrator:
 
         if self.risk_manager.check_circuit_breaker(current_balance, self._peak_capital):
             logger.warning("Orchestrator: circuit breaker active — no trading this cycle")
-            return None
+            return []
 
         regime = self.regime_detector.detect(df)
         logger.info("Orchestrator: regime=%s balance=%.2f", regime.value, current_balance)
@@ -93,44 +103,63 @@ class StrategyOrchestrator:
             bias.value if bias is not None else "N/A",
         )
 
-        open_trade = self.db.get_open_trade()
+        open_trades = self.db.get_open_trades()
 
-        # Check stop loss / take profit on open position
-        if open_trade is not None:
-            exit_order = self._evaluate_open_position(open_trade, df, signal, regime)
+        # Evaluate all open positions for exits (signal reversal / regime change)
+        orders: list[dict] = []
+        for trade in open_trades:
+            exit_order = self._evaluate_open_position(trade, df, signal, regime)
             if exit_order:
-                return exit_order
+                orders.append(exit_order)
 
-        # Validate and open a new position
-        if not self.risk_manager.validate_signal(signal, open_trade):
+        # If we produced any exit orders, return them — entry logic runs next cycle
+        if orders:
+            return orders
+
+        # Entry guard: respect max_concurrent_trades
+        if len(open_trades) >= self.risk_manager.config.max_concurrent_trades:
+            logger.debug(
+                "Orchestrator: max concurrent trades reached (%d/%d) — skipping new entry",
+                len(open_trades), self.risk_manager.config.max_concurrent_trades,
+            )
+            return []
+
+        # Duplicate guard: no two open trades with the same side + strategy
+        if any(t["side"] == signal.action and t["strategy"] == strategy.name for t in open_trades):
+            logger.info(
+                "Orchestrator: duplicate %s %s already open — skipping",
+                signal.action, strategy.name,
+            )
+            return []
+
+        # Validate signal strength and direction
+        if not self.risk_manager.validate_signal(signal, open_trades):
             logger.debug("Orchestrator: signal not valid for execution — skipping")
-            return None
-
-        if open_trade is not None:
-            logger.debug("Orchestrator: position already open — skipping new entry")
-            return None
+            return []
 
         current_price = float(df["close"].iloc[-1])
         quantity = self.risk_manager.compute_position_size(
             capital=current_balance,
             entry=current_price,
             stop_loss=signal.stop_loss,
+            n_open_trades=len(open_trades),
         )
         if quantity <= 0:
             logger.warning("Orchestrator: computed quantity=0 — skipping")
-            return None
+            return []
 
-        return {
-            "action": TradeAction.OPEN,
-            "side": signal.action,
-            "quantity": quantity,
+        return [{
+            "action":      TradeAction.OPEN,
+            "side":        signal.action,
+            "quantity":    quantity,
             "entry_price": current_price,
-            "stop_loss": signal.stop_loss,
+            "stop_loss":   signal.stop_loss,
             "take_profit": signal.take_profit,
-            "strategy": strategy.name,
-            "regime": regime.value,
-            "atr": signal.atr,
-        }
+            "strategy":    strategy.name,
+            "regime":      regime.value,
+            "atr":         signal.atr,
+            "timeframe":   self.timeframe,
+        }]
 
     def _select_strategy(self, regime: MarketRegime) -> BaseStrategy:
         default_name = REGIME_STRATEGY_MAP[regime]
@@ -184,11 +213,21 @@ class StrategyOrchestrator:
                     trade_regime, current_regime.value, trade_id,
                 )
 
-        if reason is None:
+        if reason is None and not self.risk_manager.config.disable_reversal_exits:
+            cfg = self.risk_manager.config
+            is_in_loss = (
+                (side == "BUY"  and current_price < trade["entry_price"]) or
+                (side == "SELL" and current_price > trade["entry_price"])
+            )
+            reversal_allowed = not cfg.reversal_only_if_loss or is_in_loss
             opposite = (
-                (side == "BUY"  and signal.action == "SELL") or
-                (side == "SELL" and signal.action == "BUY")
-            ) and signal.strength >= 0.5
+                (
+                    (side == "BUY"  and signal.action == "SELL") or
+                    (side == "SELL" and signal.action == "BUY")
+                )
+                and signal.strength >= cfg.reversal_strength_threshold
+                and reversal_allowed
+            )
             if opposite:
                 reason = ExitReason.SIGNAL_REVERSAL
 
