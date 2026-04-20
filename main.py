@@ -106,6 +106,33 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _apply_runtime_config(db: Database, risk_config: RiskConfig) -> None:
+    """Override settings + RiskConfig from DB runtime config (written by the dashboard)."""
+    cfg = db.get_runtime_config()
+    if not cfg:
+        return
+
+    if "symbol" in cfg:
+        settings.symbol = cfg["symbol"]
+        logger.info("Runtime config: symbol=%s", cfg["symbol"])
+    if "timeframe" in cfg:
+        settings.timeframe = cfg["timeframe"]
+        logger.info("Runtime config: timeframe=%s", cfg["timeframe"])
+    if "risk_per_trade" in cfg:
+        risk_config.risk_per_trade = float(cfg["risk_per_trade"])
+    if "max_drawdown" in cfg:
+        risk_config.max_drawdown = float(cfg["max_drawdown"])
+    if "max_concurrent" in cfg:
+        risk_config.max_concurrent_trades = int(cfg["max_concurrent"])
+    if "trail_atr_mult" in cfg:
+        risk_config.trail_atr_mult = float(cfg["trail_atr_mult"])
+    if "trail_act_mult" in cfg:
+        risk_config.trail_activation_mult = float(cfg["trail_act_mult"])
+    if "cooldown_hours" in cfg:
+        risk_config.cooldown_hours = int(cfg["cooldown_hours"])
+    logger.info("Runtime config applied: %s", cfg)
+
+
 def _init_quantity_precision(orchestrator: StrategyOrchestrator, db: Database) -> None:
     """Fetch the real LOT_SIZE stepSize for the configured symbol and update risk config."""
     try:
@@ -433,6 +460,7 @@ def main() -> None:
 
     db = Database()
     risk_config = RiskConfig(risk_per_trade=settings.risk_per_trade)
+    _apply_runtime_config(db, risk_config)
     bias_filter = BiasFilter(BiasFilterConfig())
     orchestrator = StrategyOrchestrator(
         db=db,
@@ -480,6 +508,9 @@ def main() -> None:
     )
 
     while not _shutdown:
+        if db.consume_restart_request():
+            logger.info("Restart requested via dashboard — exiting for container restart.")
+            break
         schedule.run_pending()
         time.sleep(10)
 

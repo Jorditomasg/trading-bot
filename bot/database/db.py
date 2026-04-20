@@ -428,6 +428,35 @@ class Database:
 
     # ── Single trade lookup ───────────────────────────────────────────────────
 
+    # ── Runtime config (hot-reloadable bot parameters) ───────────────────────
+
+    def get_runtime_config(self) -> dict:
+        """Return all runtime-configurable bot parameters from the KV store."""
+        keys = [
+            "symbol", "timeframe", "risk_per_trade", "max_drawdown",
+            "max_concurrent", "trail_atr_mult", "trail_act_mult", "cooldown_hours",
+        ]
+        result = {}
+        for key in keys:
+            val = self.get_config(f"rt_{key}")
+            if val is not None:
+                result[key] = val
+        return result
+
+    def set_runtime_config(self, **kwargs) -> None:
+        """Persist runtime config params to the KV store (rt_ prefix)."""
+        for key, value in kwargs.items():
+            self.set_config(f"rt_{key}", str(value))
+        logger.info("Runtime config updated: %s", list(kwargs.keys()))
+
+    def consume_restart_request(self) -> bool:
+        """Returns True (and clears the flag) if a dashboard restart was requested."""
+        if self.get_config("restart_requested") == "1":
+            self.set_config("restart_requested", "0")
+            logger.info("Restart request consumed")
+            return True
+        return False
+
     def get_trade(self, trade_id: int) -> dict | None:
         with self._conn() as conn:
             row = conn.execute(
