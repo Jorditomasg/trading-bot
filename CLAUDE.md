@@ -82,13 +82,17 @@ Developer reference for this codebase. Read this before touching anything.
 | `bot/strategy/levels.py` | Pure function: `calculate_levels(side, price, atr, sl_mult, tp_mult)` |
 | `bot/strategy/signal_factory.py` | Constructors: `buy_signal()`, `sell_signal()`, `hold_signal()` |
 | `bot/indicators/utils.py` | Pure functions: `atr()`, `rsi()`, `wilder_smooth()` |
-| `bot/database/db.py` | SQLite wrapper, DDL, migrations, all queries; `bot_config` KV store for Telegram config and pause state |
+| `bot/config_presets.py` | Timeframe-aware config factory: `get_regime_config(tf)` and `get_strategy_configs(tf)` — presets for 1h, 4h, 15m; fallback to 1h |
+| `bot/database/db.py` | SQLite wrapper, DDL, migrations, all queries; `bot_config` KV store for Telegram config, pause state, and runtime params; `optimizer_runs` table |
 | `bot/metrics.py` | Pure functions: Sharpe, max drawdown, profit factor, max loss streak |
 | `bot/exchange/binance_client.py` | Binance API client (testnet-aware) |
 | `bot/telegram_notifier.py` | `TelegramNotifier` — sends trade/circuit-breaker/lifecycle events; `register_commands()` registers bot menu via `setMyCommands`; lazy DB config reads |
 | `bot/telegram_commands.py` | `TelegramCommandHandler` — daemon thread, long-polls Telegram, handles `/pause` `/resume` `/status` `/report` |
-| `dashboard/app.py` | Streamlit app; `_topbar()` fragment (5s refresh) with live mode pill and settings popover; section order: KPIs → Live → [Equity | Drawdown + State] → Signals → Performance |
+| `bot/backtest/cache.py` | Parquet cache for OHLCV klines (`data/klines/`): `fetch_and_cache()` (incremental update), `cache_info()`, `download_full_history()` |
+| `bot/optimizer/walk_forward.py` | Grid search over EMA SL/TP ATR multipliers; runs backtest engine on recent data; saves viable configs to `optimizer_runs` for dashboard review |
+| `dashboard/app.py` | Streamlit app; 4 tabs: MONITOR \| CONFIG \| BACKTEST \| OPTIMIZER; `_topbar()` fragment (5s refresh) |
 | `dashboard/sections/open_position.py` | Regime badge + CSS flex timeline strip + open position; `drawdown_section` as separate `@st.fragment(run_every=10)` |
+| `dashboard/sections/optimizer.py` | Optimizer UI: grid search form, progress bar, PF heatmap, top-10 table, pending proposal banner (approve/reject), history table |
 | `dashboard/themes.py` | NothingOS palette + PLOTLY_LAYOUT definition |
 
 ---
@@ -116,6 +120,11 @@ Level 3 — Hurst Exponent (R/S analysis on last 100 bars)
 ```
 
 Config class: `RegimeDetectorConfig` in `bot/regime/detector.py`.
+
+> **Timeframe-dependent thresholds**: the values above are 1h defaults. `bot/config_presets.py`
+> provides calibrated presets per timeframe (1h, 4h, 15m). The orchestrator and backtest engine
+> both call `get_regime_config(timeframe)` — never instantiate `RegimeDetectorConfig` directly
+> with hardcoded values.
 
 ---
 
@@ -147,12 +156,12 @@ The fallback can switch across regime boundaries (e.g., use EMA_CROSSOVER in a R
 ## Strategy Details
 
 ### EMA Crossover (TRENDING)
-- Signal: EMA9/EMA21 crossover (single-bar) OR trend-continuation entry when price is within `max_distance_atr` (default 1.5) of EMA9
+- Signal: EMA9/EMA21 crossover (single-bar) OR trend-continuation entry when price is within `max_distance_atr` of EMA9
 - Crossover strength: `abs(fast_slope) / ATR × 5`, floor 0.6
 - Trend strength: `0.5 × (1 - dist_atr / max_distance_atr) + 0.4`, capped 0.4–0.8
 - Distance check uses `abs()` — filters overextension in both directions (above AND below EMA9)
-- SL: `1.5 × ATR` below/above entry
-- TP: `2.5 × ATR` above/below entry
+- SL: `stop_atr_mult × ATR` below/above entry (default 1.5; overridable via `ema_stop_mult` runtime config)
+- TP: `tp_atr_mult × ATR` above/below entry (default 3.5; overridable via `ema_tp_mult` runtime config)
 
 ### Mean Reversion (RANGING)
 - Signal: price touches Bollinger Band (20, 2σ) AND RSI confirms oversold/overbought
@@ -331,6 +340,89 @@ calls `BinanceClient.get_quantity_precision(symbol)` which reads the `LOT_SIZE` 
 `exchangeInfo` (unauthenticated endpoint). On failure it logs a warning and keeps the default.
 This means multi-pair operation (SOL, ETH, etc.) gets the correct decimal places automatically.
 
+### 17. `orchestrator.step()` third arg is `df_high`, not `df_4h`
+
+The parameter was renamed from `df_4h` to `df_high` to reflect that it carries the
+higher-timeframe candles for `BiasFilter` — which is **not always 4h** depending on
+the primary timeframe:
+
+```python
+_BIAS_TF = {"1h": "4h", "2h": "4h", "4h": "1d", "8h": "1d", "1d": "1w"}
+```
+
+`main.py` fetches the correct bias timeframe based on `TIMEFRAME` setting and passes it
+as `df_high`. The optimizer also follows this mapping.
+
+### 18. Runtime EMA config applied at startup — requires bot restart
+
+The optimizer writes `ema_stop_mult` and `ema_tp_mult` to the `bot_config` KV store
+when a proposal is approved. `main.py` reads these keys at startup (before the scheduler
+starts) and patches them directly onto `EMACrossoverStrategy.config`:
+
+```python
+if "ema_stop_mult" in cfg:
+    ema_strategy.config.stop_atr_mult = float(cfg["ema_stop_mult"])
+```
+
+This means **approved optimizer proposals only take effect after a bot restart**. The
+dashboard shows a "Restart the bot to activate" message on approval for this reason.
+The values are NOT hot-reloaded at runtime.
+
+### 19. Optimizer viability constraints — all four must pass
+
+`walk_forward.py` gates results before saving to DB. A config is `viable` only if:
+- `total_trades >= 15`
+- `max_drawdown_pct <= 20.0`
+- `sharpe_ratio >= 0.4`
+- `profit_factor >= 1.05`
+
+Skipped R:R combos: any combo where `tp_mult / stop_mult < 1.5` is skipped outright
+(minimum 1.5:1 risk-reward enforced). Results are sorted viable-first then by PF DESC.
+
+### 20. Parquet cache lives at `data/klines/` — shared by backtest and optimizer
+
+`bot/backtest/cache.py` stores OHLCV data as `data/klines/{SYMBOL}_{INTERVAL}.parquet`.
+The cache is incremental: only missing bars are fetched. The directory is created
+automatically on first use. Both `BacktestEngine` (via `fetch_and_cache`) and the optimizer
+use this cache — running the backtest runner first populates the cache for the optimizer.
+Thread-safe for reads; single-writer per file.
+
+---
+
+## Walk-Forward Optimizer
+
+`bot/optimizer/walk_forward.py` runs a grid search over EMA `stop_atr_mult` × `tp_atr_mult`
+to find the best SL/TP combination for the current market conditions.
+
+### Search space
+
+```python
+STOP_GRID = [1.0, 1.25, 1.5, 1.75, 2.0]   # SL ATR multipliers
+TP_GRID   = [2.5, 3.0, 3.5, 4.0, 4.5, 5.0] # TP ATR multipliers
+```
+
+30 combinations total, minus those with R:R < 1.5 (skipped outright).
+
+### Workflow
+
+1. Dashboard OPTIMIZER tab → user selects symbol, timeframe, lookback (days), risk %, fee %.
+2. `run_grid_search()` calls `fetch_and_cache()` for primary + bias timeframe klines.
+3. For each (stop, tp) combo, runs `BacktestEngine` with `simulate_trailing=True`.
+4. Viable results saved to `optimizer_runs` table (status `pending`).
+5. Dashboard shows **pending proposal banner** — user clicks Approve or Reject.
+6. Approve → `set_runtime_config(ema_stop_mult=..., ema_tp_mult=...)` → bot restart applies it.
+
+### Database methods
+
+| Method | Description |
+|---|---|
+| `insert_optimizer_run(...)` | Save one grid result with all metrics and status=pending |
+| `get_optimizer_runs(limit)` | List recent runs for history table (sorted by timestamp DESC) |
+| `get_best_pending_optimizer_run()` | Best pending run by profit_factor (for banner) |
+| `set_optimizer_run_status(id, status)` | Update to `approved` or `rejected` |
+| `get_runtime_config()` | Read all bot_config keys as a dict |
+| `set_runtime_config(**kwargs)` | Write key=value pairs to bot_config |
+
 ---
 
 ## Telegram Integration
@@ -359,6 +451,8 @@ mode). Keys:
 | `telegram_chat_id` | str | Target chat ID |
 | `telegram_enabled` | `"true"` / `"false"` | Master on/off switch |
 | `bot_paused` | `"true"` / `"false"` | Pause flag checked at `run_cycle()` start |
+| `ema_stop_mult` | str (float) | EMA SL ATR multiplier; applied at startup from optimizer approval |
+| `ema_tp_mult` | str (float) | EMA TP ATR multiplier; applied at startup from optimizer approval |
 
 Relevant `Database` methods:
 - `save_telegram_config(token, chat_id, enabled)` — writes all three config keys

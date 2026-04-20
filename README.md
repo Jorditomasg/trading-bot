@@ -10,12 +10,12 @@ Regime-adaptive algorithmic trading bot for Binance (Testnet and Mainnet). Autom
 
 ## Overview
 
-The bot runs on a 1-hour candle cycle. Each cycle it:
+The bot runs on a configurable candle interval (default: 1h). Each cycle it:
 
-1. Fetches the last 200 OHLCV candles (1h) and 150 candles (4h) from Binance
+1. Fetches the last 200 OHLCV candles (primary TF) and the corresponding higher-TF candles from Binance
 2. Classifies the market as TRENDING, RANGING, or VOLATILE using a 3-level detection cascade
 3. Selects the best-fit strategy for the current regime (with live win-rate fallback logic)
-4. Generates a signal and filters it through the multi-timeframe BiasFilter (4h EMA9/21 alignment)
+4. Generates a signal and filters it through the multi-timeframe BiasFilter (higher-TF EMA9/21 alignment)
 5. Validates the signal through the risk manager
 6. Opens or closes a position on Binance, writes results to SQLite
 7. Records an equity snapshot for the dashboard
@@ -23,13 +23,15 @@ The bot runs on a 1-hour candle cycle. Each cycle it:
 **Key features:**
 
 - 3-level regime detection: ATR volatility spike → ADX → Hurst exponent (R/S analysis)
-- 3 strategies, each tuned to a different market condition
-- **Multi-timeframe BiasFilter**: EMA9/21 on 4h candles gates 1h signals — only trades in the direction of the higher-timeframe trend; fail-closed (network errors block signals, not bypass them)
+- 3 strategies, each tuned to a different market condition; calibrated per timeframe via presets (1h, 4h, 15m)
+- **Multi-timeframe BiasFilter**: EMA9/21 on the higher-TF candles gates primary-TF signals — only trades in the direction of the higher-timeframe trend; fail-closed (network errors block signals, not bypass them)
 - Dynamic position sizing: risk a fixed % of capital per trade (default 1%)
 - Trailing stop-loss that activates after a configurable ATR distance
 - Circuit breaker: halts trading on >15% drawdown; auto-resets after 4 hours or recovery
 - Win-rate fallback: switches away from underperforming strategies automatically
-- Nothing OS dashboard — real-time Streamlit UI with equity curve, drawdown, P&L, signal log
+- Nothing OS dashboard — 4-tab Streamlit UI: MONITOR · CONFIG · BACKTEST · OPTIMIZER
+- **Walk-forward optimizer**: grid search over EMA SL/TP ATR multipliers on real historical data; approving a result updates the live config
+- **Backtest runner**: historical simulation with Parquet-cached klines; supports fee modelling and trailing stop
 - Full dry-run mode: no exchange calls, but equity curve is still recorded
 - DEMO / MAINNET mode switch from the dashboard settings panel
 - Telegram notifications: trade open/close, circuit breaker trigger, bot start/stop — tagged with `🧪 DEMO` or `🔴 MAINNET`
@@ -46,16 +48,16 @@ The bot runs on a 1-hour candle cycle. Each cycle it:
                                │
                   ┌────────────▼────────────┐
                   │     BinanceClient        │
-                  │  200 OHLCV candles (1h)  │
-                  │  150 OHLCV candles (4h)  │
+                  │  200 OHLCV candles (TF)  │
+                  │  higher-TF bias candles  │
                   └────────────┬────────────┘
-                               │ df_1h + df_4h
+                               │ df + df_high
                   ┌────────────▼────────────┐
                   │   StrategyOrchestrator   │
                   │                          │
                   │  ┌────────────────────┐  │
                   │  │  RegimeDetector    │  │
-                  │  │  (on df_1h)        │  │
+                  │  │  (on primary TF)   │  │
                   │  │  L1: ATR spike?    │  │──► VOLATILE  → Breakout
                   │  │  L2: ADX >= 25?    │  │──► TRENDING  → EMA Crossover
                   │  │  L3: Hurst H?      │  │──► RANGING   → Mean Reversion
@@ -68,7 +70,7 @@ The bot runs on a 1-hour candle cycle. Each cycle it:
                   │                          │
                   │  ┌────────────────────┐  │
                   │  │  BiasFilter        │  │
-                  │  │  (on df_4h)        │  │
+                  │  │  (on df_high)      │  │
                   │  │  EMA9 > EMA21?     │  │──► BULLISH → only BUY passes
                   │  │  EMA9 < EMA21?     │  │──► BEARISH → only SELL passes
                   │  │  gap < 0.1%?       │  │──► NEUTRAL → no signal (fail-closed)
@@ -104,9 +106,11 @@ The bot runs on a 1-hour candle cycle. Each cycle it:
 
 | Strategy | Regime | Entry Condition | SL | TP | Key Parameters |
 |---|---|---|---|---|---|
-| **EMA Crossover** | TRENDING | EMA9 crosses EMA21 | 1.5× ATR | 2.5× ATR | fast=9, slow=21 |
-| **Mean Reversion** | RANGING | Price at Bollinger Band + RSI confirmation | 1.5× ATR | BB midline (SMA20) | BB(20, 2σ), RSI(14) oversold<30 / overbought>70 |
-| **Breakout** | VOLATILE | Close breaks Donchian channel (20) with volume > 1.5× average | 2.0× ATR | 3.0× ATR | channel=20, vol_mult=1.5 |
+| **EMA Crossover** | TRENDING | EMA9 crosses EMA21 (or trend-continuation pullback within 1.5 ATR of EMA9) | 1.5× ATR | 3.5× ATR¹ | fast=9, slow=21 |
+| **Mean Reversion** | RANGING | Price at Bollinger Band + RSI confirmation | 1.5× ATR | BB midline (SMA20) | BB(20, 2σ), RSI(14) oversold<35 / overbought>65 (1h) |
+| **Breakout** | VOLATILE | Close breaks Donchian channel with volume > 1.5–2.0× average | 2.0× ATR | 3.0× ATR | channel=20–30, vol_mult=1.5–2.0 (TF-dependent) |
+
+¹ EMA Crossover SL/TP multipliers are runtime-configurable via the Optimizer dashboard and stored in the DB; they take effect on the next bot restart.
 
 Signal strength is a 0.0–1.0 score. Signals with strength < 0.4 are rejected by the risk manager.
 Opposite signals with strength >= 0.5 close an open position (signal reversal exit).
@@ -201,7 +205,11 @@ All configuration is read from environment variables (`.env` file or Docker env)
 
 ## Dashboard Guide
 
-The dashboard auto-refreshes every 60 seconds. All times are UTC.
+The dashboard has 4 tabs: **MONITOR**, **CONFIG**, **BACKTEST**, **OPTIMIZER**.
+
+All times are UTC.
+
+### MONITOR tab
 
 **Topbar** — Bot name, running status pill, mode badge (`● DEMO` or `● MAINNET` — reads actual active mode from DB), current regime badge, clock (updates every 5s). Settings (⚙) button at the top right opens the configuration popover.
 
@@ -224,6 +232,24 @@ The dashboard auto-refreshes every 60 seconds. All times are UTC.
 **Signal Log** — Last 20 signals generated. Shows timestamp, strategy, regime, action (BUY/SELL/HOLD), and strength score.
 
 **Settings (⚙ popover)** — Always accessible from the top right. Contains DEMO/MAINNET mode switch and the Telegram configuration section (token, chat ID, enable toggle, Save and Test buttons). Changes take effect immediately without restarting the bot.
+
+### CONFIG tab
+
+Manage runtime bot settings from the dashboard: symbol, timeframe, risk per trade, and EMA strategy SL/TP multipliers. Changes are saved to the `bot_config` DB table; they take effect on the next bot restart.
+
+### BACKTEST tab
+
+Run a historical simulation directly from the dashboard. Uses cached Parquet klines from `data/klines/` (downloaded automatically on first run). Results include equity curve, trade log, and summary metrics (PF, Sharpe, win rate, max drawdown).
+
+### OPTIMIZER tab
+
+Runs a grid search over EMA `stop_atr_mult` × `tp_atr_mult` on recent historical data.
+
+- Select symbol, timeframe, lookback period, risk %, and fee per side
+- Results are scored by Profit Factor and filtered by viability constraints (≥15 trades, DD ≤20%, Sharpe ≥0.4, PF ≥1.05)
+- Viable configs are saved as `pending` proposals in the DB
+- A banner appears at the top of the OPTIMIZER tab for the best pending proposal — click **Approve & Apply** to write the parameters to the bot config, or **Reject** to discard
+- Approved parameters take effect after restarting the bot
 
 ---
 
@@ -281,7 +307,7 @@ Both the `bot` and `dashboard` services use the same image. No separate Dockerfi
 Two common causes:
 
 1. **Circuit breaker active** — drawdown > 15%. Check logs for `CIRCUIT BREAKER triggered`. Resets after 4 hours or on drawdown recovery.
-2. **BiasFilter blocking signals** — if the 4h EMA9/21 are too close (< 0.1% gap) or the 4h fetch is failing, the filter returns `NEUTRAL` and blocks all directional signals. Check logs for `BiasFilter blocked signal` or `Failed to fetch 4h klines`. Also check that signal strength is reaching 0.4+ in the dashboard signal log.
+2. **BiasFilter blocking signals** — if the higher-TF EMA9/21 are too close (< 0.1% gap) or the higher-TF fetch is failing, the filter returns `NEUTRAL` and blocks all directional signals. Check logs for `BiasFilter blocked signal` or kline fetch errors. Also check that signal strength is reaching 0.4+ in the dashboard signal log.
 
 **Dashboard shows "waiting for data..." on charts**
 
