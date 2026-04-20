@@ -60,6 +60,8 @@ _STRATEGY_PRESETS: dict[str, dict[StrategyName, dict]] = {
             slow_period=21,
             atr_period=14,
             max_distance_atr=1.5,
+            stop_atr_mult=1.5,
+            tp_atr_mult=3.5,
         ),
         StrategyName.MEAN_REVERSION: dict(
             bb_period=20,
@@ -80,7 +82,9 @@ _STRATEGY_PRESETS: dict[str, dict[StrategyName, dict]] = {
             fast_period=9,
             slow_period=21,
             atr_period=14,
-            max_distance_atr=1.0,   # tighter — 4h bars are larger; only close pullbacks
+            max_distance_atr=1.0,
+            stop_atr_mult=1.5,
+            tp_atr_mult=3.5,
         ),
         StrategyName.MEAN_REVERSION: dict(
             bb_period=20,
@@ -102,6 +106,8 @@ _STRATEGY_PRESETS: dict[str, dict[StrategyName, dict]] = {
             slow_period=13,
             atr_period=14,
             max_distance_atr=1.0,
+            stop_atr_mult=1.5,
+            tp_atr_mult=3.5,
         ),
         StrategyName.MEAN_REVERSION: dict(
             bb_period=20,

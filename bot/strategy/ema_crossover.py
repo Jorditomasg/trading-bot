@@ -10,16 +10,14 @@ from bot.strategy.levels import calculate_levels
 
 logger = logging.getLogger(__name__)
 
-STOP_ATR_MULT = 1.5
-TP_ATR_MULT   = 3.5
-
-
 @dataclass
 class EMACrossoverConfig:
     fast_period:      int   = 9
     slow_period:      int   = 21
     atr_period:       int   = 14
     max_distance_atr: float = 1.5
+    stop_atr_mult:    float = 1.5   # SL distance in ATR units
+    tp_atr_mult:      float = 3.5   # TP distance in ATR units
 
 
 class EMACrossoverStrategy(BaseStrategy):
@@ -63,7 +61,7 @@ class EMACrossoverStrategy(BaseStrategy):
                 strength = max(min(abs(fast_slope) / current_atr * 5, 1.0), 0.6) if current_atr > 0 else 0.6
             else:
                 strength = max(min(0.5 * (1 - dist_atr / self.config.max_distance_atr) + 0.4, 0.8), 0.4)
-            sl, tp = calculate_levels("BUY", current_price, current_atr, STOP_ATR_MULT, TP_ATR_MULT)
+            sl, tp = calculate_levels("BUY", current_price, current_atr, self.config.stop_atr_mult, self.config.tp_atr_mult)
             return buy_signal(strength=strength, stop_loss=sl, take_profit=tp, atr=current_atr)
 
         if action == "SELL":
@@ -72,7 +70,7 @@ class EMACrossoverStrategy(BaseStrategy):
                 strength = max(min(abs(fast_slope) / current_atr * 5, 1.0), 0.6) if current_atr > 0 else 0.6
             else:
                 strength = max(min(0.5 * (1 - dist_atr / self.config.max_distance_atr) + 0.4, 0.8), 0.4)
-            sl, tp = calculate_levels("SELL", current_price, current_atr, STOP_ATR_MULT, TP_ATR_MULT)
+            sl, tp = calculate_levels("SELL", current_price, current_atr, self.config.stop_atr_mult, self.config.tp_atr_mult)
             return sell_signal(strength=strength, stop_loss=sl, take_profit=tp, atr=current_atr)
 
         return hold_signal(atr=current_atr)

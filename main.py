@@ -130,7 +130,22 @@ def _apply_runtime_config(db: Database, risk_config: RiskConfig) -> None:
         risk_config.trail_activation_mult = float(cfg["trail_act_mult"])
     if "cooldown_hours" in cfg:
         risk_config.cooldown_hours = int(cfg["cooldown_hours"])
-    logger.info("Runtime config applied: %s", cfg)
+    logger.info("Runtime config applied: %s", list(cfg.keys()))
+
+
+def _apply_ema_config(db: Database, orchestrator: "StrategyOrchestrator") -> None:
+    """Apply optimizer-approved EMA TP/SL multipliers to the live strategy instance."""
+    from bot.constants import StrategyName
+    cfg = db.get_runtime_config()
+    ema_strategy = orchestrator._strategies.get(StrategyName.EMA_CROSSOVER)
+    if ema_strategy is None:
+        return
+    if "ema_stop_mult" in cfg:
+        ema_strategy.config.stop_atr_mult = float(cfg["ema_stop_mult"])
+        logger.info("Runtime config: ema_stop_mult=%.2f", float(cfg["ema_stop_mult"]))
+    if "ema_tp_mult" in cfg:
+        ema_strategy.config.tp_atr_mult = float(cfg["ema_tp_mult"])
+        logger.info("Runtime config: ema_tp_mult=%.2f", float(cfg["ema_tp_mult"]))
 
 
 def _init_quantity_precision(orchestrator: StrategyOrchestrator, db: Database) -> None:
@@ -475,6 +490,7 @@ def main() -> None:
         breakout_strategy=orchestrator._strategies[StrategyName.BREAKOUT],
         risk_manager=orchestrator.risk_manager,
     )
+    _apply_ema_config(db, orchestrator)
     _init_quantity_precision(orchestrator, db)
     _init_price_precision(db)
 

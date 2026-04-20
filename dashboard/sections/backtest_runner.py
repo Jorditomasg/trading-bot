@@ -8,8 +8,8 @@ from datetime import datetime, timedelta, timezone
 import plotly.graph_objects as go
 import streamlit as st
 
+from bot.backtest.cache import cache_info, fetch_and_cache
 from bot.backtest.engine import BacktestConfig, BacktestEngine
-from bot.backtest.fetcher import fetch_historical_klines
 from bot.database.db import Database
 from dashboard.constants import GREEN, RED, WHITE, MUTED, ChartConfig
 from dashboard.themes import NothingOS
@@ -55,20 +55,36 @@ def _verdict(summary: dict) -> tuple[bool, list[str]]:
 # ── Equity mini-chart ─────────────────────────────────────────────────────────
 
 def _equity_chart(equity_curve: list[dict], initial_capital: float) -> go.Figure:
-    ts  = [r["timestamp"] for r in equity_curve]
-    bal = [r["balance"]   for r in equity_curve]
-    color = WHITE if bal[-1] >= initial_capital else RED
+    bal = [r["balance"] for r in equity_curve]
+    color = GREEN if bal[-1] >= initial_capital else RED
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=ts, y=bal, mode="lines",
+        y=bal, mode="lines",
         line=dict(color=color, width=ChartConfig.LINE_WIDTH),
-        fill="tozeroy", fillcolor=f"rgba(245,245,245,0.04)",
+        fill="tozeroy", fillcolor="rgba(245,245,245,0.04)",
         showlegend=False,
     ))
     fig.add_hline(y=initial_capital, line_dash="dot", line_color="#333", line_width=1)
     fig.update_layout(**PLOTLY_LAYOUT, height=180)
     fig.update_yaxes(gridcolor="#111", showline=False, zeroline=False)
     return fig
+
+
+# ── Cache status badge ────────────────────────────────────────────────────────
+
+def _cache_badge(symbol: str, interval: str) -> str:
+    info = cache_info(symbol, interval)
+    if info is None:
+        return (
+            f"<span style='font-size:0.6rem;color:#555;letter-spacing:0.1em'>"
+            f"NO CACHE — will download on run</span>"
+        )
+    return (
+        f"<span style='font-size:0.6rem;color:#555;letter-spacing:0.1em'>"
+        f"CACHE: {info['rows']:,} bars · "
+        f"{info['from'].strftime('%Y-%m-%d')} → {info['to'].strftime('%Y-%m-%d')} · "
+        f"{info['size_mb']} MB</span>"
+    )
 
 
 # ── Main section ──────────────────────────────────────────────────────────────
@@ -112,13 +128,26 @@ def backtest_runner_section(db: Database) -> None:
                 cost_pct = st.number_input(
                     "Fee / side (%)", min_value=0.0, max_value=1.0,
                     value=0.07, step=0.01, format="%.2f",
-                    help="0.02% maker (LIMIT_MAKER) · 0.07% recommended · 0.10% taker (MARKET)",
+                    help="0.02% maker · 0.07% recommended · 0.10% taker",
                 )
-                use_bias = st.checkbox("BiasFilter (daily EMA9/21)", value=True)
+                use_bias      = st.checkbox("BiasFilter (daily EMA9/21)", value=True)
+                use_1m        = st.checkbox(
+                    "1m precision exits",
+                    value=False,
+                    help=(
+                        "Download 1-minute bars and use them for exact SL/TP/trailing "
+                        "stop timing. Much more realistic — requires more data."
+                    ),
+                )
 
             submitted = st.form_submit_button(
                 "▶  Run Backtest", use_container_width=True, type="primary",
             )
+
+        # Cache status (outside form so it updates without submit)
+        st.markdown(_cache_badge(symbol, timeframe), unsafe_allow_html=True)
+        if use_1m:
+            st.markdown(_cache_badge(symbol, "1m"), unsafe_allow_html=True)
 
     # ── Trigger run ───────────────────────────────────────────────────────────
     if submitted:
@@ -130,7 +159,7 @@ def backtest_runner_section(db: Database) -> None:
         else:
             _run_backtest(
                 symbol, timeframe, start_dt, end_dt,
-                capital, risk_pct / 100, cost_pct / 100, use_bias,
+                capital, risk_pct / 100, cost_pct / 100, use_bias, use_1m,
             )
 
     # ── Right: results (persist across re-runs via session_state) ─────────────
@@ -148,24 +177,54 @@ def backtest_runner_section(db: Database) -> None:
 
 # ── Runner ────────────────────────────────────────────────────────────────────
 
-def _run_backtest(symbol, timeframe, start_dt, end_dt, capital, risk, cost, use_bias):
-    bias_tf = _BIAS_TF.get(timeframe, "1d")
+def _run_backtest(
+    symbol: str,
+    timeframe: str,
+    start_dt: datetime,
+    end_dt: datetime,
+    capital: float,
+    risk: float,
+    cost: float,
+    use_bias: bool,
+    use_1m: bool,
+) -> None:
+    bias_tf   = _BIAS_TF.get(timeframe, "1d")
+    progress  = st.empty()
 
-    with st.spinner(f"Fetching {symbol} {timeframe} klines…"):
+    def on_progress(msg: str) -> None:
+        progress.caption(msg)
+
+    # ── Fetch primary bars ────────────────────────────────────────────────────
+    with st.spinner(f"Fetching {symbol} {timeframe} data…"):
         try:
-            df = fetch_historical_klines(symbol, timeframe, start_dt, end_dt)
+            df = fetch_and_cache(symbol, timeframe, start_dt, end_dt, on_progress=on_progress)
         except Exception as exc:
             st.error(f"Failed to fetch {timeframe} data: {exc}")
+            progress.empty()
             return
 
+    # ── Fetch bias bars ───────────────────────────────────────────────────────
     df_bias = None
     if use_bias:
         with st.spinner(f"Fetching {bias_tf} klines for BiasFilter…"):
             try:
-                df_bias = fetch_historical_klines(symbol, bias_tf, start_dt, end_dt)
+                df_bias = fetch_and_cache(symbol, bias_tf, start_dt, end_dt, on_progress=on_progress)
             except Exception as exc:
                 st.warning(f"Could not fetch {bias_tf} data ({exc}) — running without BiasFilter.")
 
+    # ── Fetch 1m bars for precision exits ─────────────────────────────────────
+    df_1m = None
+    if use_1m:
+        with st.spinner("Fetching 1m klines for precision exits (this may take a while)…"):
+            try:
+                df_1m = fetch_and_cache(symbol, "1m", start_dt, end_dt, on_progress=on_progress)
+                on_progress(f"1m cache ready: {len(df_1m):,} bars")
+            except Exception as exc:
+                st.warning(f"Could not fetch 1m data ({exc}) — falling back to bar-level precision.")
+
+    progress.empty()
+
+    # ── Run engine ────────────────────────────────────────────────────────────
     cfg = BacktestConfig(
         initial_capital=capital,
         risk_per_trade=risk,
@@ -176,7 +235,7 @@ def _run_backtest(symbol, timeframe, start_dt, end_dt, capital, risk, cost, use_
 
     with st.spinner("Simulating…"):
         try:
-            result  = engine.run(df, df_4h=df_bias, symbol=symbol)
+            result  = engine.run(df, df_4h=df_bias, symbol=symbol, df_1m=df_1m)
             summary = engine.summary(result)
         except Exception as exc:
             st.error(f"Backtest error: {exc}")
