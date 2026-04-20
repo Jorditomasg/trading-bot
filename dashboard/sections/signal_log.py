@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from bot.database.db import Database
-from dashboard.constants import RED, WHITE, MUTED, CAPTION, RefreshRates
+from dashboard.constants import GREEN, RED, WHITE, MUTED, CAPTION, RefreshRates
 
 
 @st.fragment(run_every=RefreshRates.POSITION)
@@ -20,6 +20,7 @@ def signal_log_section(db: Database) -> None:
             "TIME":     s["timestamp"][:19].replace("T", " "),
             "STRATEGY": s["strategy"],
             "REGIME":   s["regime"],
+            "BIAS":     s.get("bias") or "—",
             "ACTION":   s["action"],
             "STR":      f"{s['strength']:.2f}",
         }
@@ -36,9 +37,15 @@ def signal_log_section(db: Database) -> None:
         if val == "TRENDING": return f"color: {WHITE}"
         return f"color: {MUTED}"
 
+    def _style_bias(val: str):
+        if val == "BULLISH": return f"color: {GREEN}; font-weight: 700"
+        if val == "BEARISH": return f"color: {RED}; font-weight: 700"
+        return f"color: {CAPTION}"
+
     styled_s = (
         df_s.style
         .applymap(_style_action, subset=["ACTION"])
         .applymap(_style_regime, subset=["REGIME"])
+        .applymap(_style_bias,   subset=["BIAS"])
     )
     st.dataframe(styled_s, use_container_width=True, hide_index=True)

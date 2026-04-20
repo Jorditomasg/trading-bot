@@ -35,5 +35,10 @@ def _regime_badge(regime: str) -> str:
     return f'<span class="regime regime-{r}">{r}</span>'
 
 
+def _bias_badge(bias: str | None) -> str:
+    b = (bias or "NEUTRAL").upper()
+    return f'<span class="bias bias-{b}">{b}</span>'
+
+
 def _pnl_color(val: float) -> str:
     return WHITE if val >= 0 else RED

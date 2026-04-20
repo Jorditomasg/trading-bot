@@ -107,6 +107,20 @@ h2 { font-size: 0.85rem !important; letter-spacing: 0.18em; text-transform: uppe
 .regime-RANGING   { border: 1px solid #555;    color: #888; }
 .regime-VOLATILE  { border: 1px solid #FF0000; color: #FF0000; }
 
+/* ── Bias badges ─────────────────────────────────────────── */
+.bias {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 0.6rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 700;
+    font-family: 'Space Mono', monospace;
+}
+.bias-BULLISH { border: 1px solid #00C853; color: #00C853; }
+.bias-BEARISH { border: 1px solid #FF0000; color: #FF0000; }
+.bias-NEUTRAL { border: 1px solid #333;    color: #555; }
+
 /* ── PnL colours ────────────────────────────────────────── */
 .pos { color: #F5F5F5; font-weight: 700; }
 .neg { color: #FF0000; font-weight: 700; }

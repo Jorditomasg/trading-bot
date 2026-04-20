@@ -6,7 +6,7 @@ import streamlit as st
 from bot.database.db import Database
 from dashboard.constants import RED, REGIME_COLORS, ChartConfig, Thresholds, RefreshRates
 from dashboard.themes import NothingOS
-from dashboard.utils import _regime_badge, fmt
+from dashboard.utils import _bias_badge, _regime_badge, fmt
 
 PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
 
@@ -81,14 +81,15 @@ def open_position_section(db: Database) -> None:
     open_trades    = db.get_open_trades()
     recent_signals = db.get_recent_signals(50)
 
-    last_regime   = recent_signals[0]["regime"]   if recent_signals else "RANGING"
-    last_strategy = recent_signals[0]["strategy"] if recent_signals else "—"
+    last_regime   = recent_signals[0]["regime"]       if recent_signals else "RANGING"
+    last_strategy = recent_signals[0]["strategy"]     if recent_signals else "—"
+    last_bias     = recent_signals[0].get("bias")     if recent_signals else None
 
     col_regime, col_pos = st.columns([2, 3])
 
     with col_regime:
         st.markdown(
-            f"Regime &nbsp; {_regime_badge(last_regime)} &nbsp;&nbsp; "
+            f"Regime &nbsp; {_regime_badge(last_regime)} &nbsp; {_bias_badge(last_bias)} &nbsp;&nbsp; "
             f"<span style='font-size:0.65rem;letter-spacing:0.12em;color:#555'>STRATEGY</span> "
             f"<code>{last_strategy}</code>",
             unsafe_allow_html=True,
@@ -115,10 +116,12 @@ def open_position_section(db: Database) -> None:
                     unsafe_allow_html=True,
                 )
                 c1, c2, c3 = st.columns(3)
-                active_sl = trade.get("trailing_sl") or sl
-                c1.metric("Entry", f"${fmt(entry, ',.0f')}")
-                c2.metric("SL",    f"${fmt(active_sl, ',.0f')}")
-                c3.metric("TP",    f"${fmt(tp, ',.0f')}")
+                trailing_sl = trade.get("trailing_sl")
+                active_sl   = trailing_sl if trailing_sl is not None else sl
+                sl_label    = "TRAIL SL" if trailing_sl is not None else "SL"
+                c1.metric("Entry",    f"${fmt(entry, ',.0f')}")
+                c2.metric(sl_label,   f"${fmt(active_sl, ',.0f')}")
+                c3.metric("TP",       f"${fmt(tp, ',.0f')}")
                 st.caption(f"{trade['strategy']} · {trade['regime']}")
         else:
             st.markdown(

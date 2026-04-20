@@ -16,7 +16,7 @@ from dashboard.sections.settings import settings_section
 from dashboard.sections.signal_log import signal_log_section
 from dashboard.constants import RefreshRates
 from dashboard.themes import NothingOS
-from dashboard.utils import _regime_badge
+from dashboard.utils import _bias_badge, _regime_badge
 
 DB_PATH = os.getenv("DB_PATH", "trading_bot.db")
 
@@ -42,7 +42,9 @@ def get_db() -> Database:
 @st.fragment(run_every=RefreshRates.TOPBAR)
 def _topbar(db: Database) -> None:
     recent_signals = db.get_recent_signals(1)
-    last_regime    = recent_signals[0]["regime"] if recent_signals else "RANGING"
+    last_regime    = recent_signals[0]["regime"]       if recent_signals else "RANGING"
+    last_bias      = recent_signals[0].get("bias")     if recent_signals else None
+    is_paused      = db.get_bot_paused()
     active_mode    = db.get_active_mode()
     last_ts        = datetime.now().strftime("%H:%M:%S")
 
@@ -51,14 +53,20 @@ def _topbar(db: Database) -> None:
         if active_mode == "MAINNET"
         else "<span class='pill pill-testnet'>● DEMO</span>"
     )
+    status_pill = (
+        "<span class='pill pill-testnet'>⏸ PAUSED</span>"
+        if is_paused
+        else "<span class='pill pill-running'>● RUNNING</span>"
+    )
 
     st.markdown(
         f"""
         <div class="topbar">
             <span class="bot-name"><span class="glyph">*</span> BOT / BTC·USDT</span>
-            <span class="pill pill-running">● RUNNING</span>
+            {status_pill}
             {mode_pill}
             {_regime_badge(last_regime)}
+            {_bias_badge(last_bias)}
             <span class="neu" style="font-size:0.65rem;letter-spacing:0.1em;margin-left:auto">{last_ts} UTC</span>
         </div>
         """,
