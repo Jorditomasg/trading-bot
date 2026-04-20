@@ -22,7 +22,7 @@ REGIME_COLORS: dict[str, str] = {
 class ChartConfig:
     HEIGHT_EQUITY      = 220
     HEIGHT_DRAWDOWN    = 220
-    HEIGHT_LIVE        = 200
+    HEIGHT_LIVE        = 300
     HEIGHT_PERFORMANCE = 200
     HEIGHT_REGIME      = 180
     MARKER_SIZE        = 10

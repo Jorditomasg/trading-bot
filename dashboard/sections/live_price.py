@@ -59,10 +59,52 @@ def _match_signal_to_bar(sig_ts_str: str, timestamps: pd.DatetimeIndex) -> int |
     return idx
 
 
+def _add_position_levels(fig: go.Figure, trades: list[dict]) -> None:
+    """Overlay Entry / SL / TP horizontal lines for each open position."""
+    for trade in trades:
+        entry       = trade["entry_price"]
+        sl          = trade["stop_loss"]
+        tp          = trade["take_profit"]
+        trailing_sl = trade.get("trailing_sl")
+        active_sl   = trailing_sl if trailing_sl is not None else sl
+        sl_label    = "TRAIL SL" if trailing_sl is not None else "SL"
+
+        fig.add_hline(
+            y=entry,
+            line_dash="dash",
+            line_color=WHITE,
+            line_width=ChartConfig.LINE_WIDTH,
+            annotation_text=f"ENTRY  ${fmt(entry, ',.0f')}",
+            annotation_position="left",
+            annotation_font_color=WHITE,
+            annotation_font_size=10,
+        )
+        fig.add_hline(
+            y=tp,
+            line_dash="dot",
+            line_color=GREEN,
+            line_width=ChartConfig.LINE_WIDTH,
+            annotation_text=f"TP  ${fmt(tp, ',.0f')}",
+            annotation_position="left",
+            annotation_font_color=GREEN,
+            annotation_font_size=10,
+        )
+        fig.add_hline(
+            y=active_sl,
+            line_dash="dot",
+            line_color=RED,
+            line_width=ChartConfig.LINE_WIDTH,
+            annotation_text=f"{sl_label}  ${fmt(active_sl, ',.0f')}",
+            annotation_position="left",
+            annotation_font_color=RED,
+            annotation_font_size=10,
+        )
+
+
 @st.fragment(run_every=RefreshRates.LIVE_PRICE)
 def live_price_section(db: Database) -> None:
-    tick       = db.get_live_tick(settings.symbol)
-    open_trade = db.get_open_trade()
+    tick        = db.get_live_tick(settings.symbol)
+    open_trades = db.get_open_trades()
 
     if tick is None:
         price = get_rest_price(settings.symbol)
@@ -78,18 +120,23 @@ def live_price_section(db: Database) -> None:
 
     with col_live:
         st.metric("BTC/USDT LIVE", f"${fmt(live_price)}")
-        if open_trade:
-            entry    = open_trade["entry_price"]
-            qty      = open_trade["quantity"]
-            side     = open_trade["side"]
-            sign     = 1 if side == "BUY" else -1
-            upnl     = sign * (live_price - entry) * qty
-            upnl_pct = sign * (live_price - entry) / entry * 100
+        if open_trades:
+            total_upnl = 0.0
+            for trade in open_trades:
+                entry = trade["entry_price"]
+                qty   = trade["quantity"]
+                side  = trade["side"]
+                sign  = 1 if side == "BUY" else -1
+                total_upnl += sign * (live_price - entry) * qty
+
+            upnl_pct = total_upnl / live_price * 100
             st.metric(
                 "Unrealized P&L",
-                f"${fmt(upnl, '+.4f')}",
+                f"${fmt(total_upnl, '+.4f')}",
                 delta=f"{fmt(upnl_pct, '+.2f')}%",
             )
+            if len(open_trades) > 1:
+                st.caption(f"{len(open_trades)} open positions")
 
     with col_chart:
         records = get_klines_cached(settings.symbol, settings.timeframe)
@@ -137,6 +184,7 @@ def live_price_section(db: Database) -> None:
                 showlegend=False, hoverinfo="skip",
             ))
 
+        # Live price — always on the right
         fig.add_hline(
             y=live_price,
             line_dash="dash",
@@ -145,5 +193,10 @@ def live_price_section(db: Database) -> None:
             annotation_text=f"${fmt(live_price, ',.0f')}",
             annotation_position="right",
         )
+
+        # Entry / SL / TP lines — on the left, only when position is open
+        if open_trades:
+            _add_position_levels(fig, open_trades)
+
         fig.update_layout(**PLOTLY_LAYOUT, height=ChartConfig.HEIGHT_LIVE, showlegend=False)
         st.plotly_chart(fig, use_container_width=True)

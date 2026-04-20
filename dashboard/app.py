@@ -102,11 +102,6 @@ def render() -> None:
     # ── MONITOR ────────────────────────────────────────────────────────────
     with tab_monitor:
         kpi_row_section(db)
-        st.divider()
-
-        st.markdown("## Live")
-        live_price_section(db)
-        st.divider()
 
         col_eq, col_dd = st.columns([3, 2])
         with col_eq:
@@ -115,6 +110,11 @@ def render() -> None:
         with col_dd:
             st.markdown("## Drawdown")
             drawdown_section(db)
+
+        st.divider()
+
+        st.markdown("## Live")
+        live_price_section(db)
 
         st.markdown("## State")
         open_position_section(db)
