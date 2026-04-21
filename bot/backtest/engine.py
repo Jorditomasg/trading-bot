@@ -352,7 +352,7 @@ class BacktestEngine:
         capital     = self.config.initial_capital
         trades:     list[dict] = []
         open_trade: dict | None = None
-        equity_curve: list[dict] = [{"balance": capital}]
+        equity_curve: list[dict] = [{"bar": 0, "time": str(df.iloc[0]["open_time"]), "balance": capital}]
         cooldown_bars: int = 0   # bars remaining before next entry is allowed
 
         for i in range(min_lb, len(df)):
@@ -433,7 +433,7 @@ class BacktestEngine:
                     open_trade      = None
                     closed_this_bar = True
                     cooldown_bars   = self.config.post_close_cooldown_bars
-                    equity_curve.append({"balance": capital})
+                    equity_curve.append({"bar": i, "time": str(current_time), "balance": capital})
 
             # Tick down cooldown counter each bar
             if cooldown_bars > 0:
@@ -501,7 +501,7 @@ class BacktestEngine:
             open_trade["pnl"]         = pnl
             open_trade["pnl_pct"]     = pnl / notional if notional > 0 else 0.0
             trades.append(open_trade)
-            equity_curve.append({"balance": capital})
+            equity_curve.append({"bar": len(df) - 1, "time": str(df.iloc[-1]["open_time"]), "balance": capital})
 
         start_date = df.iloc[min_lb]["open_time"].strftime("%Y-%m-%d")
         end_date   = df.iloc[-1]["open_time"].strftime("%Y-%m-%d")
