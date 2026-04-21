@@ -1,19 +1,18 @@
-"""Bot configuration section — credentials, mode switch, and Telegram."""
+"""Mainnet credentials panel — accessible via the ⚙ popover."""
 
 import streamlit as st
 
 from bot.config import settings
-from bot.credentials import encrypt, decrypt
+from bot.credentials import encrypt
 from bot.database.db import Database
 from bot.exchange.binance_client import BinanceClient
-from bot.telegram_notifier import TelegramNotifier
 from dashboard.constants import RED, RefreshRates
 
 
 def _verify_mainnet_credentials(api_key: str, api_secret: str) -> tuple[bool, str]:
     """Test mainnet credentials. Returns (success, message)."""
     try:
-        client = BinanceClient(api_key=api_key, api_secret=api_secret, testnet=False)
+        client  = BinanceClient(api_key=api_key, api_secret=api_secret, testnet=False)
         balance = client.get_balance("USDT")
         return True, f"${balance:,.2f} USDT"
     except Exception as exc:
@@ -22,8 +21,8 @@ def _verify_mainnet_credentials(api_key: str, api_secret: str) -> tuple[bool, st
 
 @st.fragment(run_every=RefreshRates.PERFORMANCE)
 def settings_section(db: Database) -> None:
-    active_mode    = db.get_active_mode()
-    has_creds      = db.has_mainnet_credentials()
+    active_mode = db.get_active_mode()
+    has_creds   = db.has_mainnet_credentials()
 
     # ── Mode pill ─────────────────────────────────────────────────────────────
     if active_mode == "MAINNET":
@@ -37,13 +36,14 @@ def settings_section(db: Database) -> None:
             unsafe_allow_html=True,
         )
 
+    # ── Mainnet credentials ───────────────────────────────────────────────────
     st.markdown("### Mainnet Credentials")
 
     if has_creds:
         st.markdown(
-            f"<span style='font-size:0.75rem;color:#555;letter-spacing:0.1em'>"
-            "API KEY &nbsp; <code>••••••••••••••••</code> &nbsp;&nbsp; "
-            "API SECRET &nbsp; <code>••••••••••••••••</code></span>",
+            "<span style='font-size:0.75rem;color:#555;letter-spacing:0.1em'>"
+            "API KEY &nbsp;<code>••••••••••••••••</code>&nbsp;&nbsp;"
+            "API SECRET &nbsp;<code>••••••••••••••••</code></span>",
             unsafe_allow_html=True,
         )
         if st.button("Replace credentials"):
@@ -51,7 +51,6 @@ def settings_section(db: Database) -> None:
     else:
         st.session_state["show_cred_form"] = True
 
-    # ── Credential form ───────────────────────────────────────────────────────
     if st.session_state.get("show_cred_form", False) or not has_creds:
         api_key    = st.text_input("API Key",    type="password", key="mn_api_key")
         api_secret = st.text_input("API Secret", type="password", key="mn_api_secret")
@@ -68,10 +67,8 @@ def settings_section(db: Database) -> None:
                 st.session_state["mn_verified"] = False
                 st.error(f"Connection failed: {msg}")
 
-    # ── Verified state ────────────────────────────────────────────────────────
     if st.session_state.get("mn_verified"):
         st.success(f"Connected — Balance: {st.session_state['mn_balance_msg']}")
-
         st.markdown(
             f"<span style='color:{RED};font-size:0.75rem;letter-spacing:0.08em'>"
             "⚠ WARNING: activating MAINNET will execute REAL orders with real money "
@@ -79,25 +76,21 @@ def settings_section(db: Database) -> None:
             unsafe_allow_html=True,
         )
 
-        confirm_input = st.text_input(
-            "Type CONFIRM to activate:", key="mn_confirm_input"
-        )
+        confirm_input   = st.text_input("Type CONFIRM to activate:", key="mn_confirm_input")
         activate_disabled = confirm_input.strip() != "CONFIRM"
 
         if st.button("ACTIVATE MAINNET", disabled=activate_disabled, type="primary"):
-            fk = settings.fernet_key
+            fk         = settings.fernet_key
             enc_key    = encrypt(st.session_state["mn_pending_key"],    fk)
             enc_secret = encrypt(st.session_state["mn_pending_secret"], fk)
             db.save_mainnet_credentials(enc_key, enc_secret)
             db.set_active_mode("MAINNET")
-            # Clear session state
             for k in ["mn_verified", "mn_balance_msg", "mn_pending_key",
                       "mn_pending_secret", "show_cred_form"]:
                 st.session_state.pop(k, None)
             st.success("MAINNET activated. Takes effect on next bot cycle.")
             st.rerun()
 
-    # ── Switch to TESTNET ─────────────────────────────────────────────────────
     if active_mode == "MAINNET":
         st.markdown("---")
         if st.button("Switch to TESTNET"):
@@ -105,75 +98,8 @@ def settings_section(db: Database) -> None:
             st.success("Switched to TESTNET.")
             st.rerun()
 
-    # ── Telegram ──────────────────────────────────────────────────────────────
-    st.markdown("---")
-    st.markdown("### Telegram")
-
-    tg_cfg      = db.get_telegram_config()
-    has_tg_token = bool(tg_cfg["token"])
-    tg_enabled  = st.checkbox("Enable notifications", value=tg_cfg["enabled"], key="tg_enabled")
-
-    if has_tg_token and not st.session_state.get("show_tg_form", False):
-        st.markdown(
-            "<span style='font-size:0.75rem;color:#555;letter-spacing:0.1em'>"
-            "Bot token &nbsp; <code>••••••••••••••••</code></span>",
-            unsafe_allow_html=True,
-        )
-        st.text_input(
-            "Chat ID", value=tg_cfg["chat_id"], key="tg_chat_id_display",
-            disabled=True,
-        )
-        col_change, col_test = st.columns(2)
-        with col_change:
-            if st.button("Change credentials", key="tg_change", use_container_width=True):
-                st.session_state["show_tg_form"] = True
-                st.rerun()
-        with col_test:
-            if st.button("Test", key="tg_test", use_container_width=True):
-                with st.spinner("Sending..."):
-                    ok, msg = TelegramNotifier.test_send(tg_cfg["token"], tg_cfg["chat_id"])
-                if ok:
-                    st.success(msg)
-                else:
-                    st.error(msg)
-
-        if st.session_state.get("tg_enabled_changed") != tg_enabled:
-            st.session_state["tg_enabled_changed"] = tg_enabled
-            db.save_telegram_config(tg_cfg["token"], tg_cfg["chat_id"], tg_enabled)
-    else:
-        tg_token = st.text_input(
-            "Bot token", type="password", key="tg_token",
-            placeholder="123456789:ABCdef...",
-        )
-        tg_chat_id = st.text_input(
-            "Chat ID", key="tg_chat_id",
-            placeholder="-100123456789",
-            help="Your personal or group chat ID. Use @userinfobot to find it.",
-        )
-
-        col_save, col_test = st.columns(2)
-        with col_save:
-            if st.button("Save", key="tg_save", use_container_width=True):
-                db.save_telegram_config(tg_token.strip(), tg_chat_id.strip(), tg_enabled)
-                st.session_state.pop("show_tg_form", None)
-                st.success("Saved.")
-                st.rerun()
-
-        with col_test:
-            test_disabled = not (tg_token.strip() and tg_chat_id.strip())
-            if st.button("Test", key="tg_test", disabled=test_disabled, use_container_width=True):
-                with st.spinner("Sending..."):
-                    ok, msg = TelegramNotifier.test_send(tg_token.strip(), tg_chat_id.strip())
-                if ok:
-                    st.success(msg)
-                else:
-                    st.error(msg)
-
-    active_mode_label = db.get_active_mode()
     st.markdown(
-        f"<span style='font-size:0.6rem;color:#333;letter-spacing:0.08em'>"
-        f"Notifications include mode tag · current: "
-        f"<code>{'🔴 MAINNET' if active_mode_label == 'MAINNET' else '🧪 DEMO'}</code>"
-        f"</span>",
+        "<span style='font-size:0.6rem;color:#333;letter-spacing:0.08em'>"
+        "Telegram notifications → CONFIG tab</span>",
         unsafe_allow_html=True,
     )

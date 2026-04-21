@@ -14,7 +14,7 @@ class Settings:
 
     # Market
     symbol: str = field(default_factory=lambda: os.getenv("SYMBOL", "BTCUSDT"))
-    timeframe: str = field(default_factory=lambda: os.getenv("TIMEFRAME", "1h"))
+    timeframe: str = field(default_factory=lambda: os.getenv("TIMEFRAME", "4h"))
 
     # Capital & risk
     initial_capital: float = field(default_factory=lambda: float(os.getenv("INITIAL_CAPITAL", "10000")))

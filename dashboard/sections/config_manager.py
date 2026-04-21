@@ -6,37 +6,40 @@ import streamlit as st
 
 from bot.config import settings
 from bot.database.db import Database
+from bot.telegram_notifier import TelegramNotifier
 
-_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT"]
+_SYMBOLS    = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT"]
 _TIMEFRAMES = ["1h", "2h", "4h", "8h", "1d"]
 
 
 def config_manager_section(db: Database) -> None:
     cfg = db.get_runtime_config()
 
-    # Current values: DB → fallback to .env
-    cur_symbol            = cfg.get("symbol",                  settings.symbol)
-    cur_tf                = cfg.get("timeframe",               settings.timeframe)
-    cur_risk              = float(cfg.get("risk_per_trade",    settings.risk_per_trade))
-    cur_max_dd            = float(cfg.get("max_drawdown",      0.15))
-    cur_max_conc          = int(cfg.get("max_concurrent",      1))
-    cur_cooldown          = int(cfg.get("cooldown_hours",      4))
-    cur_trail_atr         = float(cfg.get("trail_atr_mult",    1.5))
-    cur_trail_act         = float(cfg.get("trail_act_mult",    1.0))
-    cur_bias_passthrough  = cfg.get("bias_neutral_passthrough", "true") == "true"
-    cur_bias_threshold    = float(cfg.get("bias_neutral_threshold", "0.001"))
+    # Current values: DB → fallback to hardcoded defaults
+    cur_symbol           = cfg.get("symbol",                  settings.symbol)
+    cur_tf               = cfg.get("timeframe",               settings.timeframe)
+    cur_risk             = float(cfg.get("risk_per_trade",    settings.risk_per_trade))
+    cur_max_dd           = float(cfg.get("max_drawdown",      0.15))
+    cur_max_conc         = int(cfg.get("max_concurrent",      1))
+    cur_cooldown         = int(cfg.get("cooldown_hours",      4))
+    cur_trail_atr        = float(cfg.get("trail_atr_mult",    1.5))
+    cur_trail_act        = float(cfg.get("trail_act_mult",    1.0))
+    cur_bias_passthrough = cfg.get("bias_neutral_passthrough", "true") == "true"
+    cur_bias_threshold   = float(cfg.get("bias_neutral_threshold", "0.001"))
 
+    # ── Trading ───────────────────────────────────────────────────────────────
     st.markdown("## Trading")
 
     with st.form("bot_config_form"):
         col_sym, col_tf = st.columns(2)
         with col_sym:
             sym_idx = _SYMBOLS.index(cur_symbol) if cur_symbol in _SYMBOLS else 0
-            symbol = st.selectbox("Symbol", _SYMBOLS, index=sym_idx)
+            symbol  = st.selectbox("Symbol", _SYMBOLS, index=sym_idx)
         with col_tf:
-            tf_idx = _TIMEFRAMES.index(cur_tf) if cur_tf in _TIMEFRAMES else 2
+            tf_idx    = _TIMEFRAMES.index(cur_tf) if cur_tf in _TIMEFRAMES else 2
             timeframe = st.selectbox("Timeframe", _TIMEFRAMES, index=tf_idx)
 
+        # ── Risk ──────────────────────────────────────────────────────────────
         st.markdown("## Risk")
         c1, c2, c3, c4 = st.columns(4)
         with c1:
@@ -58,6 +61,7 @@ def config_manager_section(db: Database) -> None:
                 "Cooldown (h)", min_value=1, max_value=48, value=cur_cooldown, step=1,
             )
 
+        # ── Trailing Stop ─────────────────────────────────────────────────────
         st.markdown("## Trailing Stop")
         t1, t2 = st.columns(2)
         with t1:
@@ -73,6 +77,7 @@ def config_manager_section(db: Database) -> None:
                 help="Trailing activates when price moves activation_mult × ATR from entry",
             )
 
+        # ── BiasFilter ────────────────────────────────────────────────────────
         st.markdown("## BiasFilter")
         b1, b2 = st.columns(2)
         with b1:
@@ -83,7 +88,7 @@ def config_manager_section(db: Database) -> None:
                     "NEUTRAL = daily EMAs have no clear direction. "
                     "Enabled (recommended): both BUY and SELL signals pass through — "
                     "the filter only blocks signals that go AGAINST a confirmed trend. "
-                    "Disabled: all signals are blocked when bias is indeterminate."
+                    "Disabled: all signals blocked when bias is indeterminate."
                 ),
             )
         with b2:
@@ -117,6 +122,76 @@ def config_manager_section(db: Database) -> None:
 
     st.divider()
 
+    # ── Telegram notifications ─────────────────────────────────────────────────
+    st.markdown("## Notifications")
+
+    tg_cfg       = db.get_telegram_config()
+    has_tg_token = bool(tg_cfg["token"])
+    tg_enabled   = st.checkbox(
+        "Enable Telegram notifications",
+        value=tg_cfg["enabled"],
+        key="cfg_tg_enabled",
+    )
+
+    if has_tg_token and not st.session_state.get("cfg_show_tg_form", False):
+        st.markdown(
+            "<span style='font-size:0.75rem;color:#555;letter-spacing:0.1em'>"
+            "Token &nbsp;<code>••••••••••••••••</code></span>",
+            unsafe_allow_html=True,
+        )
+        st.text_input("Chat ID", value=tg_cfg["chat_id"], key="cfg_tg_chat_display", disabled=True)
+
+        col_change, col_test = st.columns(2)
+        with col_change:
+            if st.button("Change credentials", key="cfg_tg_change", use_container_width=True):
+                st.session_state["cfg_show_tg_form"] = True
+                st.rerun()
+        with col_test:
+            if st.button("Send test message", key="cfg_tg_test", use_container_width=True):
+                with st.spinner("Sending..."):
+                    ok, msg = TelegramNotifier.test_send(tg_cfg["token"], tg_cfg["chat_id"])
+                if ok:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+
+        # Persist enabled toggle change immediately (no submit button needed)
+        if st.session_state.get("_cfg_tg_enabled_prev") != tg_enabled:
+            st.session_state["_cfg_tg_enabled_prev"] = tg_enabled
+            db.save_telegram_config(tg_cfg["token"], tg_cfg["chat_id"], tg_enabled)
+
+    else:
+        tg_token = st.text_input(
+            "Bot token", type="password", key="cfg_tg_token",
+            placeholder="123456789:ABCdef...",
+            help="Create a bot via @BotFather on Telegram and paste the token here.",
+        )
+        tg_chat_id = st.text_input(
+            "Chat ID", key="cfg_tg_chat_id",
+            placeholder="-100123456789",
+            help="Your personal or group chat ID. Use @userinfobot to find it.",
+        )
+
+        col_save, col_test = st.columns(2)
+        with col_save:
+            if st.button("Save", key="cfg_tg_save", use_container_width=True,
+                         disabled=not (tg_token.strip() and tg_chat_id.strip())):
+                db.save_telegram_config(tg_token.strip(), tg_chat_id.strip(), tg_enabled)
+                st.session_state.pop("cfg_show_tg_form", None)
+                st.success("Saved.")
+                st.rerun()
+        with col_test:
+            if st.button("Test", key="cfg_tg_test2", use_container_width=True,
+                         disabled=not (tg_token.strip() and tg_chat_id.strip())):
+                with st.spinner("Sending..."):
+                    ok, msg = TelegramNotifier.test_send(tg_token.strip(), tg_chat_id.strip())
+                if ok:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+
+    st.divider()
+
     # ── Bot controls ──────────────────────────────────────────────────────────
     st.markdown("## Controls")
     col_restart, col_pause, col_mode = st.columns(3)
@@ -137,35 +212,40 @@ def config_manager_section(db: Database) -> None:
 
     with col_mode:
         st.caption("ENVIRONMENT")
-        mode        = db.get_active_mode()
-        other_mode  = "MAINNET" if mode == "TESTNET" else "TESTNET"
-        mode_label  = f"Switch to {other_mode}"
-        if st.button(mode_label, use_container_width=True):
+        mode       = db.get_active_mode()
+        other_mode = "MAINNET" if mode == "TESTNET" else "TESTNET"
+        if st.button(f"Switch to {other_mode}", use_container_width=True):
             db.set_active_mode(other_mode)
             st.info(f"Mode set to {other_mode}. Restart required.")
 
     st.divider()
 
-    # ── Current config snapshot ───────────────────────────────────────────────
+    # ── Active configuration snapshot ─────────────────────────────────────────
     st.markdown("## Active Configuration")
-    st.caption("Values the bot will read on next restart. Greyed fields from .env, bold from DB.")
+    st.caption("Values the bot will use on next restart.")
 
-    snap_cfg = db.get_runtime_config()
+    snap_cfg  = db.get_runtime_config()
     bias_pass = snap_cfg.get("bias_neutral_passthrough", "true") == "true"
     bias_thr  = float(snap_cfg.get("bias_neutral_threshold", "0.001")) * 100
+    tg_snap   = db.get_telegram_config()
+
     rows = {
-        "Symbol":            snap_cfg.get("symbol",         settings.symbol),
-        "Timeframe":         snap_cfg.get("timeframe",       settings.timeframe),
+        "Symbol":            snap_cfg.get("symbol",       settings.symbol),
+        "Timeframe":         snap_cfg.get("timeframe",    settings.timeframe),
         "Risk / Trade":      f"{float(snap_cfg.get('risk_per_trade', settings.risk_per_trade)) * 100:.2f}%",
         "Max Drawdown":      f"{float(snap_cfg.get('max_drawdown', 0.15)) * 100:.1f}%",
-        "Max Positions":     snap_cfg.get("max_concurrent",  "1"),
+        "Max Positions":     snap_cfg.get("max_concurrent", "1"),
         "Cooldown":          f"{snap_cfg.get('cooldown_hours', '4')}h",
-        "Trail ATR Mult":    snap_cfg.get("trail_atr_mult",  "1.5"),
-        "Trail Act. Mult":   snap_cfg.get("trail_act_mult",  "1.0"),
+        "Trail ATR Mult":    snap_cfg.get("trail_atr_mult", "1.5"),
+        "Trail Act. Mult":   snap_cfg.get("trail_act_mult", "1.0"),
         "Environment":       db.get_active_mode(),
-        "BiasFilter":        "Daily EMA9/21 (1d candles)",
-        "Neutral Passthru":  "ON (trades in neutral market)" if bias_pass else "OFF (blocks all in neutral)",
+        "Neutral Passthru":  "ON" if bias_pass else "OFF (blocks all in neutral)",
         "Neutral Threshold": f"{bias_thr:.2f}%",
+        "Telegram":          (
+            f"{'enabled' if tg_snap['enabled'] else 'disabled'} — chat {tg_snap['chat_id']}"
+            if tg_snap["token"]
+            else "not configured"
+        ),
     }
     for label, val in rows.items():
         col_l, col_v = st.columns([2, 3])
