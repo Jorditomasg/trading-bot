@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import io
+import json
 import logging
+import zipfile
 from datetime import datetime, timedelta, timezone
 
 import plotly.graph_objects as go
@@ -312,3 +315,47 @@ def _display_results(result, summary: dict) -> None:
         st.markdown("## Equity")
         st.plotly_chart(_equity_chart(result.equity_curve, result.initial_capital),
                         use_container_width=True)
+
+    # ── Export ────────────────────────────────────────────────────────────────
+    st.markdown("## Export")
+    st.download_button(
+        label="⬇  Download ZIP (trades · equity · summary)",
+        data=_build_export_zip(result, summary),
+        file_name=f"backtest_{result.symbol}_{result.timeframe}_{result.start_date}_{result.end_date}.zip",
+        mime="application/zip",
+        use_container_width=True,
+    )
+
+
+# ── Export builder ────────────────────────────────────────────────────────────
+
+def _build_export_zip(result, summary: dict) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        # trades.csv
+        if result.trades:
+            header = list(result.trades[0].keys())
+            rows   = [",".join(str(v) for v in t.values()) for t in result.trades]
+            zf.writestr("trades.csv", ",".join(header) + "\n" + "\n".join(rows))
+
+        # equity.csv
+        if result.equity_curve:
+            eq_header = list(result.equity_curve[0].keys())
+            eq_rows   = [",".join(str(v) for v in r.values()) for r in result.equity_curve]
+            zf.writestr("equity.csv", ",".join(eq_header) + "\n" + "\n".join(eq_rows))
+
+        # summary.json — sanitize inf/nan for JSON
+        safe_summary = {
+            k: (None if isinstance(v, float) and (v == float("inf") or v != v) else v)
+            for k, v in summary.items()
+        }
+        safe_summary.update({
+            "symbol":    result.symbol,
+            "timeframe": result.timeframe,
+            "from":      str(result.start_date),
+            "to":        str(result.end_date),
+            "bars":      result.total_bars,
+        })
+        zf.writestr("summary.json", json.dumps(safe_summary, indent=2))
+
+    return buf.getvalue()

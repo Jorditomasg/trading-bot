@@ -14,7 +14,6 @@ from dashboard.sections.kpi_row import kpi_row_section
 from dashboard.sections.live_price import live_price_section
 from dashboard.sections.open_position import drawdown_section, open_position_section
 from dashboard.sections.performance import performance_section
-from dashboard.sections.settings import settings_section
 from dashboard.sections.signal_log import signal_log_section
 from dashboard.constants import RefreshRates
 from dashboard.themes import NothingOS
@@ -81,15 +80,12 @@ def render() -> None:
     db = get_db()
 
     # Topbar + action buttons — always visible across all tabs
-    bar_col, exp_col, cfg_col = st.columns([13, 1, 1])
+    bar_col, exp_col = st.columns([14, 1])
     with bar_col:
         _topbar(db)
     with exp_col:
         with st.popover("⬇"):
             export_section(db)
-    with cfg_col:
-        with st.popover("⚙"):
-            settings_section(db)
 
     st.divider()
 

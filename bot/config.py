@@ -20,6 +20,11 @@ class Settings:
     initial_capital: float = field(default_factory=lambda: float(os.getenv("INITIAL_CAPITAL", "10000")))
     risk_per_trade: float = field(default_factory=lambda: float(os.getenv("RISK_PER_TRADE", "0.01")))
 
+    # Telegram
+    telegram_token:   str  = field(default_factory=lambda: os.getenv("TELEGRAM_TOKEN",   ""))
+    telegram_chat_id: str  = field(default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", ""))
+    telegram_enabled: bool = field(default_factory=lambda: os.getenv("TELEGRAM_ENABLED", "true").lower() == "true")
+
     # Misc
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
 

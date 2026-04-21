@@ -483,6 +483,16 @@ def main() -> None:
     signal.signal(signal.SIGINT, _handle_signal)
 
     db = Database()
+
+    # Seed Telegram config from .env on first run (no-op if already set in DB)
+    if settings.telegram_token and not db.has_telegram_config():
+        db.save_telegram_config(
+            settings.telegram_token,
+            settings.telegram_chat_id,
+            settings.telegram_enabled,
+        )
+        logger.info("Telegram config seeded from .env")
+
     risk_config = RiskConfig(risk_per_trade=settings.risk_per_trade)
     _apply_runtime_config(db, risk_config)
     bias_filter = _build_bias_filter(db)
