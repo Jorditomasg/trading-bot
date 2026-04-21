@@ -36,8 +36,8 @@ class Settings:
             raise ValueError("BINANCE_API_KEY is not set in .env")
         if not self.api_secret or self.api_secret == "your_testnet_api_secret":
             raise ValueError("BINANCE_API_SECRET is not set in .env")
-        if self.risk_per_trade <= 0 or self.risk_per_trade > 0.05:
-            raise ValueError("RISK_PER_TRADE must be between 0 and 0.05 (5%)")
+        if self.risk_per_trade <= 0 or self.risk_per_trade > 0.10:
+            raise ValueError("RISK_PER_TRADE must be between 0 and 0.10 (10%)")
         if self.initial_capital <= 0:
             raise ValueError("INITIAL_CAPITAL must be positive")
 

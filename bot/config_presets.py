@@ -28,6 +28,16 @@ _REGIME_PRESETS: dict[str, RegimeDetectorConfig] = {
         hurst_trending_threshold=0.55,
         hurst_ranging_threshold=0.45,
     ),
+    "2h": RegimeDetectorConfig(
+        atr_period=14,
+        atr_volatile_lookback=40,      # 40 × 2h ≈ 3.3 days
+        atr_volatile_multiplier=2.3,
+        adx_period=14,
+        adx_trending_threshold=27.0,   # between 1h (25) and 4h (30)
+        hurst_lookback=80,             # 80 × 2h ≈ 6.7 days
+        hurst_trending_threshold=0.55,
+        hurst_ranging_threshold=0.42,
+    ),
     "4h": RegimeDetectorConfig(
         atr_period=14,
         atr_volatile_lookback=30,      # 30 × 4h = 5 days (same wall-clock as 50 × 1h)
@@ -102,6 +112,34 @@ _STRATEGY_PRESETS: dict[str, dict[StrategyName, dict]] = {
         StrategyName.BREAKOUT: dict(
             channel_period=30,      # 30 × 4h = 5-day channel
             volume_multiplier=2.0,  # require strong volume spike on 4h
+            atr_period=14,
+        ),
+    },
+    "2h": {
+        StrategyName.EMA_CROSSOVER: dict(
+            fast_period=9,
+            slow_period=21,
+            atr_period=14,
+            max_distance_atr=0.4,          # slightly looser than 4h (0.3) for 2h noise
+            stop_atr_mult=1.5,
+            tp_atr_mult=3.5,
+            volume_period=20,
+            volume_multiplier=1.3,         # 1.3× avg volume (less than 4h's 1.5)
+            min_atr_pct=0.004,             # 0.4% min ATR
+            require_bar_direction=True,
+            require_ema_momentum=True,
+        ),
+        StrategyName.MEAN_REVERSION: dict(
+            bb_period=20,
+            bb_std=2.0,
+            rsi_period=14,
+            rsi_oversold=28.0,
+            rsi_overbought=72.0,
+            atr_period=14,
+        ),
+        StrategyName.BREAKOUT: dict(
+            channel_period=24,
+            volume_multiplier=1.6,
             atr_period=14,
         ),
     },

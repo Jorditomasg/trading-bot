@@ -58,9 +58,11 @@ def config_manager_section(db: Database) -> None:
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             risk_pct = st.number_input(
-                "Risk / Trade (%)", min_value=0.1, max_value=5.0,
+                "Risk / Trade (%)", min_value=0.1, max_value=10.0,
                 value=round(cur_risk * 100, 2), step=0.1, format="%.1f",
             )
+            if risk_pct > 5.0:
+                st.warning(f"⚠ {risk_pct:.0f}% risk — max drawdown scales proportionally. Only use if you accept large swings.")
         with c2:
             max_dd_pct = st.number_input(
                 "Max Drawdown (%)", min_value=5.0, max_value=50.0,
