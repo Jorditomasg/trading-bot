@@ -20,6 +20,7 @@ class BiasFilterConfig:
     fast_period: int = 9
     slow_period: int = 21
     neutral_threshold_pct: float = 0.001  # 0.1% of price
+    neutral_passthrough: bool = True  # NEUTRAL allows both BUY and SELL (no directional gate)
     enabled: bool = True
 
 
@@ -71,6 +72,13 @@ class BiasFilter:
 
         if signal.action == "HOLD":
             return True
+
+        # NEUTRAL = no clear directional trend. When neutral_passthrough is enabled,
+        # both BUY and SELL are allowed — the bias filter only gates AGAINST-trend
+        # signals (BUY in BEARISH market, SELL in BULLISH market).
+        if bias == Bias.NEUTRAL and self.config.neutral_passthrough:
+            return True
+
         if signal.action == "BUY":
             return bias == Bias.BULLISH
         if signal.action == "SELL":

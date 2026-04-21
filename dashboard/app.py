@@ -8,7 +8,6 @@ import streamlit as st
 from bot.database.db import Database
 from dashboard.sections.backtest_runner import backtest_runner_section
 from dashboard.sections.config_manager import config_manager_section
-from dashboard.sections.optimizer import optimizer_section
 from dashboard.sections.equity_chart import equity_chart_section
 from dashboard.sections.export import export_section
 from dashboard.sections.kpi_row import kpi_row_section
@@ -95,8 +94,8 @@ def render() -> None:
     st.divider()
 
     # ── Navigation tabs ────────────────────────────────────────────────────
-    tab_monitor, tab_config, tab_backtest, tab_optimize = st.tabs(
-        ["MONITOR", "CONFIG", "BACKTEST", "OPTIMIZE"]
+    tab_monitor, tab_config, tab_backtest = st.tabs(
+        ["MONITOR", "CONFIG", "BACKTEST"]
     )
 
     # ── MONITOR ────────────────────────────────────────────────────────────
@@ -133,10 +132,6 @@ def render() -> None:
     # ── BACKTEST ───────────────────────────────────────────────────────────
     with tab_backtest:
         backtest_runner_section(db)
-
-    # ── OPTIMIZE ───────────────────────────────────────────────────────────
-    with tab_optimize:
-        optimizer_section(db)
 
     st.markdown(
         "<div style='text-align:right;font-size:0.55rem;color:#1A1A1A;"

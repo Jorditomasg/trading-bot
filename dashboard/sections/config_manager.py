@@ -15,14 +15,16 @@ def config_manager_section(db: Database) -> None:
     cfg = db.get_runtime_config()
 
     # Current values: DB → fallback to .env
-    cur_symbol    = cfg.get("symbol",         settings.symbol)
-    cur_tf        = cfg.get("timeframe",       settings.timeframe)
-    cur_risk      = float(cfg.get("risk_per_trade", settings.risk_per_trade))
-    cur_max_dd    = float(cfg.get("max_drawdown",   0.15))
-    cur_max_conc  = int(cfg.get("max_concurrent",   1))
-    cur_cooldown  = int(cfg.get("cooldown_hours",   4))
-    cur_trail_atr = float(cfg.get("trail_atr_mult", 1.5))
-    cur_trail_act = float(cfg.get("trail_act_mult", 1.0))
+    cur_symbol            = cfg.get("symbol",                  settings.symbol)
+    cur_tf                = cfg.get("timeframe",               settings.timeframe)
+    cur_risk              = float(cfg.get("risk_per_trade",    settings.risk_per_trade))
+    cur_max_dd            = float(cfg.get("max_drawdown",      0.15))
+    cur_max_conc          = int(cfg.get("max_concurrent",      1))
+    cur_cooldown          = int(cfg.get("cooldown_hours",      4))
+    cur_trail_atr         = float(cfg.get("trail_atr_mult",    1.5))
+    cur_trail_act         = float(cfg.get("trail_act_mult",    1.0))
+    cur_bias_passthrough  = cfg.get("bias_neutral_passthrough", "true") == "true"
+    cur_bias_threshold    = float(cfg.get("bias_neutral_threshold", "0.001"))
 
     st.markdown("## Trading")
 
@@ -71,6 +73,31 @@ def config_manager_section(db: Database) -> None:
                 help="Trailing activates when price moves activation_mult × ATR from entry",
             )
 
+        st.markdown("## BiasFilter")
+        b1, b2 = st.columns(2)
+        with b1:
+            bias_passthrough = st.checkbox(
+                "Allow trades in NEUTRAL bias",
+                value=cur_bias_passthrough,
+                help=(
+                    "NEUTRAL = daily EMAs have no clear direction. "
+                    "Enabled (recommended): both BUY and SELL signals pass through — "
+                    "the filter only blocks signals that go AGAINST a confirmed trend. "
+                    "Disabled: all signals are blocked when bias is indeterminate."
+                ),
+            )
+        with b2:
+            bias_threshold_pct = st.number_input(
+                "Neutral threshold (%)",
+                min_value=0.05, max_value=1.0,
+                value=round(cur_bias_threshold * 100, 2),
+                step=0.05, format="%.2f",
+                help=(
+                    "EMA9/EMA21 gap must exceed this % of price to be classified as "
+                    "BULLISH or BEARISH. Below this = NEUTRAL. Default 0.10%."
+                ),
+            )
+
         saved = st.form_submit_button("💾  Save Configuration", use_container_width=True)
 
     if saved:
@@ -83,6 +110,8 @@ def config_manager_section(db: Database) -> None:
             cooldown_hours=str(cooldown_hours),
             trail_atr_mult=str(trail_atr),
             trail_act_mult=str(trail_act),
+            bias_neutral_passthrough="true" if bias_passthrough else "false",
+            bias_neutral_threshold=str(round(bias_threshold_pct / 100, 4)),
         )
         st.success("Configuration saved — restart the bot to apply all changes.")
 
@@ -122,17 +151,21 @@ def config_manager_section(db: Database) -> None:
     st.caption("Values the bot will read on next restart. Greyed fields from .env, bold from DB.")
 
     snap_cfg = db.get_runtime_config()
+    bias_pass = snap_cfg.get("bias_neutral_passthrough", "true") == "true"
+    bias_thr  = float(snap_cfg.get("bias_neutral_threshold", "0.001")) * 100
     rows = {
-        "Symbol":          snap_cfg.get("symbol",         settings.symbol),
-        "Timeframe":       snap_cfg.get("timeframe",       settings.timeframe),
-        "Risk / Trade":    f"{float(snap_cfg.get('risk_per_trade', settings.risk_per_trade)) * 100:.2f}%",
-        "Max Drawdown":    f"{float(snap_cfg.get('max_drawdown', 0.15)) * 100:.1f}%",
-        "Max Positions":   snap_cfg.get("max_concurrent",  "1"),
-        "Cooldown":        f"{snap_cfg.get('cooldown_hours', '4')}h",
-        "Trail ATR Mult":  snap_cfg.get("trail_atr_mult",  "1.5"),
-        "Trail Act. Mult": snap_cfg.get("trail_act_mult",  "1.0"),
-        "Environment":     db.get_active_mode(),
-        "BiasFilter":      "Daily EMA9/21 (1d candles)",
+        "Symbol":            snap_cfg.get("symbol",         settings.symbol),
+        "Timeframe":         snap_cfg.get("timeframe",       settings.timeframe),
+        "Risk / Trade":      f"{float(snap_cfg.get('risk_per_trade', settings.risk_per_trade)) * 100:.2f}%",
+        "Max Drawdown":      f"{float(snap_cfg.get('max_drawdown', 0.15)) * 100:.1f}%",
+        "Max Positions":     snap_cfg.get("max_concurrent",  "1"),
+        "Cooldown":          f"{snap_cfg.get('cooldown_hours', '4')}h",
+        "Trail ATR Mult":    snap_cfg.get("trail_atr_mult",  "1.5"),
+        "Trail Act. Mult":   snap_cfg.get("trail_act_mult",  "1.0"),
+        "Environment":       db.get_active_mode(),
+        "BiasFilter":        "Daily EMA9/21 (1d candles)",
+        "Neutral Passthru":  "ON (trades in neutral market)" if bias_pass else "OFF (blocks all in neutral)",
+        "Neutral Threshold": f"{bias_thr:.2f}%",
     }
     for label, val in rows.items():
         col_l, col_v = st.columns([2, 3])

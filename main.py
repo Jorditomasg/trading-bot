@@ -133,6 +133,15 @@ def _apply_runtime_config(db: Database, risk_config: RiskConfig) -> None:
     logger.info("Runtime config applied: %s", list(cfg.keys()))
 
 
+def _build_bias_filter(db: Database) -> BiasFilter:
+    """Construct BiasFilter using parameters persisted by the dashboard."""
+    cfg = db.get_runtime_config()
+    return BiasFilter(BiasFilterConfig(
+        neutral_passthrough=cfg.get("bias_neutral_passthrough", "true") == "true",
+        neutral_threshold_pct=float(cfg.get("bias_neutral_threshold", "0.001")),
+    ))
+
+
 def _apply_ema_config(db: Database, orchestrator: "StrategyOrchestrator") -> None:
     """Apply optimizer-approved EMA TP/SL multipliers to the live strategy instance."""
     from bot.constants import StrategyName
@@ -476,7 +485,7 @@ def main() -> None:
     db = Database()
     risk_config = RiskConfig(risk_per_trade=settings.risk_per_trade)
     _apply_runtime_config(db, risk_config)
-    bias_filter = BiasFilter(BiasFilterConfig())
+    bias_filter = _build_bias_filter(db)
     orchestrator = StrategyOrchestrator(
         db=db,
         symbol=settings.symbol,

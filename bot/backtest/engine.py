@@ -289,6 +289,17 @@ class BacktestEngine:
 
     # ── Main simulation ───────────────────────────────────────────────────────
 
+    @staticmethod
+    def _normalize_timestamps(df: pd.DataFrame) -> pd.DataFrame:
+        """Ensure open_time is UTC-aware pd.Timestamp regardless of source format.
+
+        Handles int64 (ms epoch), naive datetime64, and tz-aware inputs uniformly.
+        Returns a copy so the original is not mutated.
+        """
+        df = df.copy()
+        df["open_time"] = pd.to_datetime(df["open_time"], utc=True)
+        return df
+
     def run(
         self,
         df: pd.DataFrame,
@@ -307,6 +318,14 @@ class BacktestEngine:
         Returns:
             BacktestResult with all trades and equity curve.
         """
+        # Normalise timestamps to UTC-aware pd.Timestamp regardless of how the
+        # caller obtained the DataFrames (int ms, naive datetime64, tz-aware, etc.)
+        df = self._normalize_timestamps(df)
+        if df_4h is not None:
+            df_4h = self._normalize_timestamps(df_4h)
+        if df_1m is not None:
+            df_1m = self._normalize_timestamps(df_1m)
+
         min_lb = self._min_lookback()
         if len(df) <= min_lb:
             raise ValueError(
@@ -319,12 +338,13 @@ class BacktestEngine:
         if df_4h is None:
             self._bias_filter = BiasFilter(BiasFilterConfig(enabled=False))
 
-        # Pre-build 1m time index for O(log n) bar slicing
-        import numpy as np
-        m1_times: "np.ndarray | None" = None
-        if df_1m is not None and not df_1m.empty:
+        # Pre-sort 1m DataFrame for O(log n) bar slicing via pandas searchsorted.
+        # We keep df_1m as a DataFrame (not a numpy array) so that pandas handles
+        # the UTC-aware timestamp comparisons correctly — avoiding the int vs Timestamp
+        # error that np.searchsorted produces with DatetimeArray on pandas 2.x.
+        has_1m = df_1m is not None and not df_1m.empty
+        if has_1m:
             df_1m = df_1m.sort_values("open_time").reset_index(drop=True)
-            m1_times = df_1m["open_time"].values
             logger.info(
                 "Engine: 1m precision mode active — %d 1m bars loaded", len(df_1m)
             )
@@ -353,14 +373,16 @@ class BacktestEngine:
 
             # ── 1. Check exits on open position ───────────────────────────────
             if open_trade is not None:
-                if m1_times is not None:
+                if has_1m:
                     next_time = (
                         df.iloc[i + 1]["open_time"]
                         if i + 1 < len(df)
                         else pd.Timestamp.max.tz_localize("UTC")
                     )
-                    lo = int(np.searchsorted(m1_times, current_time, side="left"))
-                    hi = int(np.searchsorted(m1_times, next_time,   side="left"))
+                    # Use pandas Series.searchsorted — handles UTC-aware timestamps
+                    # correctly without the int vs Timestamp errors of np.searchsorted.
+                    lo = int(df_1m["open_time"].searchsorted(current_time, side="left"))
+                    hi = int(df_1m["open_time"].searchsorted(next_time,   side="left"))
                     m1_slice = df_1m.iloc[lo:hi]
                     exit_info = (
                         self._check_exit_precise(open_trade, m1_slice)
