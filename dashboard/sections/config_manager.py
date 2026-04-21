@@ -41,6 +41,7 @@ def config_manager_section(db: Database) -> None:
     cur_trail_act        = float(cfg.get("trail_act_mult",    2.0))
     cur_bias_passthrough = cfg.get("bias_neutral_passthrough", "true") == "true"
     cur_bias_threshold   = float(cfg.get("bias_neutral_threshold", "0.001"))
+    cur_long_only        = cfg.get("long_only", "false") == "true"
 
     # ── Trading ───────────────────────────────────────────────────────────────
     st.markdown("## Trading")
@@ -92,8 +93,8 @@ def config_manager_section(db: Database) -> None:
                 help="Trailing activates when price moves activation_mult × ATR from entry",
             )
 
-        st.markdown("## BiasFilter")
-        b1, b2 = st.columns(2)
+        st.markdown("## BiasFilter & Direction")
+        b1, b2, b3 = st.columns(3)
         with b1:
             bias_passthrough = st.checkbox(
                 "Allow trades in NEUTRAL bias",
@@ -110,6 +111,16 @@ def config_manager_section(db: Database) -> None:
                 value=round(cur_bias_threshold * 100, 2), step=0.05, format="%.2f",
                 help="EMA9/EMA21 gap must exceed this % to be directional. Default 0.10%.",
             )
+        with b3:
+            long_only_mode = st.checkbox(
+                "Long-only mode (BUY only)",
+                value=cur_long_only,
+                help=(
+                    "Disable all SELL/short signals — only BUY entries are taken. "
+                    "Recommended for bull-market conditions. "
+                    "Historically ~doubles annual return vs BUY+SELL over a full cycle."
+                ),
+            )
 
         saved = st.form_submit_button("💾  Save Configuration", use_container_width=True)
 
@@ -125,6 +136,7 @@ def config_manager_section(db: Database) -> None:
             trail_act_mult=str(trail_act),
             bias_neutral_passthrough="true" if bias_passthrough else "false",
             bias_neutral_threshold=str(round(bias_threshold_pct / 100, 4)),
+            long_only="true" if long_only_mode else "false",
         )
         st.success("Configuration saved — restart the bot to apply all changes.")
 
@@ -296,10 +308,11 @@ def config_manager_section(db: Database) -> None:
     st.markdown("## Active Configuration")
     st.caption("Values the bot will use on next restart.")
 
-    snap_cfg  = db.get_runtime_config()
-    bias_pass = snap_cfg.get("bias_neutral_passthrough", "true") == "true"
-    bias_thr  = float(snap_cfg.get("bias_neutral_threshold", "0.001")) * 100
-    tg_snap   = db.get_telegram_config()
+    snap_cfg   = db.get_runtime_config()
+    bias_pass  = snap_cfg.get("bias_neutral_passthrough", "true") == "true"
+    bias_thr   = float(snap_cfg.get("bias_neutral_threshold", "0.001")) * 100
+    long_only  = snap_cfg.get("long_only", "false") == "true"
+    tg_snap    = db.get_telegram_config()
 
     rows = {
         "Symbol":            snap_cfg.get("symbol",       settings.symbol),
@@ -313,6 +326,7 @@ def config_manager_section(db: Database) -> None:
         "Environment":       db.get_active_mode(),
         "Neutral Passthru":  "ON" if bias_pass else "OFF (blocks all in neutral)",
         "Neutral Threshold": f"{bias_thr:.2f}%",
+        "Long-only Mode":    "ON (BUY signals only)" if long_only else "OFF (BUY + SELL)",
         "Telegram":          (
             f"{'enabled' if tg_snap['enabled'] else 'disabled'} — chat {tg_snap['chat_id']}"
             if tg_snap["token"] else "not configured"

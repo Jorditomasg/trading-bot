@@ -26,6 +26,7 @@ class EMACrossoverConfig:
     min_atr_pct:           float = 0.0   # skip if ATR < pct × price (dead market); 0 = off
     require_bar_direction: bool  = False  # crossover bar must close in signal direction
     require_ema_momentum:  bool  = False  # continuation: EMA9 must be rising/falling
+    long_only:             bool  = False  # ignore SELL signals — only trade long
 
 
 class EMACrossoverStrategy(BaseStrategy):
@@ -125,6 +126,9 @@ class EMACrossoverStrategy(BaseStrategy):
                 self.config.stop_atr_mult, self.config.tp_atr_mult,
             )
             return buy_signal(strength=strength, stop_loss=sl, take_profit=tp, atr=current_atr)
+
+        if action == "SELL" and self.config.long_only:
+            return hold_signal(atr=current_atr)
 
         if action == "SELL":
             if crossed_down:

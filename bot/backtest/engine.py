@@ -74,6 +74,7 @@ class BacktestConfig:
     # EMA strategy TP/SL multipliers (searchable by optimizer)
     ema_stop_mult:     float = 1.5
     ema_tp_mult:       float = 5.0   # was 3.5 — let winners run on daily trends
+    long_only:         bool  = False  # when True: EMA strategy ignores SELL signals
     # Trailing stop simulation (approximated at bar resolution)
     simulate_trailing:        bool  = True
     trail_atr_mult:           float = 1.5
@@ -108,6 +109,8 @@ class BacktestEngine:
         ema_cfg = dict(strategy_cfgs[StrategyName.EMA_CROSSOVER])
         ema_cfg["stop_atr_mult"] = config.ema_stop_mult
         ema_cfg["tp_atr_mult"]   = config.ema_tp_mult
+        if config.long_only:
+            ema_cfg["long_only"] = True
 
         self._strategies: dict[StrategyName, object] = {
             StrategyName.EMA_CROSSOVER: EMACrossoverStrategy(
@@ -147,10 +150,11 @@ class BacktestEngine:
         filtered = df_4h[mask]
         if len(filtered) < self.config.min_4h_bars:
             return None
-        # BiasFilter needs only 'close'; drop open_time before passing
+        # BiasFilter needs only 'close'; drop open_time before passing.
+        # 250 bars allows macro filters (EMA200) without significant memory cost.
         return (
             filtered[_OHLCV_COLS]
-            .tail(150)
+            .tail(250)
             .reset_index(drop=True)
         )
 

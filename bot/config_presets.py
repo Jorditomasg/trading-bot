@@ -100,6 +100,7 @@ _STRATEGY_PRESETS: dict[str, dict[StrategyName, dict]] = {
             min_atr_pct=0.005,             # skip if ATR < 0.5% of price (dead market)
             require_bar_direction=True,    # crossover bar must close in signal direction
             require_ema_momentum=True,     # continuation: EMA9 must be trending
+            long_only=False,               # set True via dashboard to trade BUY only
         ),
         StrategyName.MEAN_REVERSION: dict(
             bb_period=20,

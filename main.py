@@ -143,7 +143,7 @@ def _build_bias_filter(db: Database) -> BiasFilter:
 
 
 def _apply_ema_config(db: Database, orchestrator: "StrategyOrchestrator") -> None:
-    """Apply optimizer-approved EMA TP/SL multipliers to the live strategy instance."""
+    """Apply optimizer-approved EMA TP/SL multipliers and dashboard flags to the live strategy."""
     from bot.constants import StrategyName
     cfg = db.get_runtime_config()
     ema_strategy = orchestrator._strategies.get(StrategyName.EMA_CROSSOVER)
@@ -155,6 +155,10 @@ def _apply_ema_config(db: Database, orchestrator: "StrategyOrchestrator") -> Non
     if "ema_tp_mult" in cfg:
         ema_strategy.config.tp_atr_mult = float(cfg["ema_tp_mult"])
         logger.info("Runtime config: ema_tp_mult=%.2f", float(cfg["ema_tp_mult"]))
+    if "long_only" in cfg:
+        long_only = cfg["long_only"] == "true"
+        ema_strategy.config.long_only = long_only
+        logger.info("Runtime config: long_only=%s", long_only)
 
 
 def _init_quantity_precision(orchestrator: StrategyOrchestrator, db: Database) -> None:
