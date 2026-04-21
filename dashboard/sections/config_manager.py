@@ -38,7 +38,7 @@ def config_manager_section(db: Database) -> None:
     cur_max_conc         = int(cfg.get("max_concurrent",      1))
     cur_cooldown         = int(cfg.get("cooldown_hours",      4))
     cur_trail_atr        = float(cfg.get("trail_atr_mult",    1.5))
-    cur_trail_act        = float(cfg.get("trail_act_mult",    1.0))
+    cur_trail_act        = float(cfg.get("trail_act_mult",    2.0))
     cur_bias_passthrough = cfg.get("bias_neutral_passthrough", "true") == "true"
     cur_bias_threshold   = float(cfg.get("bias_neutral_threshold", "0.001"))
 

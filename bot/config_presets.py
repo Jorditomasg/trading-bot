@@ -82,9 +82,14 @@ _STRATEGY_PRESETS: dict[str, dict[StrategyName, dict]] = {
             fast_period=9,
             slow_period=21,
             atr_period=14,
-            max_distance_atr=1.0,
+            max_distance_atr=0.3,          # tight pullback-to-EMA9 only (was 1.0)
             stop_atr_mult=1.5,
-            tp_atr_mult=3.5,
+            tp_atr_mult=3.5,               # overridden by BacktestConfig.ema_tp_mult
+            volume_period=20,
+            volume_multiplier=1.5,         # crossover needs 1.5× avg volume conviction
+            min_atr_pct=0.005,             # skip if ATR < 0.5% of price (dead market)
+            require_bar_direction=True,    # crossover bar must close in signal direction
+            require_ema_momentum=True,     # continuation: EMA9 must be trending
         ),
         StrategyName.MEAN_REVERSION: dict(
             bb_period=20,

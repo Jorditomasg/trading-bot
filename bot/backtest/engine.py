@@ -73,11 +73,11 @@ class BacktestConfig:
     force_strategy: str | None = None
     # EMA strategy TP/SL multipliers (searchable by optimizer)
     ema_stop_mult:     float = 1.5
-    ema_tp_mult:       float = 3.5
+    ema_tp_mult:       float = 5.0   # was 3.5 — let winners run on daily trends
     # Trailing stop simulation (approximated at bar resolution)
     simulate_trailing:        bool  = True
     trail_atr_mult:           float = 1.5
-    trail_activation_mult:    float = 1.0
+    trail_activation_mult:    float = 2.0   # was 1.0 — activate only after 2×ATR profit
 
 
 @dataclass
