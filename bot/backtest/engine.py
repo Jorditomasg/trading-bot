@@ -73,7 +73,7 @@ class BacktestConfig:
     force_strategy: str | None = None
     # EMA strategy TP/SL multipliers (searchable by optimizer)
     ema_stop_mult:     float = 1.5
-    ema_tp_mult:       float = 5.0   # was 3.5 — let winners run on daily trends
+    ema_tp_mult:       float = 3.5   # validated optimal: PF 1.187 vs 1.132 at 5.0×
     long_only:         bool  = False  # when True: EMA strategy ignores SELL signals
     # Trailing stop simulation (approximated at bar resolution)
     simulate_trailing:        bool  = True
