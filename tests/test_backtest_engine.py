@@ -93,6 +93,45 @@ class TestBacktestEngineSmoke:
         with pytest.raises(ValueError, match="Insufficient data"):
             engine.run(df)
 
+    # ── Input validation (Fix #7) ─────────────────────────────────────────────
+
+    def test_missing_column_raises(self):
+        engine = _default_engine()
+        df = _uptrend().drop(columns=["high"])
+        with pytest.raises(ValueError, match="missing required columns"):
+            engine.run(df)
+
+    def test_unsorted_timestamps_raises(self):
+        engine = _default_engine()
+        df = _uptrend().iloc[::-1].reset_index(drop=True)   # reverse order
+        with pytest.raises(ValueError, match="not sorted ascending"):
+            engine.run(df)
+
+    def test_high_less_than_low_raises(self):
+        engine = _default_engine()
+        df = _uptrend().copy()
+        df.loc[100, "high"] = df.loc[100, "low"] - 1.0    # inject bad bar
+        with pytest.raises(ValueError, match="high < low"):
+            engine.run(df)
+
+    def test_invalid_initial_capital_raises(self):
+        cfg = BacktestConfig(initial_capital=-500.0)
+        engine = BacktestEngine(cfg)
+        with pytest.raises(ValueError, match="initial_capital"):
+            engine.run(_uptrend())
+
+    def test_invalid_risk_per_trade_raises(self):
+        cfg = BacktestConfig(risk_per_trade=1.5)
+        engine = BacktestEngine(cfg)
+        with pytest.raises(ValueError, match="risk_per_trade"):
+            engine.run(_uptrend())
+
+    def test_negative_cost_raises(self):
+        cfg = BacktestConfig(cost_per_side_pct=-0.001)
+        engine = BacktestEngine(cfg)
+        with pytest.raises(ValueError, match="cost_per_side_pct"):
+            engine.run(_uptrend())
+
     def test_flat_market_few_trades(self):
         """Flat market should trigger few or no trades (weak signals)."""
         engine = _default_engine()

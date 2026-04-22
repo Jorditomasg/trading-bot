@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS trades (
     stop_loss   REAL    NOT NULL,
     take_profit REAL    NOT NULL,
     atr         REAL,
-    trailing_sl REAL
+    trailing_sl REAL,
+    peak_price  REAL
 );
 
 CREATE TABLE IF NOT EXISTS equity (
@@ -88,6 +89,9 @@ CREATE TABLE IF NOT EXISTS optimizer_runs (
     total_pnl     REAL    NOT NULL,
     status        TEXT    NOT NULL DEFAULT 'pending'
 );
+
+CREATE INDEX IF NOT EXISTS idx_trades_entry_time ON trades(entry_time DESC);
+CREATE INDEX IF NOT EXISTS idx_trades_exit_price  ON trades(exit_price);
 """
 
 
@@ -113,6 +117,7 @@ class Database:
                 ("atr",         "REAL"),
                 ("trailing_sl", "REAL"),
                 ("timeframe",   "TEXT DEFAULT '1h'"),
+                ("peak_price",  "REAL"),
             ]:
                 if col not in trades_cols:
                     conn.execute(f"ALTER TABLE trades ADD COLUMN {col} {definition}")
@@ -220,6 +225,19 @@ class Database:
                 (trailing_sl, trade_id),
             )
         logger.debug("Trailing SL updated trade_id=%s sl=%.2f", trade_id, trailing_sl)
+
+    def update_peak_price(self, trade_id: int, peak_price: float) -> None:
+        """Persist the running price peak (BUY: highest high; SELL: lowest low).
+
+        Used by position_manager to ratchet the trailing stop from the true
+        price peak rather than from the last tick, matching backtest behaviour.
+        """
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE trades SET peak_price = ? WHERE id = ?",
+                (peak_price, trade_id),
+            )
+        logger.debug("Peak price updated trade_id=%s peak=%.2f", trade_id, peak_price)
 
     def insert_equity_snapshot(self, balance: float, drawdown: float = 0.0) -> None:
         ts = datetime.now().isoformat()
@@ -448,17 +466,16 @@ class Database:
     # ── Runtime config (hot-reloadable bot parameters) ───────────────────────
 
     def get_runtime_config(self) -> dict:
-        """Return all runtime-configurable bot parameters from the KV store."""
-        keys = [
-            "symbol", "timeframe", "risk_per_trade", "max_drawdown",
-            "max_concurrent", "trail_atr_mult", "trail_act_mult", "cooldown_hours",
-        ]
-        result = {}
-        for key in keys:
-            val = self.get_config(f"rt_{key}")
-            if val is not None:
-                result[key] = val
-        return result
+        """Return all runtime-configurable bot parameters from the KV store.
+
+        Reads every key stored with the ``rt_`` prefix and strips the prefix
+        so callers receive bare names (e.g. ``"ema_stop_mult"``, not ``"rt_ema_stop_mult"``).
+        """
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT key, value FROM bot_config WHERE key LIKE 'rt_%'"
+            ).fetchall()
+        return {row["key"][3:]: row["value"] for row in rows}
 
     def set_runtime_config(self, **kwargs) -> None:
         """Persist runtime config params to the KV store (rt_ prefix)."""

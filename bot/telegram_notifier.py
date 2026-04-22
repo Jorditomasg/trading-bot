@@ -106,6 +106,21 @@ class TelegramNotifier:
             f"Trading paused — cooldown active."
         )
 
+    def optimizer_applied(self, old_params: dict, new_params: dict, mode: str) -> None:
+        """Notify when the auto-optimizer applies new EMA parameters."""
+        self._post(
+            f"⚙️ <b>AUTO-OPTIMIZER APPLIED</b>  [{self._mode_tag(mode)}]\n\n"
+            f"SL mult: <code>{old_params['ema_stop_mult']:.2f}</code> → "
+            f"<b>{new_params['ema_stop_mult']:.2f}</b>\n"
+            f"TP mult: <code>{old_params['ema_tp_mult']:.2f}</code> → "
+            f"<b>{new_params['ema_tp_mult']:.2f}</b>\n\n"
+            f"PF:     <b>{new_params['profit_factor']:.2f}</b>  "
+            f"Sharpe: <b>{new_params['sharpe_ratio']:.2f}</b>  "
+            f"WR: <b>{new_params['win_rate']:.1f}%</b>\n"
+            f"Trades: {new_params['total_trades']}  "
+            f"MaxDD:  {new_params['max_drawdown']:.1f}%"
+        )
+
     def bot_started(self, dry_run: bool, mode: str) -> None:
         suffix = "  <i>(dry-run)</i>" if dry_run else ""
         self._post(f"🤖 <b>BOT STARTED</b>  [{self._mode_tag(mode)}]{suffix}")

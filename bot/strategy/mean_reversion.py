@@ -56,13 +56,22 @@ class MeanReversionStrategy(BaseStrategy):
         at_upper = current_price >= current_upper
 
         if at_lower and current_rsi < self.config.rsi_oversold:
+            risk_dist   = STOP_ATR_MULT * current_atr
+            reward_dist = abs(current_mean - current_price)
+            if reward_dist < risk_dist:
+                logger.debug(
+                    "MeanReversion: BUY rejected — R:R %.2f < 1.0 (reward=%.4f risk=%.4f)",
+                    reward_dist / risk_dist if risk_dist > 0 else 0,
+                    reward_dist, risk_dist,
+                )
+                return hold_signal(atr=current_atr)
             # Strength: how far below the band relative to its width
             band_width = current_upper - current_lower
             penetration = (current_lower - current_price) / band_width if band_width > 0 else 0
             strength = min(0.5 + penetration + (self.config.rsi_oversold - current_rsi) / 100, 1.0)
             signal = buy_signal(
                 strength=strength,
-                stop_loss=current_price - STOP_ATR_MULT * current_atr,
+                stop_loss=current_price - risk_dist,
                 take_profit=current_mean,
                 atr=current_atr,
             )
@@ -73,12 +82,21 @@ class MeanReversionStrategy(BaseStrategy):
             return signal
 
         if at_upper and current_rsi > self.config.rsi_overbought:
+            risk_dist   = STOP_ATR_MULT * current_atr
+            reward_dist = abs(current_mean - current_price)
+            if reward_dist < risk_dist:
+                logger.debug(
+                    "MeanReversion: SELL rejected — R:R %.2f < 1.0 (reward=%.4f risk=%.4f)",
+                    reward_dist / risk_dist if risk_dist > 0 else 0,
+                    reward_dist, risk_dist,
+                )
+                return hold_signal(atr=current_atr)
             band_width = current_upper - current_lower
             penetration = (current_price - current_upper) / band_width if band_width > 0 else 0
             strength = min(0.5 + penetration + (current_rsi - self.config.rsi_overbought) / 100, 1.0)
             signal = sell_signal(
                 strength=strength,
-                stop_loss=current_price + STOP_ATR_MULT * current_atr,
+                stop_loss=current_price + risk_dist,
                 take_profit=current_mean,
                 atr=current_atr,
             )

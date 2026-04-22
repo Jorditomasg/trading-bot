@@ -12,12 +12,15 @@ from pathlib import Path
 
 import schedule
 
+import threading
+
 from bot.adaptive.adaptor import ParameterAdaptor
 from bot.bias.filter import BiasFilter, BiasFilterConfig
 from bot.config import settings
 from bot.constants import ExitReason, StrategyName, TradeAction
 from bot.database.db import Database
 from bot.exchange.binance_client import BinanceClient
+from bot.optimizer.auto_optimizer import run_and_apply, should_run
 from bot.orchestrator import StrategyOrchestrator
 from bot.risk.manager import RiskConfig
 from bot.telegram_commands import TelegramCommandHandler
@@ -139,6 +142,7 @@ def _build_bias_filter(db: Database) -> BiasFilter:
     return BiasFilter(BiasFilterConfig(
         neutral_passthrough=cfg.get("bias_neutral_passthrough", "true") == "true",
         neutral_threshold_pct=float(cfg.get("bias_neutral_threshold", "0.001")),
+        block_on_data_failure=cfg.get("bias_block_on_data_failure", "false") == "true",
     ))
 
 
@@ -228,7 +232,9 @@ def run_cycle(
         df_4h = client.get_klines(settings.symbol, "1d", 60)
     except Exception as exc:
         logger.warning(
-            "Failed to fetch daily klines: %s — bias filter will block signals this cycle", exc
+            "Failed to fetch daily klines: %s — BiasFilter will use NEUTRAL "
+            "(signals pass if neutral_passthrough=True, blocked if block_on_data_failure=True)",
+            exc,
         )
 
     try:
@@ -377,28 +383,44 @@ def _manage_single_position(
         return
 
     # ── Ratchet trailing stop ─────────────────────────────────────────────────
+    # Track the running price peak (BUY: highest seen; SELL: lowest seen) so
+    # the trailing stop ratchets from the true peak — matching backtest engine
+    # behaviour (_update_trailing uses bar high/low for the same reason).
     if trade_atr and risk_config is not None:
         trail_dist = risk_config.trail_atr_mult * trade_atr
         activation = risk_config.trail_activation_mult * trade_atr
 
-        if side == "BUY" and price >= entry_price + activation:
-            new_trail = price - trail_dist
-            if trailing_sl is None or new_trail > trailing_sl:
-                db.update_trailing_sl(trade_id, new_trail)
-                trailing_sl = new_trail
-                logger.debug(
-                    "position_manager: trailing SL ratcheted to %.2f (price=%.2f)",
-                    new_trail, price,
-                )
-        elif side == "SELL" and price <= entry_price - activation:
-            new_trail = price + trail_dist
-            if trailing_sl is None or new_trail < trailing_sl:
-                db.update_trailing_sl(trade_id, new_trail)
-                trailing_sl = new_trail
-                logger.debug(
-                    "position_manager: trailing SL ratcheted to %.2f (price=%.2f)",
-                    new_trail, price,
-                )
+        # Initialise peak_price from the DB row; fall back to entry if NULL (legacy row)
+        peak_price = trade.get("peak_price") or entry_price
+
+        if side == "BUY":
+            new_peak = max(peak_price, price)
+            if new_peak > peak_price:
+                db.update_peak_price(trade_id, new_peak)
+                peak_price = new_peak
+            if peak_price >= entry_price + activation:
+                new_trail = peak_price - trail_dist
+                if trailing_sl is None or new_trail > trailing_sl:
+                    db.update_trailing_sl(trade_id, new_trail)
+                    trailing_sl = new_trail
+                    logger.debug(
+                        "position_manager: trailing SL ratcheted to %.2f (peak=%.2f)",
+                        new_trail, peak_price,
+                    )
+        elif side == "SELL":
+            new_peak = min(peak_price, price)
+            if new_peak < peak_price:
+                db.update_peak_price(trade_id, new_peak)
+                peak_price = new_peak
+            if peak_price <= entry_price - activation:
+                new_trail = peak_price + trail_dist
+                if trailing_sl is None or new_trail < trailing_sl:
+                    db.update_trailing_sl(trade_id, new_trail)
+                    trailing_sl = new_trail
+                    logger.debug(
+                        "position_manager: trailing SL ratcheted to %.2f (peak=%.2f)",
+                        new_trail, peak_price,
+                    )
 
     # ── Exit condition check ──────────────────────────────────────────────────
     reason: str | None = None
@@ -464,6 +486,40 @@ def position_manager(
     price = tick["price"]
     for trade in trades:
         _manage_single_position(trade, price, db, dry_run, risk_config, notifier)
+
+
+def _launch_auto_optimizer(
+    db: Database,
+    orchestrator: StrategyOrchestrator,
+    notifier: TelegramNotifier | None,
+) -> None:
+    """Run the auto-optimizer in a daemon thread so it never blocks the main loop.
+
+    On success: hot-patches the running EMA strategy (no restart needed) and
+    sends a Telegram notification with the new parameters.
+    """
+    def _worker() -> None:
+        def _on_applied(old_params: dict, new_params: dict) -> None:
+            # Hot-reload: patch the live strategy object without restart
+            _apply_ema_config(db, orchestrator)
+            logger.info("Auto-optimizer: hot-reloaded EMA config into running strategy")
+            if notifier:
+                notifier.optimizer_applied(old_params, new_params, db.get_active_mode())
+
+        try:
+            run_and_apply(
+                db=db,
+                symbol=settings.symbol,
+                timeframe=settings.timeframe,
+                risk_per_trade=settings.risk_per_trade,
+                on_applied=_on_applied,
+            )
+        except Exception as exc:
+            logger.error("Auto-optimizer: unhandled error: %s", exc, exc_info=True)
+
+    t = threading.Thread(target=_worker, name="auto-optimizer", daemon=True)
+    t.start()
+    logger.info("Auto-optimizer: background thread started")
 
 
 def main() -> None:
@@ -539,11 +595,18 @@ def main() -> None:
     # Run immediately on startup, then schedule hourly
     run_cycle(orchestrator, db, dry_run=args.dry_run, adaptor=adaptor, notifier=notifier)
 
+    # Auto-optimizer: run at startup if overdue, then weekly
+    if should_run(db):
+        _launch_auto_optimizer(db, orchestrator, notifier)
+
     schedule.every().hour.at(":00").do(
         run_cycle, orchestrator, db, args.dry_run, adaptor, notifier
     )
     schedule.every(60).seconds.do(
         position_manager, db, args.dry_run, orchestrator.risk_manager.config, notifier
+    )
+    schedule.every(7).days.do(
+        _launch_auto_optimizer, db, orchestrator, notifier
     )
 
     while not _shutdown:

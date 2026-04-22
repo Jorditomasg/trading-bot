@@ -22,22 +22,36 @@ class BiasFilterConfig:
     neutral_threshold_pct: float = 0.001  # 0.1% of price
     neutral_passthrough: bool = True  # NEUTRAL allows both BUY and SELL (no directional gate)
     enabled: bool = True
+    # When True, a data-fetch failure (None df) blocks all signals regardless of
+    # neutral_passthrough.  Default False preserves existing fail-open behaviour.
+    block_on_data_failure: bool = False
 
 
 class BiasFilter:
     def __init__(self, config: BiasFilterConfig = BiasFilterConfig()) -> None:
         self.config = config
+        self._last_bias_was_data_failure: bool = False
 
     def get_bias(self, df_4h: pd.DataFrame | None) -> Bias:
+        # Reset data-failure flag on every call so stale state never bleeds across cycles
+        self._last_bias_was_data_failure = False
+
         if not self.config.enabled:
             return Bias.BULLISH  # sentinel: allows_signal will bypass filter entirely
 
         required = self.config.slow_period + 1
         if df_4h is None or len(df_4h) < required:
-            logger.warning(
-                "BiasFilter: insufficient 4h data (%s rows) — NEUTRAL (fail-closed)",
-                len(df_4h) if df_4h is not None else "None",
-            )
+            self._last_bias_was_data_failure = True
+            if self.config.block_on_data_failure:
+                logger.warning(
+                    "BiasFilter: insufficient data (%s rows) — BLOCKED (block_on_data_failure=True)",
+                    len(df_4h) if df_4h is not None else "None",
+                )
+            else:
+                logger.warning(
+                    "BiasFilter: insufficient data (%s rows) — NEUTRAL (signals pass via neutral_passthrough)",
+                    len(df_4h) if df_4h is not None else "None",
+                )
             return Bias.NEUTRAL
 
         close = df_4h["close"]
@@ -72,6 +86,14 @@ class BiasFilter:
 
         if signal.action == "HOLD":
             return True
+
+        # Data-failure override: block everything when fetch failed and strict mode is on
+        if self._last_bias_was_data_failure and self.config.block_on_data_failure:
+            logger.debug(
+                "BiasFilter: blocking %s — data failure + block_on_data_failure=True",
+                signal.action,
+            )
+            return False
 
         # NEUTRAL = no clear directional trend. When neutral_passthrough is enabled,
         # both BUY and SELL are allowed — the bias filter only gates AGAINST-trend

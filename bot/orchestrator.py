@@ -89,14 +89,17 @@ class StrategyOrchestrator:
                 )
                 signal = hold_signal(atr=signal.atr)
 
-        self.db.insert_signal(
-            symbol=self.symbol,
-            strategy=strategy.name,
-            regime=regime.value,
-            action=signal.action,
-            strength=signal.strength,
-            bias=bias.value if bias is not None else None,
-        )
+        if signal.action != "HOLD":
+            self.db.insert_signal(
+                symbol=self.symbol,
+                strategy=strategy.name,
+                regime=regime.value,
+                action=signal.action,
+                strength=signal.strength,
+                bias=bias.value if bias is not None else None,
+            )
+        else:
+            logger.debug("Orchestrator: HOLD signal — skipping signals table insert")
         logger.info(
             "Orchestrator: signal action=%s strength=%.2f strategy=%s bias=%s",
             signal.action, signal.strength, strategy.name,
@@ -133,7 +136,7 @@ class StrategyOrchestrator:
             return []
 
         # Validate signal strength and direction
-        if not self.risk_manager.validate_signal(signal, open_trades):
+        if not self.risk_manager.validate_signal(signal):
             logger.debug("Orchestrator: signal not valid for execution — skipping")
             return []
 
@@ -142,7 +145,6 @@ class StrategyOrchestrator:
             capital=current_balance,
             entry=current_price,
             stop_loss=signal.stop_loss,
-            n_open_trades=len(open_trades),
         )
         if quantity <= 0:
             logger.warning("Orchestrator: computed quantity=0 — skipping")

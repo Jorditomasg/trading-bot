@@ -304,6 +304,37 @@ class BacktestEngine:
         df["open_time"] = pd.to_datetime(df["open_time"], utc=True)
         return df
 
+    _REQUIRED_COLS: frozenset = frozenset({"open_time"} | set(_OHLCV_COLS))
+
+    @staticmethod
+    def _validate_inputs(df: pd.DataFrame, config: "BacktestConfig") -> None:
+        """Raise ValueError on any data or config integrity violation."""
+        # Config
+        if config.initial_capital <= 0:
+            raise ValueError(
+                f"initial_capital must be > 0, got {config.initial_capital}"
+            )
+        if not (0 < config.risk_per_trade <= 1):
+            raise ValueError(
+                f"risk_per_trade must be in (0, 1], got {config.risk_per_trade}"
+            )
+        if config.cost_per_side_pct < 0:
+            raise ValueError(
+                f"cost_per_side_pct must be >= 0, got {config.cost_per_side_pct}"
+            )
+        # DataFrame
+        missing = BacktestEngine._REQUIRED_COLS - set(df.columns)
+        if missing:
+            raise ValueError(f"df missing required columns: {missing}")
+        if not df["open_time"].is_monotonic_increasing:
+            raise ValueError(
+                "df timestamps are not sorted ascending — sort by open_time before passing"
+            )
+        if (df["high"] < df["low"]).any():
+            raise ValueError(
+                "df contains bars where high < low — check data integrity"
+            )
+
     def run(
         self,
         df: pd.DataFrame,
@@ -322,6 +353,8 @@ class BacktestEngine:
         Returns:
             BacktestResult with all trades and equity curve.
         """
+        self._validate_inputs(df, self.config)
+
         # Normalise timestamps to UTC-aware pd.Timestamp regardless of how the
         # caller obtained the DataFrames (int ms, naive datetime64, tz-aware, etc.)
         df = self._normalize_timestamps(df)

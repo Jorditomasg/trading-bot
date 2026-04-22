@@ -124,3 +124,45 @@ class TestAllowsSignal:
         assert f.allows_signal(_signal("BUY"),  Bias.BEARISH) is True
         assert f.allows_signal(_signal("SELL"), Bias.BULLISH) is True
         assert f.allows_signal(_signal("BUY"),  Bias.NEUTRAL) is True
+
+
+# ── block_on_data_failure ──────────────────────────────────────────────────────
+
+class TestBlockOnDataFailure:
+    """block_on_data_failure=True must block non-HOLD signals when df is None."""
+
+    def test_blocks_buy_when_df_none(self):
+        f = BiasFilter(BiasFilterConfig(block_on_data_failure=True))
+        f.get_bias(None)  # sets _last_bias_was_data_failure=True
+        assert f.allows_signal(_signal("BUY"), Bias.NEUTRAL) is False
+
+    def test_blocks_sell_when_df_none(self):
+        f = BiasFilter(BiasFilterConfig(block_on_data_failure=True))
+        f.get_bias(None)
+        assert f.allows_signal(_signal("SELL"), Bias.NEUTRAL) is False
+
+    def test_hold_always_passes_even_on_failure(self):
+        f = BiasFilter(BiasFilterConfig(block_on_data_failure=True))
+        f.get_bias(None)
+        assert f.allows_signal(_signal("HOLD"), Bias.NEUTRAL) is True
+
+    def test_default_false_still_allows_on_none(self):
+        """Default block_on_data_failure=False preserves existing fail-open behaviour."""
+        f = BiasFilter(BiasFilterConfig(neutral_passthrough=True))
+        f.get_bias(None)
+        assert f.allows_signal(_signal("BUY"), Bias.NEUTRAL) is True
+
+    def test_flag_resets_after_valid_data(self):
+        """After a successful get_bias call, block_on_data_failure no longer triggers."""
+        f = BiasFilter(BiasFilterConfig(block_on_data_failure=True))
+        f.get_bias(None)                   # failure → flag set
+        f.get_bias(_rising())              # success → flag cleared
+        assert f.allows_signal(_signal("BUY"), Bias.BULLISH) is True
+
+    def test_genuine_neutral_market_not_blocked(self):
+        """A genuine NEUTRAL (low EMA gap, data available) must not trigger the block."""
+        f = BiasFilter(BiasFilterConfig(block_on_data_failure=True, neutral_passthrough=True))
+        bias = f.get_bias(_flat())          # NEUTRAL from real data, not a failure
+        assert bias == Bias.NEUTRAL
+        assert f._last_bias_was_data_failure is False
+        assert f.allows_signal(_signal("BUY"), bias) is True

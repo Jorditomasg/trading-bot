@@ -33,10 +33,9 @@ class RiskManager:
         capital: float,
         entry: float,
         stop_loss: float,
-        n_open_trades: int = 0,
     ) -> float:
         # Portfolio-level risk: divide total risk budget evenly across max concurrent slots.
-        # With max_concurrent_trades=1 (default) the formula is identical to the old one.
+        # With max_concurrent_trades=1 (default) each trade risks risk_per_trade of capital.
         risk_amount = capital * self.config.risk_per_trade / self.config.max_concurrent_trades
         risk_per_unit = abs(entry - stop_loss)
 
@@ -94,7 +93,12 @@ class RiskManager:
         )
         return True
 
-    def validate_signal(self, signal: Signal, open_positions: list[dict]) -> bool:
+    def validate_signal(self, signal: Signal) -> bool:
+        """Validate signal strength and direction.
+
+        Does NOT check open positions — duplicate and max_concurrent guards
+        live in the orchestrator, which has full context.
+        """
         if signal.action == "HOLD":
             logger.debug("Signal skipped: action=HOLD")
             return False
@@ -106,11 +110,8 @@ class RiskManager:
             )
             return False
 
-        for pos in open_positions:
-            if pos.get("side") == signal.action:
-                logger.info(
-                    "Signal rejected: already have an open %s position", signal.action
-                )
-                return False
-
+        logger.debug(
+            "validate_signal: action=%s strength=%.4f → valid",
+            signal.action, signal.strength,
+        )
         return True

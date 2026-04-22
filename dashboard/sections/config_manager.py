@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import streamlit as st
 
 from bot.config import settings
 from bot.credentials import encrypt
 from bot.database.db import Database
 from bot.exchange.binance_client import BinanceClient
+from bot.optimizer.auto_optimizer import OPTIMIZER_INTERVAL_DAYS, _LAST_RUN_KEY
 from bot.telegram_notifier import TelegramNotifier
 from dashboard.constants import RED
 
@@ -339,3 +342,67 @@ def config_manager_section(db: Database) -> None:
             unsafe_allow_html=True,
         )
         col_v.markdown(f"`{val}`")
+
+    st.divider()
+
+    # ── Auto-optimizer status (read-only) ─────────────────────────────────────
+    _auto_optimizer_status_section(db)
+
+
+def _auto_optimizer_status_section(db: Database) -> None:
+    """Read-only panel showing the last auto-optimizer run and current EMA params."""
+    st.markdown("## Auto-optimizer")
+    st.caption(
+        f"Runs automatically every {OPTIMIZER_INTERVAL_DAYS} days. "
+        "Finds the SL/TP multipliers with the best profit factor and applies them live — no restart needed."
+    )
+
+    cfg          = db.get_runtime_config()
+    last_run_str = cfg.get(_LAST_RUN_KEY)
+    cur_stop     = float(cfg.get("ema_stop_mult", 1.5))
+    cur_tp       = float(cfg.get("ema_tp_mult",   3.5))
+
+    # Last-run timing
+    if last_run_str:
+        try:
+            last_run = datetime.fromisoformat(last_run_str)
+            if last_run.tzinfo is None:
+                last_run = last_run.replace(tzinfo=timezone.utc)
+            now         = datetime.now(tz=timezone.utc)
+            elapsed     = now - last_run
+            elapsed_d   = elapsed.days
+            next_run_d  = max(0, OPTIMIZER_INTERVAL_DAYS - elapsed_d)
+            last_label  = (
+                "today" if elapsed_d == 0
+                else f"{elapsed_d}d ago ({last_run.strftime('%Y-%m-%d')})"
+            )
+            next_label  = "overdue — will run on next bot startup" if next_run_d == 0 else f"in {next_run_d}d"
+        except ValueError:
+            last_label = last_run_str
+            next_label = "unknown"
+    else:
+        last_label = "never (will run on next bot startup)"
+        next_label = "on next bot startup"
+
+    # Best recent auto-applied run
+    recent_runs = db.get_optimizer_runs(limit=5)
+    auto_applied = [r for r in recent_runs if r.get("status") == "auto_applied"]
+    best_pf_label = f"{auto_applied[0]['profit_factor']:.2f}" if auto_applied else "—"
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Last run",   last_label)
+    c2.metric("Next run",   next_label)
+    c3.metric("SL mult",    f"{cur_stop:.2f}×")
+    c4.metric("TP mult",    f"{cur_tp:.2f}×")
+
+    if auto_applied:
+        r = auto_applied[0]
+        st.markdown(
+            f"<span style='font-size:0.7rem;color:#555;letter-spacing:0.08em'>"
+            f"Last applied: SL {r['ema_stop_mult']:.2f}× · TP {r['ema_tp_mult']:.2f}×  "
+            f"| PF {r['profit_factor']:.2f}  Sharpe {r['sharpe_ratio']:.2f}  "
+            f"WR {r['win_rate']:.1f}%  MaxDD {r['max_drawdown']:.1f}%  "
+            f"Trades {r['total_trades']}"
+            f"</span>",
+            unsafe_allow_html=True,
+        )
