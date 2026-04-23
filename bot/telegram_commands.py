@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from typing import Callable
 
 import requests
 
@@ -25,11 +26,17 @@ class TelegramCommandHandler:
       /report  — reply with full historical performance summary
     """
 
-    def __init__(self, db: Database, notifier: TelegramNotifier) -> None:
-        self._db       = db
-        self._notifier = notifier
-        self._offset   = 0
-        self._stop     = threading.Event()
+    def __init__(
+        self,
+        db: Database,
+        notifier: TelegramNotifier,
+        price_fetcher: Callable[[], float] | None = None,
+    ) -> None:
+        self._db            = db
+        self._notifier      = notifier
+        self._price_fetcher = price_fetcher
+        self._offset        = 0
+        self._stop          = threading.Event()
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
@@ -90,7 +97,30 @@ class TelegramCommandHandler:
             open_trade = self._db.get_open_trade()
             paused     = self._db.get_bot_paused()
             mode       = self._db.get_active_mode()
-            self._notifier.status(balance, open_trade, mode, paused=paused)
+
+            btc_price: float | None = None
+            unrealized_pnl: float | None = None
+            if self._price_fetcher:
+                try:
+                    btc_price = self._price_fetcher()
+                except Exception as exc:
+                    logger.warning("Could not fetch BTC price for /status: %s", exc)
+
+            if open_trade and btc_price is not None:
+                side  = open_trade.get("side", "BUY")
+                entry = float(open_trade.get("entry_price", 0.0))
+                qty   = float(open_trade.get("quantity", 0.0))
+                unrealized_pnl = (
+                    (btc_price - entry) * qty if side == "BUY"
+                    else (entry - btc_price) * qty
+                )
+
+            self._notifier.status(
+                balance, open_trade, mode,
+                paused=paused,
+                btc_price=btc_price,
+                unrealized_pnl=unrealized_pnl,
+            )
 
         elif command == "/report":
             from bot.config import settings

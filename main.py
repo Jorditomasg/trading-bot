@@ -576,11 +576,16 @@ def main() -> None:
 
     # Telegram — always instantiated; no-ops when unconfigured
     notifier    = TelegramNotifier(db=db)
-    cmd_handler = TelegramCommandHandler(db=db, notifier=notifier)
+    # Build the exchange client early so the command handler can fetch live prices
+    stream_client = _build_client(db)
+    cmd_handler = TelegramCommandHandler(
+        db=db,
+        notifier=notifier,
+        price_fetcher=lambda: stream_client.get_ticker_price(settings.symbol),
+    )
     cmd_handler.start()
 
-    # Build a client for the WebSocket price stream (uses startup mode)
-    stream_client = _build_client(db)
+    # Start the WebSocket price stream on the same client
     twm = stream_client.start_price_stream(
         settings.symbol,
         _make_tick_handler(db, settings.symbol),

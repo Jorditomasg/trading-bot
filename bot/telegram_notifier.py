@@ -136,19 +136,40 @@ class TelegramNotifier:
     def resumed(self) -> None:
         self._post("▶️ <b>BOT RESUMED</b>  (via Telegram)")
 
-    def status(self, balance: float, open_trade: dict | None, mode: str, *, paused: bool = False) -> None:
+    def status(
+        self,
+        balance: float,
+        open_trade: dict | None,
+        mode: str,
+        *,
+        paused: bool = False,
+        btc_price: float | None = None,
+        unrealized_pnl: float | None = None,
+    ) -> None:
+        bot_state  = "⏸ Paused" if paused else "▶️ Running"
+        price_line = (
+            f"BTC:     <code>${btc_price:,.2f}</code>\n" if btc_price is not None else ""
+        )
+
         if open_trade:
+            pnl_sign = "+" if (unrealized_pnl or 0) >= 0 else ""
+            pnl_line = (
+                f"\nPnL:     <code>{pnl_sign}${unrealized_pnl:.4f}</code>"
+                if unrealized_pnl is not None else ""
+            )
             pos = (
                 f"{open_trade['side']} @ <code>${open_trade['entry_price']:,.2f}</code>\n"
                 f"SL <code>${open_trade['stop_loss']:,.2f}</code>  "
                 f"TP <code>${open_trade['take_profit']:,.2f}</code>"
+                f"{pnl_line}"
             )
         else:
             pos = "No open position"
-        bot_state = "⏸ Paused" if paused else "▶️ Running"
+
         self._post(
             f"📊 <b>STATUS</b>  [{self._mode_tag(mode)}]\n"
             f"Balance: <code>${balance:,.2f}</code>\n"
+            f"{price_line}"
             f"Bot:     <code>{bot_state}</code>\n"
             f"{pos}"
         )
