@@ -549,6 +549,14 @@ class Database:
 
     # ── Range queries for export ──────────────────────────────────────────────
 
+    _ALLOWED_RANGE_TABLES = frozenset(
+        {"trades", "equity", "signals", "adaptive_params"}
+    )
+    _ALLOWED_RANGE_COLS = frozenset(
+        {"entry_time", "exit_time", "timestamp"}
+    )
+    _ALLOWED_ORDERS = frozenset({"ASC", "DESC"})
+
     def _get_range(
         self,
         table: str,
@@ -558,6 +566,14 @@ class Database:
         order: str = "ASC",
     ) -> list[dict]:
         """Generic range query over any table with an ISO timestamp column."""
+        if table not in self._ALLOWED_RANGE_TABLES:
+            raise ValueError(f"_get_range: table '{table}' is not allowed")
+        if ts_col not in self._ALLOWED_RANGE_COLS:
+            raise ValueError(f"_get_range: column '{ts_col}' is not allowed")
+        order = order.upper()
+        if order not in self._ALLOWED_ORDERS:
+            raise ValueError(f"_get_range: order '{order}' is not allowed")
+
         conditions: list[str] = []
         params: list[str] = []
         if from_dt:

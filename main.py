@@ -150,8 +150,9 @@ def _apply_ema_config(db: Database, orchestrator: "StrategyOrchestrator") -> Non
     """Apply optimizer-approved EMA TP/SL multipliers and dashboard flags to the live strategy."""
     from bot.constants import StrategyName
     cfg = db.get_runtime_config()
-    ema_strategy = orchestrator._strategies.get(StrategyName.EMA_CROSSOVER)
-    if ema_strategy is None:
+    try:
+        ema_strategy = orchestrator.get_strategy(StrategyName.EMA_CROSSOVER)
+    except KeyError:
         return
     if "ema_stop_mult" in cfg:
         ema_strategy.config.stop_atr_mult = float(cfg["ema_stop_mult"])
@@ -565,8 +566,8 @@ def main() -> None:
     )
     adaptor = ParameterAdaptor(
         db=db,
-        mean_reversion_strategy=orchestrator._strategies[StrategyName.MEAN_REVERSION],
-        breakout_strategy=orchestrator._strategies[StrategyName.BREAKOUT],
+        mean_reversion_strategy=orchestrator.get_strategy(StrategyName.MEAN_REVERSION),
+        breakout_strategy=orchestrator.get_strategy(StrategyName.BREAKOUT),
         risk_manager=orchestrator.risk_manager,
     )
     _apply_ema_config(db, orchestrator)

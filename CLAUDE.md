@@ -4,6 +4,46 @@ Developer reference for this codebase. Read this before touching anything.
 
 ---
 
+## Project Goal — Profitability
+
+**Target: maximize annual return. The user considers 6% annual unacceptable.**
+
+The user has seen bots generating 70%+ annual and wants this project to reach that level.
+
+### Honest baseline (spot BTC/USDT, 4h, 3-year backtest)
+
+| Risk % | Annual return | Max drawdown |
+|--------|--------------|--------------|
+| 1%     | ~6%          | ~6%          |
+| 2%     | ~13%         | ~12.5%       |
+| 5%     | ~32%         | ~28%         |
+
+With the current spot strategy, 70%+ annual is not achievable without leverage or
+significantly higher risk, because:
+- ~28 trades/year at 4h → low trade frequency limits compounding
+- Spot BTC has limited volatility relative to derivatives
+
+### Levers explored (as of April 2026)
+
+| Lever | Result |
+|-------|--------|
+| TP/SL multiplier optimization | Done — 3.5× TP optimal, auto-optimizer runs weekly |
+| Risk scaling to 2% | Recommended — doubles return, MaxDD stays <15% |
+| Widening RSI threshold (MR) | Tested — hurts quality, RSI<30 already optimal |
+| Breakeven-on-TP1 | Implemented and reverted — trailing stop already covers this |
+| Multiple assets (3×) | +diversification, fees manageable at 28 trades/yr/asset |
+
+### Path to 70%+ (not yet implemented)
+
+1. **Leverage / futures** — 3–5× leverage on current strategy would project ~40–65% annual at 2% risk. This requires `BinanceClient` futures endpoint and margin management.
+2. **Higher timeframe with more signals** — 1h timeframe increases trade frequency ~4×. Current presets exist for 1h.
+3. **Momentum filter** — only trade when weekly trend confirms; reduces MaxDD while keeping compounding.
+
+When working on profitability improvements, always run a 3-year backtest (`BacktestEngine`)
+before and after to compare: annual return, Sharpe ratio, profit factor, and max drawdown.
+
+---
+
 ## Architecture
 
 ### Full Data Flow
@@ -267,16 +307,16 @@ The `Database` class opens and closes a connection per operation (`_conn()` cont
 but the `Database` instance itself is shared. Do not pass separate Database instances to
 dashboard helpers — use `get_db()` everywhere inside Streamlit.
 
-### 9. Opposite signal closes position only if `strength >= 0.5`
+### 9. Opposite signal closes position only if `strength >= 0.75`
 
 ```python
 opposite = (
     (side == "BUY"  and signal.action == "SELL") or
     (side == "SELL" and signal.action == "BUY")
-) and signal.strength >= 0.5
+) and signal.strength >= 0.75
 ```
-A weak opposite signal (strength < 0.5) is ignored. The position stays open.
-This threshold is hardcoded in `_evaluate_open_position()`, not in `RiskConfig`.
+A weak opposite signal (strength < 0.75) is ignored. The position stays open.
+This threshold is configurable via `RiskConfig.min_exit_signal_strength` (default 0.75).
 
 ### 10. `--dry-run` skips `place_order()` but DOES write to DB
 
@@ -353,20 +393,26 @@ _BIAS_TF = {"1h": "4h", "2h": "4h", "4h": "1d", "8h": "1d", "1d": "1w"}
 `main.py` fetches the correct bias timeframe based on `TIMEFRAME` setting and passes it
 as `df_high`. The optimizer also follows this mapping.
 
-### 18. Runtime EMA config applied at startup — requires bot restart
+### 18. Auto-optimizer hot-reloads EMA config without restart
 
-The optimizer writes `ema_stop_mult` and `ema_tp_mult` to the `bot_config` KV store
-when a proposal is approved. `main.py` reads these keys at startup (before the scheduler
-starts) and patches them directly onto `EMACrossoverStrategy.config`:
+The **auto-optimizer** (`bot/optimizer/auto_optimizer.py`) runs weekly in a daemon thread.
+When it finds a better config it writes `ema_stop_mult` and `ema_tp_mult` to the `bot_config`
+KV store AND hot-patches the live `EMACrossoverStrategy` object via `_apply_ema_config()`:
 
 ```python
-if "ema_stop_mult" in cfg:
-    ema_strategy.config.stop_atr_mult = float(cfg["ema_stop_mult"])
+# in main.py — on_applied callback
+_apply_ema_config(db, orchestrator)   # hot-patches config.stop_atr_mult / config.tp_atr_mult
 ```
 
-This means **approved optimizer proposals only take effect after a bot restart**. The
-dashboard shows a "Restart the bot to activate" message on approval for this reason.
-The values are NOT hot-reloaded at runtime.
+Changes take effect on the very next `run_cycle()` tick — no restart needed.
+
+**Manual proposals** from the dashboard OPTIMIZER tab still require a restart. When a user
+clicks "Approve" in the dashboard, the values are written to the DB but `_apply_ema_config()`
+is not called until startup. The dashboard shows a "Restart the bot to activate" banner
+for manual approvals only.
+
+`_apply_ema_config()` is also called once at startup to pick up any DB values set
+while the bot was offline (manual approvals or previous auto-optimizer runs).
 
 ### 19. Optimizer viability constraints — all four must pass
 

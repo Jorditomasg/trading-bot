@@ -171,12 +171,17 @@ def run_grid_search(
             status="pending",
         )
 
-    logger.info(
-        "Optimizer: %d viable configs found (best PF=%.2f stop=%.2f tp=%.2f)",
-        sum(1 for r in results if r["viable"]),
-        results[0]["profit_factor"] if results else 0.0,
-        results[0]["stop_mult"] if results else 0.0,
-        results[0]["tp_mult"] if results else 0.0,
-    )
+    viable_results = [r for r in results if r["viable"]]
+    if viable_results:
+        best = viable_results[0]
+        logger.info(
+            "Optimizer: %d viable configs found (best PF=%.2f stop=%.2f tp=%.2f)",
+            len(viable_results),
+            best["profit_factor"],
+            best["stop_mult"],
+            best["tp_mult"],
+        )
+    else:
+        logger.info("Optimizer: 0 viable configs found out of %d total", len(results))
 
     return results

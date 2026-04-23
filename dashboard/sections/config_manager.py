@@ -10,7 +10,7 @@ from bot.config import settings
 from bot.credentials import encrypt
 from bot.database.db import Database
 from bot.exchange.binance_client import BinanceClient
-from bot.optimizer.auto_optimizer import OPTIMIZER_INTERVAL_DAYS, _LAST_RUN_KEY
+from bot.optimizer.auto_optimizer import OPTIMIZER_INTERVAL_DAYS, LAST_RUN_KEY
 from bot.telegram_notifier import TelegramNotifier
 from dashboard.constants import RED
 
@@ -357,8 +357,15 @@ def _auto_optimizer_status_section(db: Database) -> None:
         "Finds the SL/TP multipliers with the best profit factor and applies them live — no restart needed."
     )
 
+    try:
+        _auto_optimizer_status_content(db)
+    except Exception as exc:
+        st.warning(f"Could not load auto-optimizer status: {exc}")
+
+
+def _auto_optimizer_status_content(db: Database) -> None:
     cfg          = db.get_runtime_config()
-    last_run_str = cfg.get(_LAST_RUN_KEY)
+    last_run_str = cfg.get(LAST_RUN_KEY)
     cur_stop     = float(cfg.get("ema_stop_mult", 1.5))
     cur_tp       = float(cfg.get("ema_tp_mult",   3.5))
 

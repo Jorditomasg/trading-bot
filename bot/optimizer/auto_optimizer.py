@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 OPTIMIZER_INTERVAL_DAYS = 7          # run once per week
-_LAST_RUN_KEY           = "last_auto_optimizer_run"
+LAST_RUN_KEY            = "last_auto_optimizer_run"
 _lock                   = threading.Lock()  # prevents concurrent runs
 
 
@@ -32,7 +32,7 @@ _lock                   = threading.Lock()  # prevents concurrent runs
 def should_run(db: Database, interval_days: int = OPTIMIZER_INTERVAL_DAYS) -> bool:
     """Return True if the auto-optimizer has not run within *interval_days*."""
     cfg    = db.get_runtime_config()
-    ts_str = cfg.get(_LAST_RUN_KEY)
+    ts_str = cfg.get(LAST_RUN_KEY)
     if not ts_str:
         return True
     try:
@@ -96,7 +96,7 @@ def run_and_apply(
         )
 
         # Always record that we ran, even when no viable result exists
-        db.set_runtime_config(**{_LAST_RUN_KEY: now.isoformat()})
+        db.set_runtime_config(**{LAST_RUN_KEY: now.isoformat()})
 
         viable = [r for r in results if r["viable"]]
         if not viable:

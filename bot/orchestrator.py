@@ -57,6 +57,10 @@ class StrategyOrchestrator:
         }
         self._peak_capital: float = db.get_peak_capital() or 0.0
 
+    def get_strategy(self, name: StrategyName) -> BaseStrategy:
+        """Return the strategy instance for *name*.  Raises KeyError if not registered."""
+        return self._strategies[name]
+
     def step(
         self,
         df: pd.DataFrame,
