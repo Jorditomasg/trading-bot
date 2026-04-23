@@ -51,6 +51,7 @@ EXIT_STOP_LOSS       = "STOP_LOSS"
 EXIT_TAKE_PROFIT     = "TAKE_PROFIT"
 EXIT_SIGNAL_REVERSAL = "SIGNAL_REVERSAL"
 EXIT_END_OF_PERIOD   = "END_OF_PERIOD"
+EXIT_LIQUIDATED      = "LIQUIDATED"
 
 _OHLCV_COLS = ["open", "high", "low", "close", "volume"]
 
@@ -79,6 +80,13 @@ class BacktestConfig:
     simulate_trailing:        bool  = True
     trail_atr_mult:           float = 1.5
     trail_activation_mult:    float = 2.0   # was 1.0 — activate only after 2×ATR profit
+    # Leverage simulation (1.0 = spot, no change to existing behaviour)
+    leverage:              float = 1.0
+    funding_rate_per_8h:   float = 0.0001   # ~0.01% per 8h — typical BTC perp
+    # Weekly momentum filter (defaults leave behaviour unchanged)
+    momentum_filter_enabled: bool  = False
+    momentum_sma_period:     int   = 20
+    momentum_neutral_band:   float = 0.05
 
 
 @dataclass
@@ -157,6 +165,40 @@ class BacktestEngine:
             .tail(250)
             .reset_index(drop=True)
         )
+
+    def _get_weekly_window(
+        self,
+        df_weekly: pd.DataFrame | None,
+        current_time: pd.Timestamp,
+    ) -> pd.DataFrame | None:
+        """Return weekly bars completed before current_time (no lookahead)."""
+        if df_weekly is None:
+            return None
+        mask     = df_weekly["open_time"] <= current_time
+        filtered = df_weekly[mask]
+        if len(filtered) < self.config.momentum_sma_period:
+            return None
+        return filtered[["open_time", "close"]].tail(self.config.momentum_sma_period + 5).reset_index(drop=True)
+
+    def _get_momentum_state(self, weekly_window: pd.DataFrame | None) -> str:
+        """Return 'BULLISH', 'BEARISH', or 'NEUTRAL' based on weekly SMA.
+
+        BULLISH  → price > SMA × (1 + neutral_band)  → full risk
+        BEARISH  → price < SMA × (1 − neutral_band)  → block entry
+        NEUTRAL  → within the band                   → half risk
+        Returns 'BULLISH' when filter is disabled or data is insufficient.
+        """
+        if not self.config.momentum_filter_enabled or weekly_window is None:
+            return "BULLISH"
+        closes = weekly_window["close"].to_numpy()
+        sma    = closes[-self.config.momentum_sma_period:].mean()
+        price  = float(closes[-1])
+        band   = self.config.momentum_neutral_band
+        if price > sma * (1.0 + band):
+            return "BULLISH"
+        if price < sma * (1.0 - band):
+            return "BEARISH"
+        return "NEUTRAL"
 
     def _generate_signal(
         self,
@@ -291,6 +333,51 @@ class BacktestEngine:
             return 0.0
         return round(risk_amount / risk_per_unit, 5)
 
+    def _compute_quantity_with_risk(
+        self, capital: float, net_entry: float, stop_loss: float, risk_per_trade: float
+    ) -> float:
+        """Risk-based sizing with an explicit risk_per_trade override."""
+        risk_amount   = capital * risk_per_trade
+        risk_per_unit = abs(net_entry - stop_loss)
+        if risk_per_unit <= 0:
+            return 0.0
+        return round(risk_amount / risk_per_unit, 5)
+
+    def _check_liquidation(self, trade: dict, bar: pd.Series) -> tuple[str, float] | None:
+        """Return (EXIT_LIQUIDATED, liq_price) if the bar breaches the liquidation price.
+
+        Liquidation price = entry * (1 - 0.9/leverage) for BUY
+                          = entry * (1 + 0.9/leverage) for SELL
+        The 0.9 factor accounts for Binance's maintenance margin buffer.
+        Returns None when leverage <= 1.0 (spot — no liquidation possible).
+        """
+        if self.config.leverage <= 1.0:
+            return None
+        entry = trade["entry_price"]
+        lev   = self.config.leverage
+        if trade["side"] == "BUY":
+            liq_price = entry * (1.0 - 0.9 / lev)
+            if float(bar["low"]) <= liq_price:
+                return EXIT_LIQUIDATED, liq_price
+        else:
+            liq_price = entry * (1.0 + 0.9 / lev)
+            if float(bar["high"]) >= liq_price:
+                return EXIT_LIQUIDATED, liq_price
+        return None
+
+    def _apply_leverage(self, raw_pnl: float, trade: dict, bars_held: int) -> float:
+        """Scale raw P&L by leverage and subtract funding cost.
+
+        When leverage == 1.0 returns raw_pnl unchanged.
+        Funding cost = funding_rate_per_8h * bars_held * bar_hours / 8 * notional.
+        """
+        if self.config.leverage <= 1.0:
+            return raw_pnl
+        tf_h         = self._timeframe_hours(self.config.timeframe)
+        notional     = trade["entry_price"] * trade["quantity"]
+        funding_cost = self.config.funding_rate_per_8h * bars_held * tf_h / 8.0 * notional
+        return raw_pnl * self.config.leverage - funding_cost
+
     # ── Main simulation ───────────────────────────────────────────────────────
 
     @staticmethod
@@ -341,14 +428,16 @@ class BacktestEngine:
         df_4h: pd.DataFrame | None = None,
         symbol: str = "BTCUSDT",
         df_1m: pd.DataFrame | None = None,
+        df_weekly: pd.DataFrame | None = None,
     ) -> BacktestResult:
         """Simulate the full bot pipeline bar by bar.
 
         Args:
-            df:     OHLCV DataFrame with columns open_time, open, high, low,
-                    close, volume.  Must be sorted ascending.
-            df_4h:  Optional 4h DataFrame in the same format for BiasFilter.
-            symbol: Symbol name for reporting only.
+            df:        OHLCV DataFrame with columns open_time, open, high, low,
+                       close, volume.  Must be sorted ascending.
+            df_4h:     Optional 4h DataFrame in the same format for BiasFilter.
+            symbol:    Symbol name for reporting only.
+            df_weekly: Optional weekly DataFrame for momentum filter.
 
         Returns:
             BacktestResult with all trades and equity curve.
@@ -360,6 +449,8 @@ class BacktestEngine:
         df = self._normalize_timestamps(df)
         if df_4h is not None:
             df_4h = self._normalize_timestamps(df_4h)
+        if df_weekly is not None:
+            df_weekly = self._normalize_timestamps(df_weekly)
         if df_1m is not None:
             df_1m = self._normalize_timestamps(df_1m)
 
@@ -402,6 +493,10 @@ class BacktestEngine:
             # 4h context — aligned to current_time (no lookahead)
             window_4h = self._get_4h_window(df_4h, current_time)
 
+            # Weekly momentum state — controls entry gating and risk scaling
+            weekly_window  = self._get_weekly_window(df_weekly, current_time)
+            momentum_state = self._get_momentum_state(weekly_window)
+
             # Generate signal (regime + strategy + bias filter)
             regime, signal = self._generate_signal(window, window_4h)
             strategy_name  = _REGIME_STRATEGY_MAP[regime]
@@ -410,67 +505,91 @@ class BacktestEngine:
 
             # ── 1. Check exits on open position ───────────────────────────────
             if open_trade is not None:
-                if has_1m:
-                    next_time = (
-                        df.iloc[i + 1]["open_time"]
-                        if i + 1 < len(df)
-                        else pd.Timestamp.max.tz_localize("UTC")
-                    )
-                    # Use pandas Series.searchsorted — handles UTC-aware timestamps
-                    # correctly without the int vs Timestamp errors of np.searchsorted.
-                    lo = int(df_1m["open_time"].searchsorted(current_time, side="left"))
-                    hi = int(df_1m["open_time"].searchsorted(next_time,   side="left"))
-                    m1_slice = df_1m.iloc[lo:hi]
-                    exit_info = (
-                        self._check_exit_precise(open_trade, m1_slice)
-                        if len(m1_slice) > 0
-                        else self._check_exit(open_trade, bar)
-                    )
-                else:
-                    exit_info = self._check_exit(open_trade, bar)
+                # Liquidation check — only triggers when leverage > 1.0
+                liq_info = self._check_liquidation(open_trade, bar)
+                if liq_info is not None:
+                    reason, liq_price   = liq_info
+                    margin              = open_trade["entry_price"] * open_trade["quantity"] / self.config.leverage
+                    notional            = open_trade["entry_price"] * open_trade["quantity"]
+                    pnl                 = -margin
+                    capital            += pnl
 
-                # Signal reversal — skipped when disable_reversal_exits=True
-                if exit_info is None and not self.config.disable_reversal_exits:
-                    bars_held = i - open_trade["entry_bar"]
-                    current_price = float(bar["close"])
-                    is_in_loss = (
-                        (open_trade["side"] == "BUY"  and current_price < open_trade["entry_price"]) or
-                        (open_trade["side"] == "SELL" and current_price > open_trade["entry_price"])
-                    )
-                    reversal_allowed = (
-                        bars_held >= self.config.min_hold_bars
-                        and (not self.config.reversal_only_if_loss or is_in_loss)
-                    )
-                    opposite = (
-                        (
-                            (open_trade["side"] == "BUY"  and signal.action == "SELL") or
-                            (open_trade["side"] == "SELL" and signal.action == "BUY")
-                        )
-                        and signal.strength >= self.config.reversal_strength_threshold
-                        and reversal_allowed
-                    )
-                    if opposite:
-                        exit_info = (EXIT_SIGNAL_REVERSAL, current_price)
-
-                if exit_info is not None:
-                    reason, raw_exit       = exit_info
-                    net_exit               = self._apply_exit_cost(open_trade["side"], raw_exit)
-                    pnl                    = self._compute_pnl(open_trade, net_exit)
-                    notional               = open_trade["entry_price"] * open_trade["quantity"]
-                    capital               += pnl
-
-                    open_trade["exit_price"]  = net_exit
-                    open_trade["exit_reason"] = reason
+                    open_trade["exit_price"]  = liq_price
+                    open_trade["exit_reason"] = EXIT_LIQUIDATED
                     open_trade["exit_bar"]    = i
                     open_trade["exit_time"]   = current_time
                     open_trade["pnl"]         = pnl
-                    open_trade["pnl_pct"]     = pnl / notional if notional > 0 else 0.0
+                    open_trade["pnl_pct"]     = pnl / notional if notional > 0 else -1.0
 
                     trades.append(open_trade)
                     open_trade      = None
                     closed_this_bar = True
                     cooldown_bars   = self.config.post_close_cooldown_bars
                     equity_curve.append({"bar": i, "time": str(current_time), "balance": capital})
+                else:
+                    if has_1m:
+                        next_time = (
+                            df.iloc[i + 1]["open_time"]
+                            if i + 1 < len(df)
+                            else pd.Timestamp.max.tz_localize("UTC")
+                        )
+                        # Use pandas Series.searchsorted — handles UTC-aware timestamps
+                        # correctly without the int vs Timestamp errors of np.searchsorted.
+                        lo = int(df_1m["open_time"].searchsorted(current_time, side="left"))
+                        hi = int(df_1m["open_time"].searchsorted(next_time,   side="left"))
+                        m1_slice = df_1m.iloc[lo:hi]
+                        exit_info = (
+                            self._check_exit_precise(open_trade, m1_slice)
+                            if len(m1_slice) > 0
+                            else self._check_exit(open_trade, bar)
+                        )
+                    else:
+                        exit_info = self._check_exit(open_trade, bar)
+
+                    # Signal reversal — skipped when disable_reversal_exits=True
+                    if exit_info is None and not self.config.disable_reversal_exits:
+                        bars_held = i - open_trade["entry_bar"]
+                        current_price = float(bar["close"])
+                        is_in_loss = (
+                            (open_trade["side"] == "BUY"  and current_price < open_trade["entry_price"]) or
+                            (open_trade["side"] == "SELL" and current_price > open_trade["entry_price"])
+                        )
+                        reversal_allowed = (
+                            bars_held >= self.config.min_hold_bars
+                            and (not self.config.reversal_only_if_loss or is_in_loss)
+                        )
+                        opposite = (
+                            (
+                                (open_trade["side"] == "BUY"  and signal.action == "SELL") or
+                                (open_trade["side"] == "SELL" and signal.action == "BUY")
+                            )
+                            and signal.strength >= self.config.reversal_strength_threshold
+                            and reversal_allowed
+                        )
+                        if opposite:
+                            exit_info = (EXIT_SIGNAL_REVERSAL, float(bar["close"]))
+
+                    if exit_info is not None:
+                        reason, raw_exit       = exit_info
+                        net_exit               = self._apply_exit_cost(open_trade["side"], raw_exit)
+                        bars_held              = i - open_trade["entry_bar"]
+                        raw_pnl                = self._compute_pnl(open_trade, net_exit)
+                        pnl                    = self._apply_leverage(raw_pnl, open_trade, bars_held)
+                        notional               = open_trade["entry_price"] * open_trade["quantity"]
+                        capital               += pnl
+
+                        open_trade["exit_price"]  = net_exit
+                        open_trade["exit_reason"] = reason
+                        open_trade["exit_bar"]    = i
+                        open_trade["exit_time"]   = current_time
+                        open_trade["pnl"]         = pnl
+                        open_trade["pnl_pct"]     = pnl / notional if notional > 0 else 0.0
+
+                        trades.append(open_trade)
+                        open_trade      = None
+                        closed_this_bar = True
+                        cooldown_bars   = self.config.post_close_cooldown_bars
+                        equity_curve.append({"bar": i, "time": str(current_time), "balance": capital})
 
             # Tick down cooldown counter each bar
             if cooldown_bars > 0:
@@ -485,14 +604,22 @@ class BacktestEngine:
                 and cooldown_bars == 0
                 and not volatile_skip
                 and not ranging_skip
+                and momentum_state != "BEARISH"
                 and signal.action != "HOLD"
                 and signal.strength >= self.config.min_signal_strength
                 and signal.stop_loss is not None
                 and signal.stop_loss > 0
             ):
-                raw_entry = float(bar["close"])
-                net_entry = self._apply_entry_cost(signal.action, raw_entry)
-                quantity  = self._compute_quantity(capital, net_entry, signal.stop_loss)
+                raw_entry     = float(bar["close"])
+                net_entry     = self._apply_entry_cost(signal.action, raw_entry)
+                effective_risk = (
+                    self.config.risk_per_trade * 0.5
+                    if momentum_state == "NEUTRAL"
+                    else self.config.risk_per_trade
+                )
+                quantity = self._compute_quantity_with_risk(
+                    capital, net_entry, signal.stop_loss, effective_risk
+                )
 
                 if quantity > 0:
                     open_trade = {
@@ -527,7 +654,9 @@ class BacktestEngine:
         if open_trade is not None:
             raw_exit  = float(df.iloc[-1]["close"])
             net_exit  = self._apply_exit_cost(open_trade["side"], raw_exit)
-            pnl       = self._compute_pnl(open_trade, net_exit)
+            bars_held = len(df) - 1 - open_trade["entry_bar"]
+            raw_pnl   = self._compute_pnl(open_trade, net_exit)
+            pnl       = self._apply_leverage(raw_pnl, open_trade, bars_held)
             notional  = open_trade["entry_price"] * open_trade["quantity"]
             capital  += pnl
 

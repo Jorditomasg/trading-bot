@@ -129,10 +129,13 @@ before and after to compare: annual return, Sharpe ratio, profit factor, and max
 | `bot/telegram_notifier.py` | `TelegramNotifier` — sends trade/circuit-breaker/lifecycle events; `register_commands()` registers bot menu via `setMyCommands`; lazy DB config reads |
 | `bot/telegram_commands.py` | `TelegramCommandHandler` — daemon thread, long-polls Telegram, handles `/pause` `/resume` `/status` `/report` |
 | `bot/backtest/cache.py` | Parquet cache for OHLCV klines (`data/klines/`): `fetch_and_cache()` (incremental update), `cache_info()`, `download_full_history()` |
+| `bot/backtest/scenario_runner.py` | 8 predefined profitability scenarios (1h/4h × momentum filter × leverage 1–10×); `ScenarioRunner.run_all()` returns `list[ScenarioResult]` with annual return, Sharpe, drawdown, liquidations |
 | `bot/optimizer/walk_forward.py` | Grid search over EMA SL/TP ATR multipliers; runs backtest engine on recent data; saves viable configs to `optimizer_runs` for dashboard review |
-| `dashboard/app.py` | Streamlit app; 4 tabs: MONITOR \| CONFIG \| BACKTEST \| OPTIMIZER; `_topbar()` fragment (5s refresh) |
+| `scripts/compare_scenarios.py` | CLI entry point: `python scripts/compare_scenarios.py --days 1095 --risk 0.02` — fetches data, runs 8 scenarios, prints comparison table |
+| `dashboard/app.py` | Streamlit app; 3 tabs: MONITOR \| CONFIG \| BACKTEST; BACKTEST has subtabs BACKTEST and COMPARE; `_topbar()` fragment (5s refresh) |
 | `dashboard/sections/open_position.py` | Regime badge + CSS flex timeline strip + open position; `drawdown_section` as separate `@st.fragment(run_every=10)` |
 | `dashboard/sections/optimizer.py` | Optimizer UI: grid search form, progress bar, PF heatmap, top-10 table, pending proposal banner (approve/reject), history table |
+| `dashboard/sections/scenario_compare.py` | COMPARE subtab UI: form (symbol/days/risk), progress bar per scenario, results table, equity curve overlay chart (Plotly), best/safest callout metrics |
 | `dashboard/themes.py` | NothingOS palette + PLOTLY_LAYOUT definition |
 
 ---
@@ -432,6 +435,30 @@ The cache is incremental: only missing bars are fetched. The directory is create
 automatically on first use. Both `BacktestEngine` (via `fetch_and_cache`) and the optimizer
 use this cache — running the backtest runner first populates the cache for the optimizer.
 Thread-safe for reads; single-writer per file.
+
+### 21. `BacktestEngine.run()` accepts `df_weekly` for momentum filter and `leverage` for futures simulation
+
+`BacktestConfig` has three new field groups (all default to spot/no-filter behaviour):
+
+```python
+# Leverage (1.0 = spot, unchanged)
+leverage: float = 1.0
+funding_rate_per_8h: float = 0.0001   # BTC perp typical
+
+# Weekly momentum filter (False = off, unchanged)
+momentum_filter_enabled: bool = False
+momentum_sma_period: int = 20          # 20-week SMA
+momentum_neutral_band: float = 0.05   # ±5% around SMA
+```
+
+`run()` signature now includes `df_weekly: pd.DataFrame | None = None`. When `momentum_filter_enabled=True` and `df_weekly` is provided:
+- Price > SMA × 1.05 → **BULLISH** → full risk
+- Price < SMA × 0.95 → **BEARISH** → entry blocked (no new trades)
+- Within band → **NEUTRAL** → risk halved
+
+Liquidation price for BUY: `entry × (1 − 0.9 / leverage)`. Trades closed with `EXIT_LIQUIDATED`; loss = full margin. Filter only gates **new entries** — open positions are never force-closed by momentum state.
+
+Use `ScenarioRunner` (not `BacktestEngine` directly) when comparing multiple leverage/momentum combinations — it handles data routing (1h→4h bias, 4h→1d bias) and computes annual return correctly.
 
 ---
 

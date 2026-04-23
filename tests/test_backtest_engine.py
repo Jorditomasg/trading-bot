@@ -419,3 +419,214 @@ class TestSummaryMetrics:
         assert s["total_trades"]   == 0
         assert s["win_rate_pct"]   == 0.0
         assert s["max_loss_streak"] == 0
+
+
+# ── Leverage simulation tests ─────────────────────────────────────────────────
+
+def _leveraged_engine(leverage: float, timeframe: str = "1h") -> BacktestEngine:
+    cfg = BacktestConfig(
+        initial_capital=10_000.0,
+        risk_per_trade=0.01,
+        timeframe=timeframe,
+        cost_per_side_pct=0.0,
+        leverage=leverage,
+        funding_rate_per_8h=0.0,
+        momentum_filter_enabled=False,
+        simulate_trailing=False,
+        disable_reversal_exits=True,
+        long_only=True,
+    )
+    return BacktestEngine(cfg)
+
+
+def test_leverage_multiplies_pnl():
+    """3× leverage should approximately triple the P&L of a spot trade."""
+    df = _uptrend(300)
+
+    spot_engine = _default_engine()
+    spot_result = spot_engine.run(df, symbol="BTCUSDT")
+    spot_pnl = spot_result.final_capital - spot_result.initial_capital
+
+    lev_engine = _leveraged_engine(3.0)
+    lev_result = lev_engine.run(df, symbol="BTCUSDT")
+    lev_pnl = lev_result.final_capital - lev_result.initial_capital
+
+    assert len(spot_result.trades) > 0
+    assert len(lev_result.trades) > 0
+    assert lev_pnl > spot_pnl * 1.5
+
+
+def test_liquidation_triggers_on_sharp_drop():
+    """A 10× leveraged BUY should liquidate when price drops ~9% from entry.
+
+    Build data using the same high_mult/low_mult as _uptrend() so EMA crossover
+    signals are generated during warmup, then append a brutal crash.
+    """
+    # 300 uptrend bars with noise (same as _uptrend) → signals generated around bar 100+
+    uptrend_bars = 300
+    step = (50_000 - 40_000) / (uptrend_bars - 1)
+    closes_up = [40_000 + i * step for i in range(uptrend_bars)]
+    highs_up  = [c * 1.005 for c in closes_up]
+    lows_up   = [c * 0.995 for c in closes_up]
+
+    # 50 crash bars — drop to 60% of peak, deep low at 50% → well below 91% liquidation
+    peak = closes_up[-1]
+    crash_close = peak * 0.60
+    crash_low   = peak * 0.50   # ensures liquidation price (91% of entry) is breached
+    closes_crash = [crash_close] * 50
+    highs_crash  = [crash_close * 1.001] * 50
+    lows_crash   = [crash_low] * 50
+
+    closes = closes_up + closes_crash
+    highs  = highs_up  + highs_crash
+    lows   = lows_up   + lows_crash
+    n = len(closes)
+
+    df = pd.DataFrame({
+        "open_time": pd.date_range("2024-01-01", periods=n, freq="1h", tz="UTC"),
+        "open":   [closes[0]] + closes[:-1],
+        "high":   highs,
+        "low":    lows,
+        "close":  closes,
+        "volume": [1_000_000.0] * n,
+    })
+
+    engine = _leveraged_engine(10.0)
+    result = engine.run(df, symbol="BTCUSDT")
+
+    liquidated = [t for t in result.trades if t["exit_reason"] == "LIQUIDATED"]
+    assert len(liquidated) >= 1, (
+        f"Expected at least one liquidation at 10× leverage. "
+        f"Total trades: {len(result.trades)}, "
+        f"exit reasons: {[t['exit_reason'] for t in result.trades]}"
+    )
+
+
+def test_no_liquidation_at_1x():
+    """Spot (1×) should never produce a LIQUIDATED exit reason."""
+    df = _uptrend(300)
+    engine = _default_engine()
+    result = engine.run(df, symbol="BTCUSDT")
+    liquidated = [t for t in result.trades if t.get("exit_reason") == "LIQUIDATED"]
+    assert liquidated == []
+
+
+def test_funding_cost_reduces_pnl():
+    """Non-zero funding rate should reduce leveraged P&L vs zero funding."""
+    df = _uptrend(300)
+
+    zero_funding = BacktestEngine(BacktestConfig(
+        initial_capital=10_000.0, risk_per_trade=0.01, timeframe="1h",
+        cost_per_side_pct=0.0, leverage=3.0, funding_rate_per_8h=0.0,
+        simulate_trailing=False, disable_reversal_exits=True, long_only=True,
+        momentum_filter_enabled=False,
+    ))
+    with_funding = BacktestEngine(BacktestConfig(
+        initial_capital=10_000.0, risk_per_trade=0.01, timeframe="1h",
+        cost_per_side_pct=0.0, leverage=3.0, funding_rate_per_8h=0.001,
+        simulate_trailing=False, disable_reversal_exits=True, long_only=True,
+        momentum_filter_enabled=False,
+    ))
+
+    r0 = zero_funding.run(df, symbol="BTCUSDT")
+    r1 = with_funding.run(df, symbol="BTCUSDT")
+
+    assert len(r0.trades) > 0
+    assert r0.final_capital > r1.final_capital
+
+
+# ── Momentum filter tests ─────────────────────────────────────────────────────
+
+def _make_weekly(closes: list[float]) -> pd.DataFrame:
+    """Build a weekly OHLCV DataFrame for use as df_weekly."""
+    n = len(closes)
+    times = pd.date_range("2022-01-03", periods=n, freq="7D", tz="UTC")
+    return pd.DataFrame({
+        "open_time": times,
+        "open":   closes,
+        "high":   [c * 1.02 for c in closes],
+        "low":    [c * 0.98 for c in closes],
+        "close":  closes,
+        "volume": [1e9] * n,
+    })
+
+
+def _momentum_engine(enabled: bool = True) -> BacktestEngine:
+    cfg = BacktestConfig(
+        initial_capital=10_000.0,
+        risk_per_trade=0.01,
+        timeframe="1h",
+        cost_per_side_pct=0.0,
+        leverage=1.0,
+        momentum_filter_enabled=enabled,
+        momentum_sma_period=4,        # short period for synthetic test data
+        momentum_neutral_band=0.05,
+        simulate_trailing=False,
+        disable_reversal_exits=True,
+        long_only=True,
+    )
+    return BacktestEngine(cfg)
+
+
+def test_momentum_bearish_blocks_all_entries():
+    """When weekly price is far below its SMA (BEARISH) no new trades open.
+
+    momentum_sma_period=4: SMA-4 of last 4 bars.
+    Last bar = 30_000, previous 8 bars = 60_000.
+    tail(9) = [60k×8, 30k]. closes[-4:] = [60k, 60k, 60k, 30k]. SMA=52_500.
+    30_000 < 52_500 × 0.95 = 49_875 → BEARISH.
+    """
+    df = _uptrend(300)
+    weekly_closes = [60_000.0] * 52 + [30_000.0]  # crash at last bar
+    df_weekly = _make_weekly(weekly_closes)
+
+    engine = _momentum_engine(enabled=True)
+    result = engine.run(df, df_4h=None, df_weekly=df_weekly, symbol="BTCUSDT")
+
+    assert len(result.trades) == 0, (
+        f"BEARISH momentum should block all entries, got {len(result.trades)} trades"
+    )
+
+
+def test_momentum_disabled_does_not_block():
+    """With momentum_filter_enabled=False, same weekly data yields same result as no weekly."""
+    df = _uptrend(300)
+    weekly_closes = [60_000.0] * 52 + [30_000.0]
+    df_weekly = _make_weekly(weekly_closes)
+
+    engine_with = _momentum_engine(enabled=False)
+    r_with = engine_with.run(df, df_4h=None, df_weekly=df_weekly, symbol="BTCUSDT")
+
+    engine_without = _momentum_engine(enabled=False)
+    r_without = engine_without.run(df, df_4h=None, df_weekly=None, symbol="BTCUSDT")
+
+    assert len(r_with.trades) == len(r_without.trades)
+
+
+def test_momentum_neutral_halves_risk():
+    """NEUTRAL weekly state should produce smaller position sizes than BULLISH.
+
+    BULLISH: last bar=55k, SMA-4=(40k+40k+40k+55k)/4=43_750. 55k > 43_750×1.05=45_937 → BULLISH.
+    NEUTRAL: all bars=45k. SMA-4=45k, price=45k. Within ±5% band → NEUTRAL → half risk.
+    """
+    df = _uptrend(300)
+
+    # BULLISH: last bar well above SMA of prior bars
+    bullish_weekly = _make_weekly([40_000.0] * 52 + [55_000.0])
+    # NEUTRAL: flat — price == SMA, stays inside ±5% band
+    neutral_weekly = _make_weekly([45_000.0] * 56)
+
+    e_bull = _momentum_engine(enabled=True)
+    r_bull = e_bull.run(df, df_4h=None, df_weekly=bullish_weekly, symbol="BTCUSDT")
+
+    e_neutral = _momentum_engine(enabled=True)
+    r_neutral = e_neutral.run(df, df_4h=None, df_weekly=neutral_weekly, symbol="BTCUSDT")
+
+    assert len(r_bull.trades) > 0
+    assert len(r_neutral.trades) > 0
+
+    avg_qty_bull    = sum(t["quantity"] for t in r_bull.trades) / len(r_bull.trades)
+    avg_qty_neutral = sum(t["quantity"] for t in r_neutral.trades) / len(r_neutral.trades)
+    assert avg_qty_neutral < avg_qty_bull, (
+        f"NEUTRAL should produce smaller qty ({avg_qty_neutral:.5f}) than BULLISH ({avg_qty_bull:.5f})"
+    )

@@ -7,6 +7,7 @@ import streamlit as st
 
 from bot.database.db import Database
 from dashboard.sections.backtest_runner import backtest_runner_section
+from dashboard.sections.scenario_compare import scenario_compare_section
 from dashboard.sections.config_manager import config_manager_section
 from dashboard.sections.equity_chart import equity_chart_section
 from dashboard.sections.export import export_section
@@ -127,7 +128,11 @@ def render() -> None:
 
     # ── BACKTEST ───────────────────────────────────────────────────────────
     with tab_backtest:
-        backtest_runner_section(db)
+        sub_backtest, sub_compare = st.tabs(["BACKTEST", "COMPARE"])
+        with sub_backtest:
+            backtest_runner_section(db)
+        with sub_compare:
+            scenario_compare_section()
 
     st.markdown(
         "<div style='text-align:right;font-size:0.55rem;color:#1A1A1A;"
