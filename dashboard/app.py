@@ -51,7 +51,7 @@ def _topbar(db: Database) -> None:
     last_ts        = datetime.now().strftime("%H:%M:%S")
 
     mode_pill = (
-        "<span class='pill pill-stopped'>● MAINNET</span>"
+        "<span class='pill pill-mainnet'>⚠ MAINNET</span>"
         if active_mode == "MAINNET"
         else "<span class='pill pill-testnet'>● DEMO</span>"
     )

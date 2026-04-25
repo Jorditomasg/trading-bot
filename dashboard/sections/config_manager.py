@@ -32,6 +32,15 @@ def _verify_mainnet(api_key: str, api_secret: str) -> tuple[bool, str]:
 # ── Main section ──────────────────────────────────────────────────────────────
 
 def config_manager_section(db: Database) -> None:
+    # ── Mainnet safety guard ──────────────────────────────────────────────────
+    if db.get_active_mode() == "MAINNET" and not db.has_mainnet_credentials():
+        st.error(
+            "⛔ MAINNET is active but no credentials are stored. "
+            "The bot cannot connect to the exchange. Reverting to TESTNET."
+        )
+        db.set_active_mode("TESTNET")
+        st.rerun()
+
     cfg = db.get_runtime_config()
 
     cur_symbol           = cfg.get("symbol",                  settings.symbol)
@@ -226,11 +235,17 @@ def config_manager_section(db: Database) -> None:
 
     with col_mode:
         st.caption("ENVIRONMENT")
-        mode       = db.get_active_mode()
-        other_mode = "MAINNET" if mode == "TESTNET" else "TESTNET"
-        if st.button(f"Switch to {other_mode}", use_container_width=True):
-            db.set_active_mode(other_mode)
-            st.info(f"Mode set to {other_mode}. Restart required.")
+        mode = db.get_active_mode()
+        if mode == "MAINNET":
+            if st.button("Switch to TESTNET", use_container_width=True):
+                db.set_active_mode("TESTNET")
+                st.info("Switched to TESTNET. Restart required.")
+        else:
+            st.markdown(
+                "<span style='font-size:0.65rem;color:#555;letter-spacing:0.1em'>"
+                "To activate MAINNET, use the<br>Mainnet Credentials section below.</span>",
+                unsafe_allow_html=True,
+            )
 
     st.divider()
 

@@ -89,7 +89,8 @@ h2 { font-size: 0.85rem !important; letter-spacing: 0.18em; text-transform: uppe
 }
 .pill-running  { border: 1px solid #FF0000; color: #FF0000; }
 .pill-stopped  { border: 1px solid #333;    color: #555; }
-.pill-testnet  { border: 1px solid #333;    color: #888; }
+.pill-testnet  { border: 1px solid #555;    color: #888; }
+.pill-mainnet  { background: #FF0000; border: 1px solid #FF0000; color: #FFFFFF; font-weight: 900; letter-spacing: 0.2em; }
 .pill-live     { border: 1px solid #FF0000; color: #FF0000; }
 
 /* ── Regime badges ──────────────────────────────────────── */

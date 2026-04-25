@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING
 
 import requests
@@ -14,6 +15,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _API = "https://api.telegram.org/bot{token}/{method}"
+
+# ── Decimal formatting (respects DECIMAL_SEPARATOR env var) ───────────────────
+_COMMA_DECIMAL = os.getenv("DECIMAL_SEPARATOR", "dot").lower() == "comma"
+
+
+def _fmt(value: float, spec: str = ",.2f") -> str:
+    """Format a number respecting DECIMAL_SEPARATOR. dot→1,234.56  comma→1.234,56"""
+    s = format(value, spec)
+    if not _COMMA_DECIMAL:
+        return s
+    return s.replace(",", "\x00").replace(".", ",").replace("\x00", ".")
 
 
 class TelegramNotifier:
@@ -78,10 +90,10 @@ class TelegramNotifier:
         self._post(
             f"{emoji} <b>TRADE OPENED</b>  [{self._mode_tag(mode)}]\n"
             f"Side:     <code>{side}</code>\n"
-            f"Entry:    <code>${trade.get('entry_price', 0):,.2f}</code>\n"
+            f"Entry:    <code>${_fmt(trade.get('entry_price', 0))}</code>\n"
             f"Qty:      <code>{trade.get('quantity', 0):.5f}</code>\n"
-            f"SL:       <code>${trade.get('stop_loss', 0):,.2f}</code>\n"
-            f"TP:       <code>${trade.get('take_profit', 0):,.2f}</code>\n"
+            f"SL:       <code>${_fmt(trade.get('stop_loss', 0))}</code>\n"
+            f"TP:       <code>${_fmt(trade.get('take_profit', 0))}</code>\n"
             f"Strategy: <code>{trade.get('strategy', '?')}</code>  "
             f"Regime: <code>{trade.get('regime', '?')}</code>"
         )
@@ -92,8 +104,8 @@ class TelegramNotifier:
         self._post(
             f"{emoji} <b>TRADE CLOSED</b>  [{self._mode_tag(mode)}]\n"
             f"Reason:   <code>{exit_reason}</code>\n"
-            f"Exit:     <code>${trade.get('exit_price', 0):,.2f}</code>\n"
-            f"PnL:      <code>{sign}${pnl:.4f}</code>\n"
+            f"Exit:     <code>${_fmt(trade.get('exit_price', 0))}</code>\n"
+            f"PnL:      <code>{sign}${_fmt(pnl, '.4f')}</code>\n"
             f"Strategy: <code>{trade.get('strategy', '?')}</code>"
         )
 
@@ -148,19 +160,19 @@ class TelegramNotifier:
     ) -> None:
         bot_state  = "⏸ Paused" if paused else "▶️ Running"
         price_line = (
-            f"BTC:     <code>${btc_price:,.2f}</code>\n" if btc_price is not None else ""
+            f"BTC:     <code>${_fmt(btc_price)}</code>\n" if btc_price is not None else ""
         )
 
         if open_trade:
             pnl_sign = "+" if (unrealized_pnl or 0) >= 0 else ""
             pnl_line = (
-                f"\nPnL:     <code>{pnl_sign}${unrealized_pnl:.4f}</code>"
+                f"\nPnL:     <code>{pnl_sign}${_fmt(unrealized_pnl, '.4f')}</code>"
                 if unrealized_pnl is not None else ""
             )
             pos = (
-                f"{open_trade['side']} @ <code>${open_trade['entry_price']:,.2f}</code>\n"
-                f"SL <code>${open_trade['stop_loss']:,.2f}</code>  "
-                f"TP <code>${open_trade['take_profit']:,.2f}</code>"
+                f"{open_trade['side']} @ <code>${_fmt(open_trade['entry_price'])}</code>\n"
+                f"SL <code>${_fmt(open_trade['stop_loss'])}</code>  "
+                f"TP <code>${_fmt(open_trade['take_profit'])}</code>"
                 f"{pnl_line}"
             )
         else:
@@ -168,7 +180,7 @@ class TelegramNotifier:
 
         self._post(
             f"📊 <b>STATUS</b>  [{self._mode_tag(mode)}]\n"
-            f"Balance: <code>${balance:,.2f}</code>\n"
+            f"Balance: <code>${_fmt(balance)}</code>\n"
             f"{price_line}"
             f"Bot:     <code>{bot_state}</code>\n"
             f"{pos}"
@@ -186,7 +198,7 @@ class TelegramNotifier:
         if not closed_trades:
             self._post(
                 f"📈 <b>REPORT</b>  [{self._mode_tag(mode)}]\n"
-                f"Balance: <code>${balance:,.2f}</code>\n"
+                f"Balance: <code>${_fmt(balance)}</code>\n"
                 f"No closed trades yet."
             )
             return
@@ -213,9 +225,9 @@ class TelegramNotifier:
 
         self._post(
             f"📈 <b>REPORT</b>  [{self._mode_tag(mode)}]\n\n"
-            f"Balance:         <code>${balance:,.2f}  ({sign}{pnl_pct:.2f}%)</code>\n"
-            f"Trades:          <code>{total} closed  |  Win rate: {win_rate:.1f}%</code>\n"
-            f"PnL total:       <code>{sign}${total_pnl:.2f}</code>\n"
+            f"Balance:         <code>${_fmt(balance)}  ({sign}{_fmt(pnl_pct, '.2f')}%)</code>\n"
+            f"Trades:          <code>{total} closed  |  Win rate: {_fmt(win_rate, '.1f')}%</code>\n"
+            f"PnL total:       <code>{sign}${_fmt(total_pnl)}</code>\n"
             f"Profit factor:   <code>{pf_str}</code>\n"
             f"Sharpe ratio:    <code>{sr:.2f}</code>\n"
             f"Max drawdown:    <code>{md:.2f}%</code>\n"
