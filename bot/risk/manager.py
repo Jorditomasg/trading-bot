@@ -21,6 +21,10 @@ class RiskConfig:
     reversal_strength_threshold: float = 0.75
     reversal_only_if_loss: bool = True
     disable_reversal_exits: bool = True  # only close via SL/TP; proven better in backtests
+    kelly_max_mult: float = 2.0
+    kelly_min_mult: float = 0.25
+    kelly_min_trades: int = 15
+    kelly_half: bool = True
 
 
 class RiskManager:
@@ -33,10 +37,12 @@ class RiskManager:
         capital: float,
         entry: float,
         stop_loss: float,
+        risk_fraction: float | None = None,
     ) -> float:
         # Portfolio-level risk: divide total risk budget evenly across max concurrent slots.
         # With max_concurrent_trades=1 (default) each trade risks risk_per_trade of capital.
-        risk_amount = capital * self.config.risk_per_trade / self.config.max_concurrent_trades
+        fraction = risk_fraction if risk_fraction is not None else self.config.risk_per_trade
+        risk_amount = capital * fraction / self.config.max_concurrent_trades
         risk_per_unit = abs(entry - stop_loss)
 
         if risk_per_unit <= 0:
@@ -50,8 +56,8 @@ class RiskManager:
         quantity = round(quantity, self.config.quantity_precision)
 
         logger.info(
-            "Position size: capital=%.2f risk=%.2f max_concurrent=%d entry=%.2f sl=%.2f → qty=%.*f",
-            capital, risk_amount, self.config.max_concurrent_trades,
+            "Position size: capital=%.2f fraction=%.4f max_concurrent=%d entry=%.2f sl=%.2f → qty=%.*f",
+            capital, fraction, self.config.max_concurrent_trades,
             entry, stop_loss, self.config.quantity_precision, quantity,
         )
         return quantity
