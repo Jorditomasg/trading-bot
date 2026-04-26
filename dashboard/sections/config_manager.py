@@ -43,7 +43,8 @@ def config_manager_section(db: Database) -> None:
 
     cfg = db.get_runtime_config()
 
-    cur_symbol           = cfg.get("symbol",                  settings.symbol)
+    cur_symbols_raw = cfg.get("symbols", cfg.get("symbol", settings.symbol))
+    cur_symbols     = [s.strip() for s in cur_symbols_raw.split(",") if s.strip()]
     cur_tf               = cfg.get("timeframe",               settings.timeframe)
     cur_risk             = float(cfg.get("risk_per_trade",    settings.risk_per_trade))
     cur_max_dd           = float(cfg.get("max_drawdown",      0.15))
@@ -61,8 +62,14 @@ def config_manager_section(db: Database) -> None:
     with st.form("bot_config_form"):
         col_sym, col_tf = st.columns(2)
         with col_sym:
-            sym_idx = _SYMBOLS.index(cur_symbol) if cur_symbol in _SYMBOLS else 0
-            symbol  = st.selectbox("Symbol", _SYMBOLS, index=sym_idx)
+            symbols = st.multiselect(
+                "Active Symbols",
+                _SYMBOLS,
+                default=[s for s in cur_symbols if s in _SYMBOLS] or [_SYMBOLS[0]],
+                help="Symbols traded simultaneously. One position per symbol max. Restart required to apply.",
+            )
+            if not symbols:
+                st.warning("Select at least one symbol.")
         with col_tf:
             tf_idx    = _TIMEFRAMES.index(cur_tf) if cur_tf in _TIMEFRAMES else 2
             timeframe = st.selectbox("Timeframe", _TIMEFRAMES, index=tf_idx)
@@ -137,20 +144,23 @@ def config_manager_section(db: Database) -> None:
         saved = st.form_submit_button("💾  Save Configuration", use_container_width=True)
 
     if saved:
-        db.set_runtime_config(
-            symbol=symbol,
-            timeframe=timeframe,
-            risk_per_trade=str(round(risk_pct / 100, 4)),
-            max_drawdown=str(round(max_dd_pct / 100, 3)),
-            max_concurrent=str(max_concurrent),
-            cooldown_hours=str(cooldown_hours),
-            trail_atr_mult=str(trail_atr),
-            trail_act_mult=str(trail_act),
-            bias_neutral_passthrough="true" if bias_passthrough else "false",
-            bias_neutral_threshold=str(round(bias_threshold_pct / 100, 4)),
-            long_only="true" if long_only_mode else "false",
-        )
-        st.success("Configuration saved — restart the bot to apply all changes.")
+        if not symbols:
+            st.error("Cannot save — select at least one symbol.")
+        else:
+            db.set_runtime_config(
+                symbols=",".join(symbols),
+                timeframe=timeframe,
+                risk_per_trade=str(round(risk_pct / 100, 4)),
+                max_drawdown=str(round(max_dd_pct / 100, 3)),
+                max_concurrent=str(max_concurrent),
+                cooldown_hours=str(cooldown_hours),
+                trail_atr_mult=str(trail_atr),
+                trail_act_mult=str(trail_act),
+                bias_neutral_passthrough="true" if bias_passthrough else "false",
+                bias_neutral_threshold=str(round(bias_threshold_pct / 100, 4)),
+                long_only="true" if long_only_mode else "false",
+            )
+            st.success("Configuration saved — restart the bot to apply all changes.")
 
     st.divider()
 

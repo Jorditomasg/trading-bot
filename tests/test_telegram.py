@@ -55,7 +55,7 @@ def _perf_by_strategy() -> list[dict]:
 class TestStatus:
     def test_status_running_no_position(self):
         n = _notifier()
-        with patch.object(n, "_post") as mock_post:
+        with patch("bot.telegram_notifier._COMMA_DECIMAL", False), patch.object(n, "_post") as mock_post:
             n.status(10432.50, None, "TESTNET", paused=False)
         text = mock_post.call_args[0][0]
         assert "10,432.50" in text
@@ -72,7 +72,7 @@ class TestStatus:
     def test_status_with_open_position(self):
         n = _notifier()
         trade = {"side": "BUY", "entry_price": 50000.0, "stop_loss": 49000.0, "take_profit": 52000.0}
-        with patch.object(n, "_post") as mock_post:
+        with patch("bot.telegram_notifier._COMMA_DECIMAL", False), patch.object(n, "_post") as mock_post:
             n.status(10000.0, trade, "TESTNET", paused=False)
         text = mock_post.call_args[0][0]
         assert "50,000.00" in text
@@ -94,7 +94,7 @@ class TestStatusIntegration:
         handler = TelegramCommandHandler(db, notifier)
         update = {"update_id": 1, "message": {"chat": {"id": "123"}, "text": "/status"}}
         handler._handle(update, "123")
-        notifier.status.assert_called_once_with(10000.0, None, "TESTNET", paused=True)
+        notifier.status.assert_called_once_with(10000.0, None, "TESTNET", paused=True, btc_price=None, unrealized_pnl=None)
 
 
 # ── register_commands() ───────────────────────────────────────────────────────
@@ -138,7 +138,7 @@ class TestReport:
         closed = _closed_trades(n_wins=3, n_losses=1)
         curve  = _equity_curve(start=10000.0, end=10350.0)
         perf   = _perf_by_strategy()
-        with patch.object(n, "_post") as mock_post:
+        with patch("bot.telegram_notifier._COMMA_DECIMAL", False), patch.object(n, "_post") as mock_post:
             n.report(closed, curve, perf, 10350.0, "TESTNET", 10000.0)
         text = mock_post.call_args[0][0]
         assert "75.0" in text or "75%" in text      # win rate
@@ -153,7 +153,7 @@ class TestReport:
         n = _notifier()
         closed = _closed_trades(n_wins=1, n_losses=3)
         curve  = _equity_curve()
-        with patch.object(n, "_post") as mock_post:
+        with patch("bot.telegram_notifier._COMMA_DECIMAL", False), patch.object(n, "_post") as mock_post:
             n.report(closed, curve, [], 9850.0, "TESTNET", 10000.0)
         text = mock_post.call_args[0][0]
         assert "25.0" in text      # 1/4 = 25% win rate

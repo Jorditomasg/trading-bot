@@ -147,7 +147,8 @@ class Database:
                 for row in conn.execute("PRAGMA table_info(signals)").fetchall()
             }
             for col, definition in [
-                ("bias", "TEXT"),
+                ("bias",     "TEXT"),
+                ("momentum", "TEXT"),
             ]:
                 if col not in signals_cols:
                     conn.execute(f"ALTER TABLE signals ADD COLUMN {col} {definition}")
@@ -276,15 +277,20 @@ class Database:
         strength: float,
         timestamp: Optional[datetime] = None,
         bias: Optional[str] = None,
+        momentum: Optional[str] = None,
     ) -> None:
         ts = (timestamp or datetime.now()).isoformat()
         with self._conn() as conn:
             conn.execute(
-                """INSERT INTO signals (timestamp, symbol, strategy, regime, action, strength, bias)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (ts, symbol, strategy, regime, action, strength, bias),
+                """INSERT INTO signals
+                   (timestamp, symbol, strategy, regime, action, strength, bias, momentum)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (ts, symbol, strategy, regime, action, strength, bias, momentum),
             )
-        logger.debug("Signal recorded action=%s strength=%.2f bias=%s", action, strength, bias)
+        logger.debug(
+            "Signal recorded action=%s strength=%.2f bias=%s momentum=%s",
+            action, strength, bias, momentum,
+        )
 
     def get_all_trades(self) -> list[dict]:
         with self._conn() as conn:
@@ -300,12 +306,19 @@ class Database:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def get_open_trades(self) -> list[dict]:
-        """Return all open trades, ordered by entry_time descending."""
+    def get_open_trades(self, symbol: str | None = None) -> list[dict]:
+        """Return open trades, optionally filtered by symbol, ordered by entry_time descending."""
         with self._conn() as conn:
-            rows = conn.execute(
-                "SELECT * FROM trades WHERE exit_price IS NULL ORDER BY entry_time DESC"
-            ).fetchall()
+            if symbol is None:
+                rows = conn.execute(
+                    "SELECT * FROM trades WHERE exit_price IS NULL ORDER BY entry_time DESC"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM trades WHERE exit_price IS NULL AND symbol = ?"
+                    " ORDER BY entry_time DESC",
+                    (symbol,),
+                ).fetchall()
         return [dict(r) for r in rows]
 
     def get_open_trade(self) -> Optional[dict]:
@@ -385,11 +398,18 @@ class Database:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def get_recent_signals(self, limit: int = 20) -> list[dict]:
+    def get_recent_signals(self, limit: int = 20, symbol: str | None = None) -> list[dict]:
         with self._conn() as conn:
-            rows = conn.execute(
-                "SELECT * FROM signals ORDER BY timestamp DESC LIMIT ?", (limit,)
-            ).fetchall()
+            if symbol is None:
+                rows = conn.execute(
+                    "SELECT * FROM signals ORDER BY timestamp DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM signals WHERE symbol = ? ORDER BY timestamp DESC LIMIT ?",
+                    (symbol, limit),
+                ).fetchall()
         return [dict(r) for r in rows]
 
     def upsert_live_tick(
@@ -539,6 +559,18 @@ class Database:
         for key, value in kwargs.items():
             self.set_config(f"rt_{key}", str(value))
         logger.info("Runtime config updated: %s", list(kwargs.keys()))
+
+    def get_symbols(self) -> list[str]:
+        """Return the configured symbol list from bot_config. Empty list if not set."""
+        cfg = self.get_runtime_config()
+        raw = cfg.get("symbols", "")
+        if not raw:
+            return []
+        return [s.strip() for s in raw.split(",") if s.strip()]
+
+    def set_symbols(self, symbols: list[str]) -> None:
+        """Persist the symbol list to bot_config."""
+        self.set_runtime_config(symbols=",".join(symbols))
 
     def insert_optimizer_run(
         self,

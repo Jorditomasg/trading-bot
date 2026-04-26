@@ -119,12 +119,24 @@ def performance_section(db: Database) -> None:
 
     st.markdown("## Trade History")
     if closed:
+        symbols_in_trades = sorted({t["symbol"] for t in closed})
+        sym_options = ["All"] + symbols_in_trades
+        selected_sym = st.selectbox(
+            "Filter by symbol", sym_options, index=0, key="trade_hist_sym_filter",
+            label_visibility="collapsed",
+        )
+        filtered_closed = (
+            closed if selected_sym == "All"
+            else [t for t in closed if t["symbol"] == selected_sym]
+        )
+        display_trades = filtered_closed[:50]
         rows = []
-        for t in closed[:50]:
+        for t in display_trades:
             pnl     = t.get("pnl") or 0.0
             pnl_pct = (t.get("pnl_pct") or 0.0) * 100
             rows.append({
                 "DATE":     (t["entry_time"] or "")[:19].replace("T", " "),
+                "SYMBOL":   t["symbol"],
                 "SIDE":     t["side"],
                 "STRATEGY": t["strategy"],
                 "ENTRY":    fmt(t["entry_price"], ",.2f"),

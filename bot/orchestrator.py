@@ -6,6 +6,7 @@ import pandas as pd
 from bot.bias.filter import Bias, BiasFilter
 from bot.config_presets import get_regime_config, get_strategy_configs
 from bot.constants import ExitReason, TradeAction, StrategyName
+from bot.momentum.filter import MomentumFilter, MomentumState
 from bot.database.db import Database
 from bot.regime.detector import MarketRegime, RegimeDetector
 from bot.risk.kelly import compute_kelly_fraction, kelly_risk_fraction
@@ -57,6 +58,7 @@ class StrategyOrchestrator:
             ),
         }
         self._peak_capital: float = db.get_peak_capital() or 0.0
+        self._last_momentum_state: MomentumState = MomentumState.BULLISH
 
     def get_strategy(self, name: StrategyName) -> BaseStrategy:
         """Return the strategy instance for *name*.  Raises KeyError if not registered."""
@@ -67,6 +69,7 @@ class StrategyOrchestrator:
         df: pd.DataFrame,
         current_balance: float,
         df_high: Optional[pd.DataFrame] = None,
+        df_weekly: Optional[pd.DataFrame] = None,
     ) -> list[dict]:
         # Update High Water Mark (HWM)
         if current_balance > self._peak_capital:
@@ -77,6 +80,11 @@ class StrategyOrchestrator:
         if self.risk_manager.check_circuit_breaker(current_balance, self._peak_capital):
             logger.warning("Orchestrator: circuit breaker active — no trading this cycle")
             return []
+
+        current_price = float(df["close"].iloc[-1])
+        momentum_state = MomentumFilter.get_state(df_weekly, current_price)
+        self._last_momentum_state = momentum_state
+        logger.info("Orchestrator: momentum=%s symbol=%s", momentum_state, self.symbol)
 
         regime = self.regime_detector.detect(df)
         logger.info("Orchestrator: regime=%s balance=%.2f", regime.value, current_balance)
@@ -102,6 +110,7 @@ class StrategyOrchestrator:
                 action=signal.action,
                 strength=signal.strength,
                 bias=bias.value if bias is not None else None,
+                momentum=momentum_state.value,
             )
         else:
             logger.debug("Orchestrator: HOLD signal — skipping signals table insert")
@@ -111,7 +120,7 @@ class StrategyOrchestrator:
             bias.value if bias is not None else "N/A",
         )
 
-        open_trades = self.db.get_open_trades()
+        open_trades = self.db.get_open_trades(symbol=self.symbol)
 
         # Evaluate all open positions for exits (signal reversal / regime change)
         orders: list[dict] = []
@@ -123,6 +132,13 @@ class StrategyOrchestrator:
         # If we produced any exit orders, return them — entry logic runs next cycle
         if orders:
             return orders
+
+        if momentum_state == "BEARISH":
+            logger.info(
+                "Orchestrator: [%s] momentum BEARISH — new entry blocked this cycle",
+                self.symbol,
+            )
+            return []
 
         # Entry guard: respect max_concurrent_trades
         if len(open_trades) >= self.risk_manager.config.max_concurrent_trades:
@@ -144,8 +160,6 @@ class StrategyOrchestrator:
         if not self.risk_manager.validate_signal(signal):
             logger.debug("Orchestrator: signal not valid for execution — skipping")
             return []
-
-        current_price = float(df["close"].iloc[-1])
 
         kelly_stats = self.db.get_kelly_stats(
             strategy.name,
@@ -182,8 +196,14 @@ class StrategyOrchestrator:
                 strategy.name,
             )
 
+        risk_frac_mult = 0.5 if momentum_state == "NEUTRAL" else 1.0
+        if risk_frac_mult != 1.0:
+            logger.info(
+                "Orchestrator: [%s] momentum NEUTRAL — risk scaled to 50%%",
+                self.symbol,
+            )
         quantity = self.risk_manager.compute_position_size(
-            capital=current_balance,
+            capital=current_balance * risk_frac_mult,
             entry=current_price,
             stop_loss=signal.stop_loss,
             risk_fraction=risk_frac,

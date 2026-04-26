@@ -10,6 +10,7 @@ import time
 import datetime as dt
 from pathlib import Path
 
+import pandas as pd
 import schedule
 
 import threading
@@ -232,21 +233,31 @@ def run_cycle(
     client = _build_client(db)
 
     try:
-        df = client.get_klines(settings.symbol, settings.timeframe, KLINES_LIMIT)
+        df = client.get_klines(orchestrator.symbol, settings.timeframe, KLINES_LIMIT)
     except Exception as exc:
-        logger.error("Failed to fetch klines: %s", exc)
+        logger.error("Failed to fetch klines for %s: %s", orchestrator.symbol, exc)
         return
 
     # Daily klines for BiasFilter — backtest-proven: daily EMA9/21 gate
     # outperforms 4h EMA gate (PF 1.19-1.30 vs 0.82-0.93 with taker fees)
     df_4h = None
     try:
-        df_4h = client.get_klines(settings.symbol, "1d", 60)
+        df_4h = client.get_klines(orchestrator.symbol, "1d", 60)
     except Exception as exc:
         logger.warning(
-            "Failed to fetch daily klines: %s — BiasFilter will use NEUTRAL "
+            "Failed to fetch daily klines for %s: %s — BiasFilter will use NEUTRAL "
             "(signals pass if neutral_passthrough=True, blocked if block_on_data_failure=True)",
-            exc,
+            orchestrator.symbol, exc,
+        )
+
+    # Weekly klines for momentum filter
+    df_weekly: pd.DataFrame | None = None
+    try:
+        df_weekly = client.get_klines(orchestrator.symbol, "1w", 60)
+    except Exception as exc:
+        logger.warning(
+            "Failed to fetch weekly klines for %s: %s — momentum filter will use BULLISH (fail-open)",
+            orchestrator.symbol, exc,
         )
 
     try:
@@ -259,7 +270,7 @@ def run_cycle(
     # Snapshot circuit breaker state before step to detect new triggers
     breaker_was_active = orchestrator.risk_manager._breaker_triggered_at is not None
 
-    orders = orchestrator.step(df, balance, df_4h)
+    orders = orchestrator.step(df, balance, df_4h, df_weekly)
 
     # Notify if circuit breaker just fired this cycle
     if notifier and not breaker_was_active:
@@ -490,13 +501,12 @@ def position_manager(
     if not trades:
         return
 
-    tick = db.get_live_tick(settings.symbol)
-    if tick is None:
-        logger.debug("position_manager: no live tick — skipping")
-        return
-
-    price = tick["price"]
     for trade in trades:
+        tick = db.get_live_tick(trade["symbol"])
+        if tick is None:
+            logger.debug("position_manager: no live tick for %s — skipping", trade["symbol"])
+            continue
+        price = tick["price"]
         _manage_single_position(trade, price, db, dry_run, risk_config, notifier)
 
 
@@ -565,25 +575,38 @@ def main() -> None:
         )
         logger.info("Telegram config seeded from .env")
 
-    risk_config = RiskConfig(risk_per_trade=settings.risk_per_trade)
-    _apply_runtime_config(db, risk_config)
+    # Symbol list: from bot_config if set, else fall back to .env SYMBOL
+    symbols = db.get_symbols() or [settings.symbol]
+    logger.info("Active symbols: %s", symbols)
+
     bias_filter = _build_bias_filter(db)
-    orchestrator = StrategyOrchestrator(
-        db=db,
-        symbol=settings.symbol,
-        risk_config=risk_config,
-        bias_filter=bias_filter,
-        timeframe=settings.timeframe,
-    )
+
+    def _build_orchestrator(sym: str) -> StrategyOrchestrator:
+        rc = RiskConfig(risk_per_trade=settings.risk_per_trade)
+        _apply_runtime_config(db, rc)
+        orch = StrategyOrchestrator(
+            db=db,
+            symbol=sym,
+            risk_config=rc,
+            bias_filter=bias_filter,
+            timeframe=settings.timeframe,
+        )
+        _apply_ema_config(db, orch)
+        _apply_trail_config(db, orch.risk_manager.config)
+        _init_quantity_precision(orch, db)
+        return orch
+
+    orchestrators: dict[str, StrategyOrchestrator] = {
+        sym: _build_orchestrator(sym) for sym in symbols
+    }
+    primary_orch = orchestrators[symbols[0]]
+
     adaptor = ParameterAdaptor(
         db=db,
-        mean_reversion_strategy=orchestrator.get_strategy(StrategyName.MEAN_REVERSION),
-        breakout_strategy=orchestrator.get_strategy(StrategyName.BREAKOUT),
-        risk_manager=orchestrator.risk_manager,
+        mean_reversion_strategy=primary_orch.get_strategy(StrategyName.MEAN_REVERSION),
+        breakout_strategy=primary_orch.get_strategy(StrategyName.BREAKOUT),
+        risk_manager=primary_orch.risk_manager,
     )
-    _apply_ema_config(db, orchestrator)
-    _apply_trail_config(db, orchestrator.risk_manager.config)
-    _init_quantity_precision(orchestrator, db)
     _init_price_precision(db)
 
     # Telegram — always instantiated; no-ops when unconfigured
@@ -593,38 +616,43 @@ def main() -> None:
     cmd_handler = TelegramCommandHandler(
         db=db,
         notifier=notifier,
-        price_fetcher=lambda: stream_client.get_ticker_price(settings.symbol),
+        price_fetcher=lambda: stream_client.get_ticker_price(symbols[0]),
     )
     cmd_handler.start()
 
-    # Start the WebSocket price stream on the same client
-    twm = stream_client.start_price_stream(
-        settings.symbol,
-        _make_tick_handler(db, settings.symbol),
-    )
+    # Start one WebSocket price stream per symbol
+    twms = [
+        stream_client.start_price_stream(sym, _make_tick_handler(db, sym))
+        for sym in symbols
+    ]
 
     logger.info(
-        "Bot started — symbol=%s timeframe=%s dry_run=%s",
-        settings.symbol, settings.timeframe, args.dry_run,
+        "Bot started — symbols=%s timeframe=%s dry_run=%s",
+        symbols, settings.timeframe, args.dry_run,
     )
     notifier.bot_started(args.dry_run, db.get_active_mode())
     notifier.register_commands()
 
+    def run_all_cycles() -> None:
+        for sym, orch in orchestrators.items():
+            try:
+                run_cycle(orch, db, dry_run=args.dry_run, adaptor=adaptor, notifier=notifier)
+            except Exception as exc:
+                logger.error("run_cycle failed for %s: %s", sym, exc)
+
     # Run immediately on startup, then schedule hourly
-    run_cycle(orchestrator, db, dry_run=args.dry_run, adaptor=adaptor, notifier=notifier)
+    run_all_cycles()
 
-    # Auto-optimizer: run at startup if overdue, then weekly
+    # Auto-optimizer: runs on primary symbol only
     if should_run(db):
-        _launch_auto_optimizer(db, orchestrator, notifier)
+        _launch_auto_optimizer(db, primary_orch, notifier)
 
-    schedule.every().hour.at(":00").do(
-        run_cycle, orchestrator, db, args.dry_run, adaptor, notifier
-    )
+    schedule.every().hour.at(":00").do(run_all_cycles)
     schedule.every(60).seconds.do(
-        position_manager, db, args.dry_run, orchestrator.risk_manager.config, notifier
+        position_manager, db, args.dry_run, primary_orch.risk_manager.config, notifier
     )
     schedule.every(7).days.do(
-        _launch_auto_optimizer, db, orchestrator, notifier
+        _launch_auto_optimizer, db, primary_orch, notifier
     )
 
     while not _shutdown:
@@ -636,8 +664,9 @@ def main() -> None:
 
     notifier.bot_stopped()
     cmd_handler.stop()
-    twm.stop()
-    logger.info("WebSocket price stream stopped.")
+    for twm in twms:
+        twm.stop()
+    logger.info("WebSocket price streams stopped.")
     logger.info("Bot stopped cleanly.")
 
 

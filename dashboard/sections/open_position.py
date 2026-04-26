@@ -42,6 +42,64 @@ def _render_regime_timeline(signals: list[dict]) -> None:
     )
 
 
+def _momentum_badge(state: str | None) -> str:
+    return {
+        "BULLISH": "🟢 BULLISH",
+        "NEUTRAL": "🟡 NEUTRAL",
+        "BEARISH": "🔴 BEARISH",
+    }.get(state or "BULLISH", "🟢 BULLISH")
+
+
+def _render_symbol_card(db: Database, symbol: str, trade: dict | None) -> None:
+    symbol_signals = db.get_recent_signals(limit=50, symbol=symbol)
+    sig            = symbol_signals[0] if symbol_signals else {}
+    last_regime    = sig.get("regime")   or "RANGING"
+    last_strategy  = sig.get("strategy") or "—"
+    last_bias      = sig.get("bias")
+    last_momentum  = sig.get("momentum")
+
+    st.markdown(
+        f"<span style='font-size:0.7rem;letter-spacing:0.15em;color:#888'>{symbol}</span> &nbsp; "
+        f"{_momentum_badge(last_momentum)} &nbsp; "
+        f"{_regime_badge(last_regime)} &nbsp; {_bias_badge(last_bias)} &nbsp;&nbsp; "
+        f"<span style='font-size:0.65rem;letter-spacing:0.12em;color:#555'>STRATEGY</span> "
+        f"<code>{last_strategy}</code>",
+        unsafe_allow_html=True,
+    )
+
+    _render_regime_timeline(symbol_signals)
+
+    if trade:
+        entry    = trade["entry_price"]
+        sl       = trade["stop_loss"]
+        tp       = trade["take_profit"]
+        side     = trade["side"]
+        qty      = trade["quantity"]
+        tf       = trade.get("timeframe", "1h")
+        pill_cls = "pill-running" if side == "BUY" else "pill-stopped"
+
+        st.markdown(
+            f"<span class='pill {pill_cls}'>{side}</span> &nbsp; "
+            f"<span style='font-size:0.8rem'>{qty:.5f} {symbol.replace('USDT', '')}</span> &nbsp; "
+            f"<code style='font-size:0.7rem;color:#888'>{tf}</code>",
+            unsafe_allow_html=True,
+        )
+        c1, c2, c3 = st.columns(3)
+        trailing_sl = trade.get("trailing_sl")
+        active_sl   = trailing_sl if trailing_sl is not None else sl
+        sl_label    = "TRAIL SL" if trailing_sl is not None else "SL"
+        c1.metric("Entry",  f"${fmt(entry, ',.0f')}")
+        c2.metric(sl_label, f"${fmt(active_sl, ',.0f')}")
+        c3.metric("TP",     f"${fmt(tp, ',.0f')}")
+        st.caption(f"{trade['strategy']} · {trade['regime']}")
+    else:
+        st.markdown(
+            "<span style='font-size:0.75rem;color:#333;letter-spacing:0.1em'>"
+            "NO OPEN POSITION</span>",
+            unsafe_allow_html=True,
+        )
+
+
 @st.fragment(run_every=RefreshRates.DRAWDOWN)
 def drawdown_section(db: Database) -> None:
     """Drawdown chart — separate fragment so it can stand alone."""
@@ -77,55 +135,15 @@ def drawdown_section(db: Database) -> None:
 
 @st.fragment(run_every=RefreshRates.POSITION)
 def open_position_section(db: Database) -> None:
-    """Regime status + open trade details — compact horizontal layout."""
-    open_trades    = db.get_open_trades()
-    recent_signals = db.get_recent_signals(50)
+    """Regime status + open trade details — one card per active symbol."""
+    symbols     = db.get_symbols()
+    open_trades = {t["symbol"]: t for t in db.get_open_trades()}
 
-    last_regime   = recent_signals[0]["regime"]       if recent_signals else "RANGING"
-    last_strategy = recent_signals[0]["strategy"]     if recent_signals else "—"
-    last_bias     = recent_signals[0].get("bias")     if recent_signals else None
+    if not symbols:
+        st.caption("No symbols configured")
+        return
 
-    col_regime, col_pos = st.columns([2, 3])
-
-    with col_regime:
-        st.markdown(
-            f"Regime &nbsp; {_regime_badge(last_regime)} &nbsp; {_bias_badge(last_bias)} &nbsp;&nbsp; "
-            f"<span style='font-size:0.65rem;letter-spacing:0.12em;color:#555'>STRATEGY</span> "
-            f"<code>{last_strategy}</code>",
-            unsafe_allow_html=True,
-        )
-        _render_regime_timeline(recent_signals)
-
-    with col_pos:
-        if open_trades:
-            for i, trade in enumerate(open_trades):
-                if i > 0:
-                    st.divider()
-                entry    = trade["entry_price"]
-                sl       = trade["stop_loss"]
-                tp       = trade["take_profit"]
-                side     = trade["side"]
-                qty      = trade["quantity"]
-                tf       = trade.get("timeframe", "1h")
-                pill_cls = "pill-running" if side == "BUY" else "pill-stopped"
-
-                st.markdown(
-                    f"<span class='pill {pill_cls}'>{side}</span> &nbsp; "
-                    f"<span style='font-size:0.8rem'>{qty:.5f} BTC</span> &nbsp; "
-                    f"<code style='font-size:0.7rem;color:#888'>{tf}</code>",
-                    unsafe_allow_html=True,
-                )
-                c1, c2, c3 = st.columns(3)
-                trailing_sl = trade.get("trailing_sl")
-                active_sl   = trailing_sl if trailing_sl is not None else sl
-                sl_label    = "TRAIL SL" if trailing_sl is not None else "SL"
-                c1.metric("Entry",    f"${fmt(entry, ',.0f')}")
-                c2.metric(sl_label,   f"${fmt(active_sl, ',.0f')}")
-                c3.metric("TP",       f"${fmt(tp, ',.0f')}")
-                st.caption(f"{trade['strategy']} · {trade['regime']}")
-        else:
-            st.markdown(
-                "<span style='font-size:0.75rem;color:#333;letter-spacing:0.1em'>"
-                "NO OPEN POSITIONS</span>",
-                unsafe_allow_html=True,
-            )
+    cols = st.columns(len(symbols))
+    for col, sym in zip(cols, symbols):
+        with col:
+            _render_symbol_card(db, sym, open_trades.get(sym))
