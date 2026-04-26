@@ -311,6 +311,44 @@ class Database:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_kelly_stats(self, strategy_name: str, min_trades: int = 15) -> dict | None:
+        """Compute Kelly Criterion statistics for a strategy.
+
+        Returns dict with keys:
+          - total_trades: count of closed trades
+          - win_rate: fraction of profitable trades (0.0-1.0)
+          - avg_win_pct: average PnL% on winning trades (decimal, e.g. 0.02 = 2%)
+          - avg_loss_pct: average ABS(PnL%) on losing trades (always positive)
+
+        Returns None if:
+          - fewer than min_trades closed trades exist
+          - no winning trades (avg_win_pct is NULL, meaning all losses)
+        """
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT
+                       COUNT(*)                                                  AS total_trades,
+                       AVG(CASE WHEN pnl > 0 THEN 1.0 ELSE 0.0 END)            AS win_rate,
+                       AVG(CASE WHEN pnl > 0 THEN pnl_pct ELSE NULL END)        AS avg_win_pct,
+                       AVG(CASE WHEN pnl <= 0 THEN ABS(pnl_pct) ELSE NULL END)  AS avg_loss_pct
+                   FROM trades
+                   WHERE exit_price IS NOT NULL
+                     AND strategy = ?""",
+                (strategy_name,),
+            ).fetchone()
+
+        if row is None or row["total_trades"] < min_trades:
+            return None
+        if row["avg_win_pct"] is None or row["avg_loss_pct"] is None:
+            return None
+
+        return {
+            "total_trades": int(row["total_trades"]),
+            "win_rate":     float(row["win_rate"]),
+            "avg_win_pct":  float(row["avg_win_pct"]),
+            "avg_loss_pct": float(row["avg_loss_pct"]),
+        }
+
     def get_performance_by_regime(self) -> list[dict]:
         with self._conn() as conn:
             rows = conn.execute(
