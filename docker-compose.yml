@@ -3,7 +3,7 @@ services:
   bot:
     image: ghcr.io/${GITHUB_REPO:-jorditomasg/trading-bot}:latest
     container_name: trading-bot
-    restart: always
+    restart: unless-stopped
     command: python main.py
     env_file: .env
     environment:
@@ -21,7 +21,7 @@ services:
   dashboard:
     image: ghcr.io/${GITHUB_REPO:-jorditomasg/trading-bot}:latest
     container_name: trading-dashboard
-    restart: always
+    restart: unless-stopped
     command: >
       streamlit run dashboard/app.py
       --server.port=8501
