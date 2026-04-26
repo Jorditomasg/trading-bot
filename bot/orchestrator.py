@@ -8,6 +8,7 @@ from bot.config_presets import get_regime_config, get_strategy_configs
 from bot.constants import ExitReason, TradeAction, StrategyName
 from bot.database.db import Database
 from bot.regime.detector import MarketRegime, RegimeDetector
+from bot.risk.kelly import compute_kelly_fraction, kelly_risk_fraction
 from bot.risk.manager import RiskConfig, RiskManager
 from bot.strategy.base import BaseStrategy, Signal
 from bot.strategy.breakout import BreakoutConfig, BreakoutStrategy
@@ -145,10 +146,47 @@ class StrategyOrchestrator:
             return []
 
         current_price = float(df["close"].iloc[-1])
+
+        kelly_stats = self.db.get_kelly_stats(
+            strategy.name,
+            self.risk_manager.config.kelly_min_trades,
+        )
+        if kelly_stats:
+            kf = compute_kelly_fraction(
+                kelly_stats["win_rate"],
+                kelly_stats["avg_win_pct"],
+                kelly_stats["avg_loss_pct"],
+                half=self.risk_manager.config.kelly_half,
+            )
+            risk_frac = kelly_risk_fraction(
+                kf,
+                signal.strength,
+                self.risk_manager.config.risk_per_trade,
+                max_mult=self.risk_manager.config.kelly_max_mult,
+                min_mult=self.risk_manager.config.kelly_min_mult,
+            )
+            logger.info(
+                "Kelly sizing: strategy=%s win_rate=%.1f%% b=%.2f kf=%.4f strength=%.2f → risk_frac=%.4f (base=%.4f)",
+                strategy.name,
+                kelly_stats["win_rate"] * 100,
+                kelly_stats["avg_win_pct"] / kelly_stats["avg_loss_pct"],
+                kf,
+                signal.strength,
+                risk_frac,
+                self.risk_manager.config.risk_per_trade,
+            )
+        else:
+            risk_frac = None
+            logger.debug(
+                "Kelly sizing: insufficient trades for %s — using fixed risk_per_trade",
+                strategy.name,
+            )
+
         quantity = self.risk_manager.compute_position_size(
             capital=current_balance,
             entry=current_price,
             stop_loss=signal.stop_loss,
+            risk_fraction=risk_frac,
         )
         if quantity <= 0:
             logger.warning("Orchestrator: computed quantity=0 — skipping")
