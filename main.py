@@ -166,6 +166,17 @@ def _apply_ema_config(db: Database, orchestrator: "StrategyOrchestrator") -> Non
         logger.info("Runtime config: long_only=%s", long_only)
 
 
+def _apply_trail_config(db: Database, risk_config: "RiskConfig") -> None:
+    """Apply optimizer-approved trail ATR multipliers to the live risk config."""
+    cfg = db.get_runtime_config()
+    if "trail_atr_mult" in cfg:
+        risk_config.trail_atr_mult = float(cfg["trail_atr_mult"])
+        logger.info("Runtime config: trail_atr_mult=%.2f", float(cfg["trail_atr_mult"]))
+    if "trail_act_mult" in cfg:
+        risk_config.trail_activation_mult = float(cfg["trail_act_mult"])
+        logger.info("Runtime config: trail_act_mult=%.2f", float(cfg["trail_act_mult"]))
+
+
 def _init_quantity_precision(orchestrator: StrategyOrchestrator, db: Database) -> None:
     """Fetch the real LOT_SIZE stepSize for the configured symbol and update risk config."""
     try:
@@ -571,6 +582,7 @@ def main() -> None:
         risk_manager=orchestrator.risk_manager,
     )
     _apply_ema_config(db, orchestrator)
+    _apply_trail_config(db, orchestrator.risk_manager.config)
     _init_quantity_precision(orchestrator, db)
     _init_price_precision(db)
 
