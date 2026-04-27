@@ -109,6 +109,27 @@ CREATE TABLE IF NOT EXISTS trail_optimizer_runs (
     status                TEXT    NOT NULL DEFAULT 'pending'
 );
 
+CREATE TABLE IF NOT EXISTS entry_quality_runs (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp      TEXT    NOT NULL,
+    symbol         TEXT    NOT NULL,
+    timeframe      TEXT    NOT NULL,
+    period_days    INTEGER NOT NULL,
+    vol_mult       REAL    NOT NULL,
+    bar_direction  INTEGER NOT NULL,
+    ema_momentum   INTEGER NOT NULL,
+    min_atr_pct    REAL    NOT NULL,
+    ema_stop_mult  REAL    NOT NULL,
+    ema_tp_mult    REAL    NOT NULL,
+    profit_factor  REAL    NOT NULL,
+    sharpe_ratio   REAL    NOT NULL,
+    win_rate       REAL    NOT NULL,
+    max_drawdown   REAL    NOT NULL,
+    total_trades   INTEGER NOT NULL,
+    total_pnl      REAL    NOT NULL,
+    status         TEXT    NOT NULL DEFAULT 'pending'
+);
+
 CREATE INDEX IF NOT EXISTS idx_trades_entry_time ON trades(entry_time DESC);
 CREATE INDEX IF NOT EXISTS idx_trades_exit_price  ON trades(exit_price);
 """
@@ -679,6 +700,70 @@ class Database:
                 (status, run_id),
             )
         logger.info("Trail run id=%d status=%s", run_id, status)
+
+    # ── Entry Quality Optimizer ───────────────────────────────────────────────
+
+    def insert_entry_quality_run(
+        self,
+        symbol: str,
+        timeframe: str,
+        period_days: int,
+        vol_mult: float,
+        bar_direction: bool,
+        ema_momentum: bool,
+        min_atr_pct: float,
+        ema_stop_mult: float,
+        ema_tp_mult: float,
+        profit_factor: float,
+        sharpe_ratio: float,
+        win_rate: float,
+        max_drawdown: float,
+        total_trades: int,
+        total_pnl: float,
+        status: str = "pending",
+    ) -> int:
+        ts = datetime.now().isoformat()
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """INSERT INTO entry_quality_runs
+                   (timestamp, symbol, timeframe, period_days,
+                    vol_mult, bar_direction, ema_momentum, min_atr_pct,
+                    ema_stop_mult, ema_tp_mult,
+                    profit_factor, sharpe_ratio, win_rate, max_drawdown,
+                    total_trades, total_pnl, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (ts, symbol, timeframe, period_days,
+                 vol_mult, int(bar_direction), int(ema_momentum), min_atr_pct,
+                 ema_stop_mult, ema_tp_mult,
+                 profit_factor, sharpe_ratio, win_rate, max_drawdown,
+                 total_trades, total_pnl, status),
+            )
+            return cursor.lastrowid
+
+    def get_entry_quality_runs(self, limit: int = 20) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM entry_quality_runs ORDER BY timestamp DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_best_pending_entry_quality_run(self) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT * FROM entry_quality_runs
+                   WHERE status = 'pending'
+                   ORDER BY profit_factor DESC LIMIT 1""",
+            ).fetchone()
+        return dict(row) if row else None
+
+    def set_entry_quality_run_status(self, run_id: int, status: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE entry_quality_runs SET status = ? WHERE id = ?",
+                (status, run_id),
+            )
+        logger.info("Entry quality run id=%d status=%s", run_id, status)
 
     def consume_restart_request(self) -> bool:
         """Returns True (and clears the flag) if a dashboard restart was requested."""

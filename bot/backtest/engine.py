@@ -87,6 +87,11 @@ class BacktestConfig:
     momentum_filter_enabled: bool  = False
     momentum_sma_period:     int   = 20
     momentum_neutral_band:   float = 0.05
+    # Entry quality filter overrides (None = use config_presets.py defaults)
+    ema_volume_mult:      float | None = None
+    ema_require_bar_dir:  bool  | None = None
+    ema_require_momentum: bool  | None = None
+    ema_min_atr_pct:      float | None = None
 
 
 @dataclass
@@ -117,6 +122,10 @@ class BacktestEngine:
         ema_cfg = dict(strategy_cfgs[StrategyName.EMA_CROSSOVER])
         ema_cfg["stop_atr_mult"] = config.ema_stop_mult
         ema_cfg["tp_atr_mult"]   = config.ema_tp_mult
+        if config.ema_volume_mult      is not None: ema_cfg["volume_multiplier"]     = config.ema_volume_mult
+        if config.ema_require_bar_dir  is not None: ema_cfg["require_bar_direction"] = config.ema_require_bar_dir
+        if config.ema_require_momentum is not None: ema_cfg["require_ema_momentum"]  = config.ema_require_momentum
+        if config.ema_min_atr_pct      is not None: ema_cfg["min_atr_pct"]           = config.ema_min_atr_pct
         if config.long_only:
             ema_cfg["long_only"] = True
 

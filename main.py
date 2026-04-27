@@ -22,6 +22,10 @@ from bot.constants import ExitReason, StrategyName, TradeAction
 from bot.database.db import Database
 from bot.exchange.binance_client import BinanceClient
 from bot.optimizer.auto_optimizer import run_and_apply, should_run
+from bot.optimizer.auto_entry_quality_optimizer import (
+    run_and_apply as eq_run_and_apply,
+    should_run as eq_should_run,
+)
 from bot.orchestrator import StrategyOrchestrator
 from bot.risk.manager import RiskConfig
 from bot.telegram_commands import TelegramCommandHandler
@@ -165,6 +169,20 @@ def _apply_ema_config(db: Database, orchestrator: "StrategyOrchestrator") -> Non
         long_only = cfg["long_only"] == "true"
         ema_strategy.config.long_only = long_only
         logger.info("Runtime config: long_only=%s", long_only)
+    if "ema_vol_mult" in cfg:
+        ema_strategy.config.volume_multiplier = float(cfg["ema_vol_mult"])
+        logger.info("Runtime config: ema_vol_mult=%.2f", float(cfg["ema_vol_mult"]))
+    if "ema_bar_dir" in cfg:
+        val = cfg["ema_bar_dir"] == "true"
+        ema_strategy.config.require_bar_direction = val
+        logger.info("Runtime config: ema_bar_dir=%s", val)
+    if "ema_momentum" in cfg:
+        val = cfg["ema_momentum"] == "true"
+        ema_strategy.config.require_ema_momentum = val
+        logger.info("Runtime config: ema_momentum=%s", val)
+    if "ema_min_atr" in cfg:
+        ema_strategy.config.min_atr_pct = float(cfg["ema_min_atr"])
+        logger.info("Runtime config: ema_min_atr=%.4f", float(cfg["ema_min_atr"]))
 
 
 def _apply_trail_config(db: Database, risk_config: "RiskConfig") -> None:
@@ -544,6 +562,33 @@ def _launch_auto_optimizer(
     logger.info("Auto-optimizer: background thread started")
 
 
+def _launch_auto_entry_quality_optimizer(
+    db: Database,
+    orchestrator: StrategyOrchestrator,
+    notifier: TelegramNotifier | None,
+) -> None:
+    """Run the entry-quality optimizer in a daemon thread."""
+    def _worker() -> None:
+        def _on_applied(old_params: dict, new_params: dict) -> None:
+            _apply_ema_config(db, orchestrator)
+            logger.info("Auto entry-quality optimizer: hot-reloaded EMA config into running strategy")
+
+        try:
+            eq_run_and_apply(
+                db=db,
+                symbol=settings.symbol,
+                timeframe=settings.timeframe,
+                risk_per_trade=settings.risk_per_trade,
+                on_applied=_on_applied,
+            )
+        except Exception as exc:
+            logger.error("Auto entry-quality optimizer: unhandled error: %s", exc, exc_info=True)
+
+    t = threading.Thread(target=_worker, name="auto-eq-optimizer", daemon=True)
+    t.start()
+    logger.info("Auto entry-quality optimizer: background thread started")
+
+
 def main() -> None:
     args = parse_args()
     setup_logging(settings.log_level)
@@ -643,9 +688,11 @@ def main() -> None:
     # Run immediately on startup, then schedule hourly
     run_all_cycles()
 
-    # Auto-optimizer: runs on primary symbol only
+    # Auto-optimizers: run on primary symbol only
     if should_run(db):
         _launch_auto_optimizer(db, primary_orch, notifier)
+    if eq_should_run(db):
+        _launch_auto_entry_quality_optimizer(db, primary_orch, notifier)
 
     schedule.every().hour.at(":00").do(run_all_cycles)
     schedule.every(60).seconds.do(
@@ -653,6 +700,9 @@ def main() -> None:
     )
     schedule.every(7).days.do(
         _launch_auto_optimizer, db, primary_orch, notifier
+    )
+    schedule.every(7).days.do(
+        _launch_auto_entry_quality_optimizer, db, primary_orch, notifier
     )
 
     while not _shutdown:

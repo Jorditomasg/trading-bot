@@ -10,6 +10,11 @@ import streamlit as st
 from bot.database.db import Database
 from bot.optimizer.walk_forward import STOP_GRID, TP_GRID, run_grid_search
 from bot.optimizer.trail_optimizer import ACTIVATION_GRID, TRAIL_GRID, run_trail_grid_search
+from bot.optimizer.entry_quality_optimizer import (
+    VOL_GRID, BAR_DIR_GRID, MOMENTUM_GRID, ATR_PCT_GRID,
+    run_entry_quality_grid_search,
+)
+_EQ_TOTAL = len(VOL_GRID) * len(BAR_DIR_GRID) * len(MOMENTUM_GRID) * len(ATR_PCT_GRID)
 from dashboard.constants import GREEN, RED, WHITE, MUTED, SURFACE, ChartConfig
 from dashboard.themes import NothingOS
 from dashboard.utils import fmt
@@ -300,6 +305,79 @@ def optimizer_section(db: Database) -> None:
     st.markdown("## Trail Optimization History")
     _trail_history_table(db)
 
+    # ── Entry Quality Optimizer ───────────────────────────────────────────────
+    st.divider()
+    st.markdown("## Entry Quality Optimizer")
+    st.caption(
+        f"Tests {_EQ_TOTAL} combinations of EMA entry filters "
+        "(volume threshold · bar direction · EMA momentum · min ATR). "
+        "TP/SL fixed at current approved values."
+    )
+
+    _entry_quality_pending_banner(db)
+
+    col_eq_form, col_eq_results = st.columns([1, 1], gap="large")
+
+    with col_eq_form:
+        with st.form("eq_optimizer_form"):
+            cfg = db.get_runtime_config()
+
+            c1, c2 = st.columns(2)
+            with c1:
+                sym_default = cfg.get("symbol", "BTCUSDT")
+                eq_symbol = st.selectbox(
+                    "Symbol", _SYMBOLS,
+                    index=_SYMBOLS.index(sym_default) if sym_default in _SYMBOLS else 0,
+                    key="eq_symbol",
+                )
+                tf_default = cfg.get("timeframe", "1h")
+                eq_tf = st.selectbox(
+                    "Timeframe", _TIMEFRAMES,
+                    index=_TIMEFRAMES.index(tf_default) if tf_default in _TIMEFRAMES else 0,
+                    key="eq_tf",
+                )
+            with c2:
+                eq_period = st.selectbox(
+                    "Lookback", _PERIODS, index=2,
+                    format_func=lambda d: f"{d} days",
+                    key="eq_period",
+                )
+                eq_risk_pct = st.number_input(
+                    "Risk / Trade (%)", min_value=0.1, max_value=5.0,
+                    value=round(float(cfg.get("risk_per_trade", 0.01)) * 100, 1),
+                    step=0.1, format="%.1f", key="eq_risk",
+                )
+                eq_cost_pct = st.number_input(
+                    "Fee / side (%)", min_value=0.0, max_value=1.0,
+                    value=0.07, step=0.01, format="%.2f", key="eq_cost",
+                )
+
+            eq_run = st.form_submit_button(
+                f"▶  Run Entry Quality Optimizer ({_EQ_TOTAL} combos)",
+                use_container_width=True, type="primary",
+            )
+
+    if eq_run:
+        _run_entry_quality_optimizer(
+            db, eq_symbol, eq_tf, eq_period,
+            eq_risk_pct / 100, eq_cost_pct / 100,
+        )
+
+    with col_eq_results:
+        if "eq_results" in st.session_state:
+            _display_entry_quality_results(st.session_state["eq_results"])
+        else:
+            st.markdown("## Results")
+            st.markdown(
+                "<div style='color:#333;font-size:0.75rem;letter-spacing:0.1em;margin-top:2rem'>"
+                "Run the entry quality optimizer to see results here.</div>",
+                unsafe_allow_html=True,
+            )
+
+    st.divider()
+    st.markdown("## Entry Quality Optimization History")
+    _entry_quality_history_table(db)
+
 
 # ── Runner ────────────────────────────────────────────────────────────────────
 
@@ -529,6 +607,213 @@ def _run_trail_optimizer(db, symbol, timeframe, period_days, risk, cost):
 
     progress_placeholder.empty()
     st.session_state["trail_results"] = results
+    st.rerun()
+
+
+# ── Entry Quality pending banner ──────────────────────────────────────────────
+
+def _entry_quality_pending_banner(db: Database) -> None:
+    pending = db.get_best_pending_entry_quality_run()
+    if pending is None:
+        return
+
+    cfg       = db.get_runtime_config()
+    cur_vol   = float(cfg.get("ema_vol_mult", 0.0))
+    cur_bar   = cfg.get("ema_bar_dir",  "false") == "true"
+    cur_mom   = cfg.get("ema_momentum", "false") == "true"
+    cur_atr   = float(cfg.get("ema_min_atr", 0.0))
+
+    pf_color  = GREEN if pending["profit_factor"] >= 1.2 else WHITE
+    bar_icon  = "✓" if pending["bar_direction"] else "—"
+    mom_icon  = "✓" if pending["ema_momentum"]  else "—"
+
+    st.markdown(
+        f"<div style='border:1px solid {GREEN};padding:12px 16px;margin-bottom:1rem'>"
+        f"<span style='font-size:0.65rem;letter-spacing:0.18em;color:{GREEN}'>● ENTRY QUALITY PENDING PROPOSAL</span><br>"
+        f"<span style='font-size:0.75rem;color:#F5F5F5'>"
+        f"Vol {pending['vol_mult']:.1f}× &nbsp;·&nbsp; "
+        f"BarDir {bar_icon} &nbsp;·&nbsp; "
+        f"Momentum {mom_icon} &nbsp;·&nbsp; "
+        f"MinATR {pending['min_atr_pct']:.3f} &nbsp;·&nbsp; "
+        f"PF <strong style='color:{pf_color}'>{pending['profit_factor']:.2f}</strong> &nbsp;·&nbsp; "
+        f"WR {pending['win_rate']:.1f}% &nbsp;·&nbsp; "
+        f"DD {pending['max_drawdown']:.1f}% &nbsp;·&nbsp; "
+        f"{pending['total_trades']} trades"
+        f"</span><br>"
+        f"<span style='font-size:0.6rem;color:#555'>"
+        f"Current: vol {cur_vol:.1f} · bar {cur_bar} · mom {cur_mom} · minATR {cur_atr:.3f} &nbsp;—&nbsp; "
+        f"{pending['symbol']} {pending['timeframe']} · {pending['period_days']}d lookback"
+        f"</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    col_a, col_r, _ = st.columns(3)
+    with col_a:
+        if st.button("✓ Apply Entry Quality Config", type="primary",
+                     use_container_width=True, key="eq_approve"):
+            db.set_runtime_config(
+                ema_vol_mult=str(pending["vol_mult"]),
+                ema_bar_dir="true" if pending["bar_direction"] else "false",
+                ema_momentum="true" if pending["ema_momentum"] else "false",
+                ema_min_atr=str(pending["min_atr_pct"]),
+            )
+            db.set_entry_quality_run_status(pending["id"], "approved")
+            st.success("Applied. Hot-reloads on next bot cycle (no restart needed).")
+            st.rerun()
+    with col_r:
+        if st.button("✕ Reject", use_container_width=True, key="eq_reject"):
+            db.set_entry_quality_run_status(pending["id"], "rejected")
+            st.info("Entry quality proposal rejected — current config unchanged.")
+            st.rerun()
+
+
+# ── Entry Quality results table ───────────────────────────────────────────────
+
+def _display_entry_quality_results(results: list[dict]) -> None:
+    if not results:
+        st.warning("No viable entry quality configurations found. Try a longer lookback.")
+        return
+
+    import pandas as pd
+    top = results[:10]
+    rows = []
+    for r in top:
+        pf = r["profit_factor"]
+        rows.append({
+            "VOL":    f"{r['vol_mult']:.1f}×",
+            "BAR":    "✓" if r["bar_direction"] else "—",
+            "MOM":    "✓" if r["ema_momentum"]  else "—",
+            "MINATR": f"{r['min_atr_pct']:.3f}",
+            "PF":     f"{pf:.2f}",
+            "WR":     f"{r['win_rate']:.1f}%",
+            "DD":     f"{r['max_drawdown']:.1f}%",
+            "TRADES": str(r["total_trades"]),
+            "VIABLE": "✓" if r["viable"] else "✕",
+        })
+
+    df = pd.DataFrame(rows)
+
+    def _style_pf(val: str):
+        try:
+            v = float(val)
+            if v >= 1.2: return f"color: {GREEN}; font-weight: 700"
+            if v >= 1.1: return f"color: {WHITE}"
+            return f"color: {RED}"
+        except ValueError:
+            return ""
+
+    def _style_viable(val: str):
+        return f"color: {GREEN}; font-weight: 700" if val == "✓" else f"color: {RED}"
+
+    styled = (
+        df.style
+        .map(_style_pf,     subset=["PF"])
+        .map(_style_viable, subset=["VIABLE"])
+    )
+    st.dataframe(styled, use_container_width=True, hide_index=True)
+
+    viable = [r for r in results if r["viable"]]
+    if viable:
+        best = viable[0]
+        st.success(
+            f"Best: vol {best['vol_mult']:.1f}× · bar {'✓' if best['bar_direction'] else '—'} · "
+            f"mom {'✓' if best['ema_momentum'] else '—'} · minATR {best['min_atr_pct']:.3f} "
+            f"→ PF {best['profit_factor']:.2f}"
+        )
+
+
+# ── Entry Quality history table ───────────────────────────────────────────────
+
+def _entry_quality_history_table(db: Database) -> None:
+    runs = db.get_entry_quality_runs(limit=30)
+    if not runs:
+        st.caption("no entry quality optimization runs yet")
+        return
+
+    import pandas as pd
+    rows = []
+    for r in runs:
+        status_icon = {"pending": "⏳", "approved": "✓", "rejected": "✕"}.get(r["status"], "?")
+        rows.append({
+            "DATE":    r["timestamp"][:16].replace("T", " "),
+            "SYMBOL":  r["symbol"],
+            "TF":      r["timeframe"],
+            "VOL":     f"{r['vol_mult']:.1f}×",
+            "BAR":     "✓" if r["bar_direction"] else "—",
+            "MOM":     "✓" if r["ema_momentum"]  else "—",
+            "MINATR":  f"{r['min_atr_pct']:.3f}",
+            "PF":      f"{r['profit_factor']:.2f}",
+            "WR":      f"{r['win_rate']:.1f}%",
+            "DD":      f"{r['max_drawdown']:.1f}%",
+            "TRADES":  str(r["total_trades"]),
+            "STATUS":  f"{status_icon} {r['status'].upper()}",
+        })
+
+    df = pd.DataFrame(rows)
+
+    def _style_status(val: str):
+        if "APPROVED" in val: return f"color: {GREEN}; font-weight: 700"
+        if "REJECTED" in val: return f"color: #333"
+        return f"color: {WHITE}"
+
+    def _style_pf(val: str):
+        try:
+            v = float(val)
+            if v >= 1.2: return f"color: {GREEN}; font-weight: 700"
+            if v >= 1.1: return f"color: {WHITE}"
+            return f"color: {RED}"
+        except ValueError:
+            return ""
+
+    styled = (
+        df.style
+        .map(_style_status, subset=["STATUS"])
+        .map(_style_pf,     subset=["PF"])
+    )
+    st.dataframe(styled, use_container_width=True, hide_index=True)
+
+
+# ── Entry Quality runner ──────────────────────────────────────────────────────
+
+def _run_entry_quality_optimizer(db, symbol, timeframe, period_days, risk, cost):
+    progress_placeholder = st.empty()
+    completed = [0]
+    viable    = [0]
+
+    def on_progress(idx, total, vol, bar, mom, min_atr, summary):
+        completed[0] = idx
+        if summary is not None:
+            viable[0] += 1
+        pct = idx / total
+        bar_icon = "✓" if bar else "—"
+        mom_icon = "✓" if mom else "—"
+        progress_placeholder.progress(
+            pct,
+            text=(
+                f"vol={vol:.1f} bar={bar_icon} mom={mom_icon} atr={min_atr:.3f} "
+                f"… {idx}/{total} · {viable[0]} viable"
+            ),
+        )
+
+    with st.spinner("Fetching historical data…"):
+        try:
+            results = run_entry_quality_grid_search(
+                db=db,
+                symbol=symbol,
+                timeframe=timeframe,
+                lookback_days=period_days,
+                cost_per_side=cost,
+                risk_per_trade=risk,
+                on_progress=on_progress,
+            )
+        except Exception as exc:
+            st.error(f"Entry quality optimizer error: {exc}")
+            progress_placeholder.empty()
+            return
+
+    progress_placeholder.empty()
+    st.session_state["eq_results"] = results
     st.rerun()
 
 
