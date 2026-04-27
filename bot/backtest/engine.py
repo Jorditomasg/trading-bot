@@ -92,6 +92,7 @@ class BacktestConfig:
     ema_require_bar_dir:  bool  | None = None
     ema_require_momentum: bool  | None = None
     ema_min_atr_pct:      float | None = None
+    ema_max_distance_atr: float | None = None
 
 
 @dataclass
@@ -126,6 +127,7 @@ class BacktestEngine:
         if config.ema_require_bar_dir  is not None: ema_cfg["require_bar_direction"] = config.ema_require_bar_dir
         if config.ema_require_momentum is not None: ema_cfg["require_ema_momentum"]  = config.ema_require_momentum
         if config.ema_min_atr_pct      is not None: ema_cfg["min_atr_pct"]           = config.ema_min_atr_pct
+        if config.ema_max_distance_atr is not None: ema_cfg["max_distance_atr"]      = config.ema_max_distance_atr
         if config.long_only:
             ema_cfg["long_only"] = True
 

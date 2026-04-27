@@ -105,21 +105,23 @@ def run_and_apply(
 
         current_cfg = db.get_runtime_config()
         old_params = {
-            "ema_vol_mult": float(current_cfg.get("ema_vol_mult", 0.0)),
-            "ema_bar_dir":  current_cfg.get("ema_bar_dir", "false") == "true",
-            "ema_momentum": current_cfg.get("ema_momentum", "false") == "true",
-            "ema_min_atr":  float(current_cfg.get("ema_min_atr", 0.0)),
+            "ema_vol_mult":     float(current_cfg.get("ema_vol_mult", 0.0)),
+            "ema_bar_dir":      current_cfg.get("ema_bar_dir", "false") == "true",
+            "ema_momentum":     current_cfg.get("ema_momentum", "false") == "true",
+            "ema_min_atr":      float(current_cfg.get("ema_min_atr", 0.0)),
+            "ema_max_dist_atr": float(current_cfg.get("ema_max_dist_atr", 0.5)),
         }
         new_params = {
-            "ema_vol_mult":   best["vol_mult"],
-            "ema_bar_dir":    best["bar_direction"],
-            "ema_momentum":   best["ema_momentum"],
-            "ema_min_atr":    best["min_atr_pct"],
-            "profit_factor":  best["profit_factor"],
-            "sharpe_ratio":   best["sharpe_ratio"],
-            "win_rate":       best["win_rate"],
-            "max_drawdown":   best["max_drawdown"],
-            "total_trades":   best["total_trades"],
+            "ema_vol_mult":     best["vol_mult"],
+            "ema_bar_dir":      best["bar_direction"],
+            "ema_momentum":     best["ema_momentum"],
+            "ema_min_atr":      best["min_atr_pct"],
+            "ema_max_dist_atr": best["max_distance_atr"],
+            "profit_factor":    best["profit_factor"],
+            "sharpe_ratio":     best["sharpe_ratio"],
+            "win_rate":         best["win_rate"],
+            "max_drawdown":     best["max_drawdown"],
+            "total_trades":     best["total_trades"],
         }
 
         # Skip update if nothing changed
@@ -128,6 +130,7 @@ def run_and_apply(
             and old_params["ema_bar_dir"]  == best["bar_direction"]
             and old_params["ema_momentum"] == best["ema_momentum"]
             and old_params["ema_min_atr"]  == best["min_atr_pct"]
+            and abs(old_params["ema_max_dist_atr"] - best["max_distance_atr"]) < 1e-6
         ):
             logger.info(
                 "Auto entry-quality optimizer: best config unchanged — no update needed"
@@ -139,23 +142,26 @@ def run_and_apply(
             ema_bar_dir="true" if best["bar_direction"] else "false",
             ema_momentum="true" if best["ema_momentum"] else "false",
             ema_min_atr=str(best["min_atr_pct"]),
+            ema_max_dist_atr=str(best["max_distance_atr"]),
         )
 
         # Promote matching pending run to 'auto_applied'
         pending = db.get_best_pending_entry_quality_run()
         if (
             pending
-            and abs(pending["vol_mult"]    - best["vol_mult"])   < 1e-6
-            and pending["bar_direction"]  == best["bar_direction"]
-            and pending["ema_momentum"]   == best["ema_momentum"]
-            and abs(pending["min_atr_pct"] - best["min_atr_pct"]) < 1e-6
+            and abs(pending["vol_mult"]        - best["vol_mult"])        < 1e-6
+            and pending["bar_direction"]       == best["bar_direction"]
+            and pending["ema_momentum"]        == best["ema_momentum"]
+            and abs(pending["min_atr_pct"]     - best["min_atr_pct"])     < 1e-6
+            and abs(pending["max_distance_atr"] - best["max_distance_atr"]) < 1e-6
         ):
             db.set_entry_quality_run_status(pending["id"], "auto_applied")
 
         logger.info(
             "Auto entry-quality optimizer: applied — "
-            "vol=%.1f bar=%s mom=%s atr=%.3f  PF=%.2f Sharpe=%.2f WR=%.1f%% trades=%d",
+            "vol=%.1f bar=%s mom=%s atr=%.3f dist=%.2f  PF=%.2f Sharpe=%.2f WR=%.1f%% trades=%d",
             best["vol_mult"], best["bar_direction"], best["ema_momentum"], best["min_atr_pct"],
+            best["max_distance_atr"],
             best["profit_factor"], best["sharpe_ratio"], best["win_rate"], best["total_trades"],
         )
 

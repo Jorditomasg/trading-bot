@@ -119,6 +119,7 @@ CREATE TABLE IF NOT EXISTS entry_quality_runs (
     bar_direction  INTEGER NOT NULL,
     ema_momentum   INTEGER NOT NULL,
     min_atr_pct    REAL    NOT NULL,
+    max_distance_atr REAL,
     ema_stop_mult  REAL    NOT NULL,
     ema_tp_mult    REAL    NOT NULL,
     profit_factor  REAL    NOT NULL,
@@ -174,6 +175,15 @@ class Database:
                 if col not in signals_cols:
                     conn.execute(f"ALTER TABLE signals ADD COLUMN {col} {definition}")
                     logger.info("Migration: added column signals.%s", col)
+
+            # entry_quality_runs — max_distance_atr column
+            eq_cols = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(entry_quality_runs)").fetchall()
+            }
+            if "max_distance_atr" not in eq_cols:
+                conn.execute("ALTER TABLE entry_quality_runs ADD COLUMN max_distance_atr REAL")
+                logger.info("Migration: added column entry_quality_runs.max_distance_atr")
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
@@ -721,6 +731,7 @@ class Database:
         total_trades: int,
         total_pnl: float,
         status: str = "pending",
+        max_distance_atr: float | None = None,
     ) -> int:
         ts = datetime.now().isoformat()
         with self._conn() as conn:
@@ -728,12 +739,14 @@ class Database:
                 """INSERT INTO entry_quality_runs
                    (timestamp, symbol, timeframe, period_days,
                     vol_mult, bar_direction, ema_momentum, min_atr_pct,
+                    max_distance_atr,
                     ema_stop_mult, ema_tp_mult,
                     profit_factor, sharpe_ratio, win_rate, max_drawdown,
                     total_trades, total_pnl, status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (ts, symbol, timeframe, period_days,
                  vol_mult, int(bar_direction), int(ema_momentum), min_atr_pct,
+                 max_distance_atr,
                  ema_stop_mult, ema_tp_mult,
                  profit_factor, sharpe_ratio, win_rate, max_drawdown,
                  total_trades, total_pnl, status),
@@ -746,7 +759,13 @@ class Database:
                 "SELECT * FROM entry_quality_runs ORDER BY timestamp DESC LIMIT ?",
                 (limit,),
             ).fetchall()
-        return [dict(r) for r in rows]
+        result = []
+        for r in rows:
+            d = dict(r)
+            if d.get("max_distance_atr") is None:
+                d["max_distance_atr"] = 0.5
+            result.append(d)
+        return result
 
     def get_best_pending_entry_quality_run(self) -> dict | None:
         with self._conn() as conn:
@@ -755,7 +774,12 @@ class Database:
                    WHERE status = 'pending'
                    ORDER BY profit_factor DESC LIMIT 1""",
             ).fetchone()
-        return dict(row) if row else None
+        if row is None:
+            return None
+        d = dict(row)
+        if d.get("max_distance_atr") is None:
+            d["max_distance_atr"] = 0.5
+        return d
 
     def set_entry_quality_run_status(self, run_id: int, status: str) -> None:
         with self._conn() as conn:

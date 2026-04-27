@@ -17,11 +17,12 @@ from bot.database.db import Database
 
 logger = logging.getLogger(__name__)
 
-# ── Search space (4 × 2 × 2 × 3 = 48 combos) ────────────────────────────────
-VOL_GRID      = [0.0, 1.0, 1.5, 2.0]    # volume_multiplier; 0.0 = filter off
-BAR_DIR_GRID  = [False, True]            # require_bar_direction
-MOMENTUM_GRID = [False, True]            # require_ema_momentum
-ATR_PCT_GRID  = [0.0, 0.003, 0.005]     # min_atr_pct; 0.0 = dead-market filter off
+# ── Search space (4 × 2 × 2 × 3 × 5 = 240 combos) ───────────────────────────
+VOL_GRID      = [0.0, 1.0, 1.5, 2.0]          # volume_multiplier; 0.0 = filter off
+BAR_DIR_GRID  = [False, True]                  # require_bar_direction
+MOMENTUM_GRID = [False, True]                  # require_ema_momentum
+ATR_PCT_GRID  = [0.0, 0.003, 0.005]           # min_atr_pct; 0.0 = dead-market filter off
+DIST_ATR_GRID = [0.3, 0.5, 0.8, 1.0, 1.5]    # max_distance_atr; controls pullback entry zone width
 
 # Viability constraints — design is authoritative; MIN_TRADES = 15 (not 10 from spec)
 # because entry filters reduce trade count and we need enough data to be confident.
@@ -60,9 +61,9 @@ def run_entry_quality_grid_search(
     cost_per_side: float = 0.0007,
     capital: float = 10_000.0,
     risk_per_trade: float = 0.01,
-    on_progress: Callable[[int, int, float, bool, bool, float, dict | None], None] | None = None,
+    on_progress: Callable[[int, int, float, bool, bool, float, float, dict | None], None] | None = None,
 ) -> list[dict]:
-    """Run 48-combo entry filter grid search and persist viable results.
+    """Run 240-combo entry filter grid search and persist viable results.
 
     Args:
         db:            Database instance for saving results.
@@ -73,7 +74,7 @@ def run_entry_quality_grid_search(
         capital:       Starting capital for each simulation.
         risk_per_trade: Fraction of capital risked per trade.
         on_progress:   Optional callback(combo_idx, total, vol_mult, bar_dir,
-                       momentum, min_atr, summary|None).
+                       momentum, min_atr, dist_atr, summary|None).
 
     Returns:
         List of result dicts sorted viable-first then by profit_factor DESC.
@@ -98,7 +99,7 @@ def run_entry_quality_grid_search(
             "Entry quality optimizer: bias fetch failed (%s) — running without", exc
         )
 
-    combos = list(product(VOL_GRID, BAR_DIR_GRID, MOMENTUM_GRID, ATR_PCT_GRID))
+    combos = list(product(VOL_GRID, BAR_DIR_GRID, MOMENTUM_GRID, ATR_PCT_GRID, DIST_ATR_GRID))
     total  = len(combos)
     logger.info(
         "Entry quality optimizer: %d combinations (EMA fixed stop=%.2f tp=%.2f)",
@@ -107,7 +108,7 @@ def run_entry_quality_grid_search(
 
     results: list[dict] = []
 
-    for idx, (vol_mult, bar_dir, momentum, min_atr) in enumerate(combos):
+    for idx, (vol_mult, bar_dir, momentum, min_atr, dist_atr) in enumerate(combos):
         cfg = BacktestConfig(
             initial_capital=capital,
             risk_per_trade=risk_per_trade,
@@ -120,6 +121,7 @@ def run_entry_quality_grid_search(
             ema_require_bar_dir=bar_dir,
             ema_require_momentum=momentum,
             ema_min_atr_pct=min_atr,
+            ema_max_distance_atr=dist_atr,
         )
         engine = BacktestEngine(cfg)
 
@@ -128,35 +130,36 @@ def run_entry_quality_grid_search(
             summary = engine.summary(result)
         except Exception as exc:
             logger.warning(
-                "Entry quality optimizer: failed vol=%.1f bar=%s mom=%s atr=%.3f: %s",
-                vol_mult, bar_dir, momentum, min_atr, exc,
+                "Entry quality optimizer: failed vol=%.1f bar=%s mom=%s atr=%.3f dist=%.2f: %s",
+                vol_mult, bar_dir, momentum, min_atr, dist_atr, exc,
             )
             if on_progress:
-                on_progress(idx + 1, total, vol_mult, bar_dir, momentum, min_atr, None)
+                on_progress(idx + 1, total, vol_mult, bar_dir, momentum, min_atr, dist_atr, None)
             continue
 
         viable = _is_viable(summary)
         row = {
-            "vol_mult":      vol_mult,
-            "bar_direction": bar_dir,
-            "ema_momentum":  momentum,
-            "min_atr_pct":   min_atr,
-            "profit_factor": summary["profit_factor"],
-            "sharpe_ratio":  summary["sharpe_ratio"],
-            "win_rate":      summary["win_rate_pct"],
-            "max_drawdown":  summary["max_drawdown_pct"],
-            "total_trades":  summary["total_trades"],
-            "total_pnl":     summary["total_pnl"],
-            "viable":        viable,
+            "vol_mult":         vol_mult,
+            "bar_direction":    bar_dir,
+            "ema_momentum":     momentum,
+            "min_atr_pct":      min_atr,
+            "max_distance_atr": dist_atr,
+            "profit_factor":    summary["profit_factor"],
+            "sharpe_ratio":     summary["sharpe_ratio"],
+            "win_rate":         summary["win_rate_pct"],
+            "max_drawdown":     summary["max_drawdown_pct"],
+            "total_trades":     summary["total_trades"],
+            "total_pnl":        summary["total_pnl"],
+            "viable":           viable,
         }
         results.append(row)
 
         if on_progress:
-            on_progress(idx + 1, total, vol_mult, bar_dir, momentum, min_atr, summary if viable else None)
+            on_progress(idx + 1, total, vol_mult, bar_dir, momentum, min_atr, dist_atr, summary if viable else None)
 
         logger.debug(
-            "vol=%.1f bar=%s mom=%s atr=%.3f → PF=%.2f WR=%.1f%% trades=%d viable=%s",
-            vol_mult, bar_dir, momentum, min_atr,
+            "vol=%.1f bar=%s mom=%s atr=%.3f dist=%.2f → PF=%.2f WR=%.1f%% trades=%d viable=%s",
+            vol_mult, bar_dir, momentum, min_atr, dist_atr,
             summary["profit_factor"], summary["win_rate_pct"],
             summary["total_trades"], viable,
         )
@@ -174,6 +177,7 @@ def run_entry_quality_grid_search(
             bar_direction=row["bar_direction"],
             ema_momentum=row["ema_momentum"],
             min_atr_pct=row["min_atr_pct"],
+            max_distance_atr=row["max_distance_atr"],
             ema_stop_mult=ema_stop,
             ema_tp_mult=ema_tp,
             profit_factor=row["profit_factor"],

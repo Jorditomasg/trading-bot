@@ -630,3 +630,25 @@ def test_momentum_neutral_halves_risk():
     assert avg_qty_neutral < avg_qty_bull, (
         f"NEUTRAL should produce smaller qty ({avg_qty_neutral:.5f}) than BULLISH ({avg_qty_bull:.5f})"
     )
+
+
+# ── B1: BacktestConfig.ema_max_distance_atr ───────────────────────────────────
+
+class TestBacktestConfigMaxDistanceAtr:
+    def test_override_applies_when_set(self):
+        """BacktestConfig with ema_max_distance_atr=0.3 → engine strategy has max_distance_atr == 0.3."""
+        from bot.constants import StrategyName
+        cfg = BacktestConfig(ema_max_distance_atr=0.3)
+        engine = BacktestEngine(cfg)
+        ema_strategy = engine._strategies[StrategyName.EMA_CROSSOVER]
+        assert ema_strategy.config.max_distance_atr == pytest.approx(0.3)
+
+    def test_none_leaves_preset_untouched(self):
+        """BacktestConfig() with None should NOT override max_distance_atr — preset value survives."""
+        from bot.constants import StrategyName
+        from bot.config_presets import get_strategy_configs
+        cfg = BacktestConfig(timeframe="4h")
+        engine = BacktestEngine(cfg)
+        ema_strategy = engine._strategies[StrategyName.EMA_CROSSOVER]
+        preset_val = get_strategy_configs("4h")[StrategyName.EMA_CROSSOVER].get("max_distance_atr")
+        assert ema_strategy.config.max_distance_atr == pytest.approx(preset_val)

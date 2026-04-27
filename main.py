@@ -183,6 +183,9 @@ def _apply_ema_config(db: Database, orchestrator: "StrategyOrchestrator") -> Non
     if "ema_min_atr" in cfg:
         ema_strategy.config.min_atr_pct = float(cfg["ema_min_atr"])
         logger.info("Runtime config: ema_min_atr=%.4f", float(cfg["ema_min_atr"]))
+    if "ema_max_dist_atr" in cfg:
+        ema_strategy.config.max_distance_atr = float(cfg["ema_max_dist_atr"])
+        logger.info("Runtime config: ema_max_dist_atr=%.3f", float(cfg["ema_max_dist_atr"]))
 
 
 def _apply_trail_config(db: Database, risk_config: "RiskConfig") -> None:
