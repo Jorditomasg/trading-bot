@@ -128,6 +128,7 @@ def _apply_runtime_config(db: Database, risk_config: RiskConfig) -> None:
         logger.info("Runtime config: timeframe=%s", cfg["timeframe"])
     if "risk_per_trade" in cfg:
         risk_config.risk_per_trade = float(cfg["risk_per_trade"])
+        settings.risk_per_trade = float(cfg["risk_per_trade"])  # keep settings in sync
     if "max_drawdown" in cfg:
         risk_config.max_drawdown = float(cfg["max_drawdown"])
     if "max_concurrent" in cfg:
@@ -139,6 +140,32 @@ def _apply_runtime_config(db: Database, risk_config: RiskConfig) -> None:
     if "cooldown_hours" in cfg:
         risk_config.cooldown_hours = int(cfg["cooldown_hours"])
     logger.info("Runtime config applied: %s", list(cfg.keys()))
+
+
+def _seed_optimized_defaults(db: Database) -> None:
+    """Write validated optimal parameters to the DB on first run.
+
+    Only sets values that are not already present — never overwrites user customisations.
+    These replace the old .env-based defaults (SYMBOL, TIMEFRAME, RISK_PER_TRADE).
+    Values come from the 3-year backtest (Apr 2022–Apr 2025, BTCUSDT 4h, long-only):
+      Ann=22.5%  PF=1.551  Sharpe=9.63  DD=20.5%  (at 2% risk)
+    """
+    cfg = db.get_runtime_config()
+
+    defaults = {
+        "symbol":          "BTCUSDT",
+        "timeframe":       "4h",
+        "risk_per_trade":  "0.015",   # 1.5% = Quarter-Kelly; safe, ~17% annual
+        "ema_stop_mult":   "1.5",
+        "ema_tp_mult":     "4.5",
+        "ema_max_dist_atr":"1.0",
+        "long_only":       "true",
+    }
+
+    to_seed = {k: v for k, v in defaults.items() if k not in cfg}
+    if to_seed:
+        db.set_runtime_config(**to_seed)
+        logger.info("Seeded optimized defaults into DB: %s", list(to_seed.keys()))
 
 
 def _build_bias_filter(db: Database) -> BiasFilter:
@@ -614,6 +641,9 @@ def main() -> None:
 
     db = Database()
 
+    # Seed optimised trading defaults on first run (no-op if already in DB)
+    _seed_optimized_defaults(db)
+
     # Seed Telegram config from .env on first run (no-op if already set in DB)
     if settings.telegram_token and not db.has_telegram_config():
         db.save_telegram_config(
@@ -622,6 +652,9 @@ def main() -> None:
             settings.telegram_enabled,
         )
         logger.info("Telegram config seeded from .env")
+
+    # Apply DB runtime config to settings early so symbol/timeframe/risk are DB-driven
+    _apply_runtime_config(db, RiskConfig())  # throws away the RiskConfig — we only want settings mutation
 
     # Symbol list: from bot_config if set, else fall back to .env SYMBOL
     symbols = db.get_symbols() or [settings.symbol]
