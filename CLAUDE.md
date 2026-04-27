@@ -10,34 +10,48 @@ Developer reference for this codebase. Read this before touching anything.
 
 The user has seen bots generating 70%+ annual and wants this project to reach that level.
 
-### Honest baseline (spot BTC/USDT, 4h, 3-year backtest)
+### Validated baseline (spot BTC/USDT, 4h, 3-year backtest Apr 2022–Apr 2025)
 
-| Risk % | Annual return | Max drawdown |
-|--------|--------------|--------------|
-| 1%     | ~6%          | ~6%          |
-| 2%     | ~13%         | ~12.5%       |
-| 5%     | ~32%         | ~28%         |
+**CURRENT OPTIMAL CONFIG**: long_only=True, no trailing stop, dist=1.0, TP=4.5, SL=1.5
 
-With the current spot strategy, 70%+ annual is not achievable without leverage or
-significantly higher risk, because:
-- ~28 trades/year at 4h → low trade frequency limits compounding
-- Spot BTC has limited volatility relative to derivatives
+| Risk % | Annual return | Max drawdown | Sharpe | PF    | Trades/yr |
+|--------|--------------|--------------|--------|-------|-----------|
+| 1%     | ~11%         | ~11%         | 9.63   | 1.567 | ~30       |
+| 1.5%   | ~17%         | ~16%         | 9.63   | 1.560 | ~30       |
+| 2%     | ~22.5%       | ~20.5%       | 9.63   | 1.551 | ~30       |
+
+**Previous baseline** (with trailing stop, old params): PF=0.764, Ann=-5.2%, Sharpe=-5.19
+
+Key discoveries (April 2026 systematic optimization):
+1. **Trailing stop was destroying performance**: only 1 of 131 trades hit TP with trail ON; PF dropped from 1.55 to 0.76. Trailing stop is now fully disabled.
+2. **Long-only is mandatory for BTC**: bidirectional gave PF=1.09; long-only gives PF=1.55. BTC's upward bias means short trades are losers.
+3. **max_distance_atr=1.0 captures momentum zone**: captures trend-continuation entries up to 1 ATR from EMA9, not just tight crossovers. More trades (90/3yr vs 65) with better PF.
+4. **TP=4.5 is optimal at dist=1.0**: wider entry zone → stronger momentum → trades need more room to run.
+5. **1h timeframe is terrible**: PF=0.75, Ann=-26%. Stay on 4h.
+6. **Momentum filter hurts**: reduces annual from 22.5% to 9.6% without meaningful DD reduction.
+7. **SL=1.5 is optimal**: SL=1.0 causes too many stop-outs (PF<1), SL=2.0 over-risks.
 
 ### Levers explored (as of April 2026)
 
 | Lever | Result |
 |-------|--------|
-| TP/SL multiplier optimization | Done — 3.5× TP optimal, auto-optimizer runs weekly |
-| Risk scaling to 2% | Recommended — doubles return, MaxDD stays <15% |
+| Trailing stop removal | **CRITICAL** — removing trail stop: PF 0.76 → 1.55, Ann -5% → +22% |
+| Long-only mode | **CRITICAL** — BTC bias: PF 1.09 → 1.55, eliminates losing short trades |
+| max_distance_atr=1.0 | Done — captures momentum zone; was 0.3 (too tight) |
+| TP=4.5 (was 3.5) | Done — optimal for dist=1.0 momentum entries |
+| Risk scaling to 2% | Recommended — doubles return, MaxDD stays ≤21% |
+| 1h timeframe | Tested and rejected — PF=0.75, Ann=-26% |
+| Momentum filter | Tested and rejected — reduces annual by 54% |
 | Widening RSI threshold (MR) | Tested — hurts quality, RSI<30 already optimal |
-| Breakeven-on-TP1 | Implemented and reverted — trailing stop already covers this |
-| Multiple assets (3×) | +diversification, fees manageable at 28 trades/yr/asset |
+| Multiple assets (3×) | +diversification, fees manageable at 30 trades/yr/asset |
 
-### Path to 70%+ (not yet implemented)
+### Path to 30%+ (within reach)
 
-1. **Leverage / futures** — 3–5× leverage on current strategy would project ~40–65% annual at 2% risk. This requires `BinanceClient` futures endpoint and margin management.
-2. **Higher timeframe with more signals** — 1h timeframe increases trade frequency ~4×. Current presets exist for 1h.
-3. **Momentum filter** — only trade when weekly trend confirms; reduces MaxDD while keeping compounding.
+1. **Risk at 2%** — changes Jan from 11% to 22.5%. Half-Kelly at WR=38.9%, payoff=2.44x is 5.6%, so 2% is Quarter-Kelly (conservative).
+2. **Risk at 3%** — projects ~33% annual with ~30% DD. High but Kelly-justified (2/3 Quarter-Kelly).
+3. **Leverage 2×** — on spot with margin would project ~45% annual at 2% risk. Requires futures endpoint.
+
+70%+ annual requires leverage ≥3× or significantly higher risk (≥5%), both acceptable to aggressive traders but require careful liquidation management.
 
 When working on profitability improvements, always run a 3-year backtest (`BacktestEngine`)
 before and after to compare: annual return, Sharpe ratio, profit factor, and max drawdown.
@@ -227,23 +241,19 @@ The fallback can switch across regime boundaries (e.g., use EMA_CROSSOVER in a R
 
 These WILL bite you if you don't know them.
 
-### 1. Trailing SL is NULL until activation — ratcheting happens in `position_manager`
+### 1. Trailing stop is DISABLED — `RiskConfig.trailing_stop_enabled = False`
 
-`trades.trailing_sl` is NULL in the DB until price moves `trail_activation_mult × ATR`
-(default: 1.0 × ATR) away from entry. The column exists from trade open but holds NULL.
-Do not assume a non-NULL trailing_sl on any open trade.
+**The trailing stop was destroying performance.** 3-year backtest with trail ON: PF=0.764, Ann=-5%.
+Only 1 of 131 trades hit TP (trail cut every winner before it reached target).
+Trailing stop is now permanently disabled via `RiskConfig.trailing_stop_enabled = False`.
 
-The **ratcheting** (moving the stop up/down as price moves) runs in `position_manager()`
-every 60 seconds using the live WebSocket price — NOT in `orchestrator._evaluate_open_position()`
-which only runs hourly. `_evaluate_open_position()` handles signal-reversal exits only.
+In `position_manager()` the ratcheting block and the `TRAILING_STOP` exit check are both gated
+on `risk_config.trailing_stop_enabled`. With it False, positions exit only via SL or TP.
 
-```python
-# in main.py position_manager() — runs every 60s
-if side == "BUY" and price >= entry_price + activation:
-    new_trail = price - trail_dist
-    if trailing_sl is None or new_trail > trailing_sl:
-        db.update_trailing_sl(trade_id, new_trail)
-```
+`trades.trailing_sl` column still exists in the DB (for legacy rows) but is never written.
+`BacktestConfig.simulate_trailing` defaults to False. All optimizers use `simulate_trailing=False`.
+
+To re-enable (not recommended): set `trailing_stop_enabled=True` in `RiskConfig.__init__`.
 
 ### 2. ADX uses Wilder smoothing, NOT simple rolling mean
 

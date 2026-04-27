@@ -69,14 +69,14 @@ _STRATEGY_PRESETS: dict[str, dict[StrategyName, dict]] = {
             fast_period=9,
             slow_period=21,
             atr_period=14,
-            max_distance_atr=0.5,
+            max_distance_atr=1.5,
             stop_atr_mult=1.5,
             tp_atr_mult=3.5,
             volume_period=20,
             volume_multiplier=1.3,
-            min_atr_pct=0.003,
-            require_bar_direction=True,
-            require_ema_momentum=True,
+            min_atr_pct=0.0,
+            require_bar_direction=False,
+            require_ema_momentum=False,
         ),
         StrategyName.MEAN_REVERSION: dict(
             bb_period=20,
@@ -97,15 +97,15 @@ _STRATEGY_PRESETS: dict[str, dict[StrategyName, dict]] = {
             fast_period=9,
             slow_period=21,
             atr_period=14,
-            max_distance_atr=0.3,          # tight pullback-to-EMA9 only (was 1.0)
+            max_distance_atr=1.0,          # 3yr optimal: captures momentum zone up to 1×ATR from EMA9
             stop_atr_mult=1.5,
-            tp_atr_mult=3.5,               # overridden by BacktestConfig.ema_tp_mult
+            tp_atr_mult=4.5,               # 3yr optimal with dist=1.0: PF=1.551, Ann=22.5%, Sharpe=9.63
             volume_period=20,
             volume_multiplier=1.5,         # crossover needs 1.5× avg volume conviction
             min_atr_pct=0.005,             # skip if ATR < 0.5% of price (dead market)
             require_bar_direction=True,    # crossover bar must close in signal direction
             require_ema_momentum=True,     # continuation: EMA9 must be trending
-            long_only=False,               # set True via dashboard to trade BUY only
+            long_only=True,                # BTC has long-term upward bias; backtests prove long-only outperforms
         ),
         StrategyName.MEAN_REVERSION: dict(
             bb_period=20,

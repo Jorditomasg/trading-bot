@@ -137,9 +137,9 @@ class ScenarioRunner:
             momentum_filter_enabled = scenario.momentum_filter,
             momentum_sma_period     = 20,
             momentum_neutral_band   = 0.05,
-            simulate_trailing       = True,
+            simulate_trailing       = False,
             disable_reversal_exits  = True,
-            long_only               = False,
+            long_only               = True,
         )
         engine = BacktestEngine(config)
         bt     = engine.run(

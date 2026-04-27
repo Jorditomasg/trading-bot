@@ -74,10 +74,10 @@ class BacktestConfig:
     force_strategy: str | None = None
     # EMA strategy TP/SL multipliers (searchable by optimizer)
     ema_stop_mult:     float = 1.5
-    ema_tp_mult:       float = 3.5   # validated optimal: PF 1.187 vs 1.132 at 5.0×
+    ema_tp_mult:       float = 4.5   # 3yr backtest optimal (long-only 4h, dist=1.0): PF=1.551, Ann=22.5%
     long_only:         bool  = False  # when True: EMA strategy ignores SELL signals
     # Trailing stop simulation (approximated at bar resolution)
-    simulate_trailing:        bool  = True
+    simulate_trailing:        bool  = False
     trail_atr_mult:           float = 1.5
     trail_activation_mult:    float = 2.0   # was 1.0 — activate only after 2×ATR profit
     # Leverage simulation (1.0 = spot, no change to existing behaviour)

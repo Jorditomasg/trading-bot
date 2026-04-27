@@ -430,7 +430,7 @@ def _manage_single_position(
     # Track the running price peak (BUY: highest seen; SELL: lowest seen) so
     # the trailing stop ratchets from the true peak — matching backtest engine
     # behaviour (_update_trailing uses bar high/low for the same reason).
-    if trade_atr and risk_config is not None:
+    if trade_atr and risk_config is not None and risk_config.trailing_stop_enabled:
         trail_dist = risk_config.trail_atr_mult * trade_atr
         activation = risk_config.trail_activation_mult * trade_atr
 
@@ -469,7 +469,7 @@ def _manage_single_position(
     # ── Exit condition check ──────────────────────────────────────────────────
     reason: str | None = None
 
-    if trailing_sl is not None:
+    if trailing_sl is not None and risk_config is not None and risk_config.trailing_stop_enabled:
         if (side == "BUY" and price <= trailing_sl) or \
            (side == "SELL" and price >= trailing_sl):
             reason = ExitReason.TRAILING_STOP
