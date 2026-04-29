@@ -145,7 +145,20 @@ def fetch_and_cache(
             .sort_values("open_time")
             .reset_index(drop=True)
         )
-        combined.to_parquet(path, index=False, engine="pyarrow", use_threads=False)
+        # Single-threaded write — pyarrow's default ThreadPoolExecutor crashes
+        # if the interpreter is shutting down (auto-optimizer daemon thread case).
+        try:
+            import pyarrow as pa
+            import pyarrow.parquet as pq
+            table = pa.Table.from_pandas(combined, preserve_index=False, nthreads=1)
+            pq.write_table(table, path)
+        except RuntimeError as exc:
+            # Interpreter shutdown: drop the write, parent will fetch fresh next start.
+            logger.warning("Cache write skipped (likely shutdown): %s", exc)
+            return combined
+        except ImportError:
+            # pyarrow not installed in this env — fall back to pandas default.
+            combined.to_parquet(path, index=False)
         logger.info(
             "Cache saved: %s %s → %d rows (%.1f MB)",
             symbol, interval, len(combined), path.stat().st_size / 1_048_576,

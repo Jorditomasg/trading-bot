@@ -505,6 +505,10 @@ def _launch_auto_optimizer(
     sends a Telegram notification with the new parameters.
     """
     def _worker() -> None:
+        if _shutdown:
+            logger.info("Auto-optimizer: shutdown in progress — skipping run")
+            return
+
         def _on_applied(old_params: dict, new_params: dict) -> None:
             # Hot-reload: patch the live strategy object without restart
             _apply_ema_config(db, orchestrator)
@@ -520,6 +524,9 @@ def _launch_auto_optimizer(
                 risk_per_trade=settings.risk_per_trade,
                 on_applied=_on_applied,
             )
+        except RuntimeError as exc:
+            # Interpreter shutting down — daemon thread can't finish writes
+            logger.info("Auto-optimizer: aborted during shutdown (%s)", exc)
         except Exception as exc:
             logger.error("Auto-optimizer: unhandled error: %s", exc, exc_info=True)
 
@@ -535,6 +542,10 @@ def _launch_auto_entry_quality_optimizer(
 ) -> None:
     """Run the entry-quality optimizer in a daemon thread."""
     def _worker() -> None:
+        if _shutdown:
+            logger.info("Auto entry-quality optimizer: shutdown in progress — skipping run")
+            return
+
         def _on_applied(old_params: dict, new_params: dict) -> None:
             _apply_ema_config(db, orchestrator)
             logger.info("Auto entry-quality optimizer: hot-reloaded EMA config into running strategy")
@@ -547,6 +558,8 @@ def _launch_auto_entry_quality_optimizer(
                 risk_per_trade=settings.risk_per_trade,
                 on_applied=_on_applied,
             )
+        except RuntimeError as exc:
+            logger.info("Auto entry-quality optimizer: aborted during shutdown (%s)", exc)
         except Exception as exc:
             logger.error("Auto entry-quality optimizer: unhandled error: %s", exc, exc_info=True)
 
