@@ -145,7 +145,7 @@ def fetch_and_cache(
             .sort_values("open_time")
             .reset_index(drop=True)
         )
-        combined.to_parquet(path, index=False)
+        combined.to_parquet(path, index=False, engine="pyarrow", use_threads=False)
         logger.info(
             "Cache saved: %s %s → %d rows (%.1f MB)",
             symbol, interval, len(combined), path.stat().st_size / 1_048_576,
