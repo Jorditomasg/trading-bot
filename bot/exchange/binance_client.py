@@ -65,6 +65,8 @@ class BinanceClient:
             self._client = Client(_api_key, _api_secret)
             logger.info("BinanceClient initialised — LIVE mode")
 
+        self._twm: Optional[ThreadedWebsocketManager] = None
+
     @_retry
     def get_klines(self, symbol: str, interval: str, limit: int = 200) -> pd.DataFrame:
         raw = self._client.get_klines(symbol=symbol, interval=interval, limit=limit)
@@ -271,23 +273,31 @@ class BinanceClient:
     def start_price_stream(
         self, symbol: str, on_tick: Callable[[dict], None]
     ) -> ThreadedWebsocketManager:
-        # python-binance 1.0.x does not reliably redirect WS to testnet via flag.
-        # Use testnet=True only when NOT in testnet mode so the flag is irrelevant;
-        # for testnet we rely on the kline stream URL being public (no auth needed).
-        twm = ThreadedWebsocketManager(
-            api_key=settings.api_key,
-            api_secret=settings.api_secret,
-            testnet=settings.testnet,
-            tld="com",
-        )
+        """Start or reuse a single TWM to stream klines for the given symbol."""
+        if self._twm is None:
+            self._twm = ThreadedWebsocketManager(
+                api_key=settings.api_key,
+                api_secret=settings.api_secret,
+                testnet=settings.testnet,
+                tld="com",
+            )
+            self._twm.start()
+            logger.info("ThreadedWebsocketManager started (testnet=%s)", settings.testnet)
+
         try:
-            twm.start()
-            twm.start_kline_socket(callback=on_tick, symbol=symbol, interval="1m")
-            logger.info(
-                "Price stream started symbol=%s testnet=%s", symbol, settings.testnet
-            )
+            self._twm.start_kline_socket(callback=on_tick, symbol=symbol, interval="1m")
+            logger.info("Price stream added for symbol=%s", symbol)
         except Exception as exc:
-            logger.warning(
-                "WebSocket stream failed to start: %s — live_ticks will not be populated", exc
-            )
-        return twm
+            logger.error("Failed to add symbol %s to stream: %s", symbol, exc)
+
+        return self._twm
+
+    def stop_price_stream(self) -> None:
+        """Stop the shared ThreadedWebsocketManager."""
+        if self._twm:
+            try:
+                self._twm.stop()
+                self._twm = None
+                logger.info("ThreadedWebsocketManager stopped.")
+            except Exception as exc:
+                logger.warning("Error stopping ThreadedWebsocketManager: %s", exc)

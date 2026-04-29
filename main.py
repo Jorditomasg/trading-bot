@@ -634,11 +634,9 @@ def main() -> None:
     )
     cmd_handler.start()
 
-    # Start one WebSocket price stream per symbol
-    twms = [
+    # Start WebSocket price streams
+    for sym in symbols:
         stream_client.start_price_stream(sym, _make_tick_handler(db, sym))
-        for sym in symbols
-    ]
 
     logger.info(
         "Bot started — symbols=%s timeframe=%s dry_run=%s",
@@ -683,9 +681,7 @@ def main() -> None:
 
     notifier.bot_stopped()
     cmd_handler.stop()
-    for twm in twms:
-        twm.stop()
-    logger.info("WebSocket price streams stopped.")
+    stream_client.stop_price_stream()
     logger.info("Bot stopped cleanly.")
 
 
