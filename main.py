@@ -133,10 +133,6 @@ def _apply_runtime_config(db: Database, risk_config: RiskConfig) -> None:
         risk_config.max_drawdown = float(cfg["max_drawdown"])
     if "max_concurrent" in cfg:
         risk_config.max_concurrent_trades = int(cfg["max_concurrent"])
-    if "trail_atr_mult" in cfg:
-        risk_config.trail_atr_mult = float(cfg["trail_atr_mult"])
-    if "trail_act_mult" in cfg:
-        risk_config.trail_activation_mult = float(cfg["trail_act_mult"])
     if "cooldown_hours" in cfg:
         risk_config.cooldown_hours = int(cfg["cooldown_hours"])
     logger.info("Runtime config applied: %s", list(cfg.keys()))
@@ -213,17 +209,6 @@ def _apply_ema_config(db: Database, orchestrator: "StrategyOrchestrator") -> Non
     if "ema_max_dist_atr" in cfg:
         ema_strategy.config.max_distance_atr = float(cfg["ema_max_dist_atr"])
         logger.info("Runtime config: ema_max_dist_atr=%.3f", float(cfg["ema_max_dist_atr"]))
-
-
-def _apply_trail_config(db: Database, risk_config: "RiskConfig") -> None:
-    """Apply optimizer-approved trail ATR multipliers to the live risk config."""
-    cfg = db.get_runtime_config()
-    if "trail_atr_mult" in cfg:
-        risk_config.trail_atr_mult = float(cfg["trail_atr_mult"])
-        logger.info("Runtime config: trail_atr_mult=%.2f", float(cfg["trail_atr_mult"]))
-    if "trail_act_mult" in cfg:
-        risk_config.trail_activation_mult = float(cfg["trail_act_mult"])
-        logger.info("Runtime config: trail_act_mult=%.2f", float(cfg["trail_act_mult"]))
 
 
 def _init_quantity_precision(orchestrator: StrategyOrchestrator, db: Database) -> None:
@@ -438,14 +423,11 @@ def _manage_single_position(
     risk_config: "RiskConfig | None",
     notifier: "TelegramNotifier | None",
 ) -> None:
-    """Manage trailing stop ratchet and SL/TP exit for one open trade."""
+    """Check SL/TP exit for one open trade."""
     trade_id    = trade["id"]
     side        = trade["side"]
-    entry_price = trade["entry_price"]
     stop_loss   = trade["stop_loss"]
     take_profit = trade["take_profit"]
-    trade_atr   = trade.get("atr")
-    trailing_sl = trade.get("trailing_sl")
 
     # Guard: re-verify trade is still open (race condition with run_cycle)
     fresh = db.get_trade(trade_id)
@@ -453,61 +435,15 @@ def _manage_single_position(
         logger.debug("position_manager: trade id=%d already closed — skipping", trade_id)
         return
 
-    # ── Ratchet trailing stop ─────────────────────────────────────────────────
-    # Track the running price peak (BUY: highest seen; SELL: lowest seen) so
-    # the trailing stop ratchets from the true peak — matching backtest engine
-    # behaviour (_update_trailing uses bar high/low for the same reason).
-    if trade_atr and risk_config is not None and risk_config.trailing_stop_enabled:
-        trail_dist = risk_config.trail_atr_mult * trade_atr
-        activation = risk_config.trail_activation_mult * trade_atr
-
-        # Initialise peak_price from the DB row; fall back to entry if NULL (legacy row)
-        peak_price = trade.get("peak_price") or entry_price
-
-        if side == "BUY":
-            new_peak = max(peak_price, price)
-            if new_peak > peak_price:
-                db.update_peak_price(trade_id, new_peak)
-                peak_price = new_peak
-            if peak_price >= entry_price + activation:
-                new_trail = peak_price - trail_dist
-                if trailing_sl is None or new_trail > trailing_sl:
-                    db.update_trailing_sl(trade_id, new_trail)
-                    trailing_sl = new_trail
-                    logger.debug(
-                        "position_manager: trailing SL ratcheted to %.2f (peak=%.2f)",
-                        new_trail, peak_price,
-                    )
-        elif side == "SELL":
-            new_peak = min(peak_price, price)
-            if new_peak < peak_price:
-                db.update_peak_price(trade_id, new_peak)
-                peak_price = new_peak
-            if peak_price <= entry_price - activation:
-                new_trail = peak_price + trail_dist
-                if trailing_sl is None or new_trail < trailing_sl:
-                    db.update_trailing_sl(trade_id, new_trail)
-                    trailing_sl = new_trail
-                    logger.debug(
-                        "position_manager: trailing SL ratcheted to %.2f (peak=%.2f)",
-                        new_trail, peak_price,
-                    )
-
     # ── Exit condition check ──────────────────────────────────────────────────
     reason: str | None = None
 
-    if trailing_sl is not None and risk_config is not None and risk_config.trailing_stop_enabled:
-        if (side == "BUY" and price <= trailing_sl) or \
-           (side == "SELL" and price >= trailing_sl):
-            reason = ExitReason.TRAILING_STOP
-
-    if reason is None:
-        if (side == "BUY" and price <= stop_loss) or \
-           (side == "SELL" and price >= stop_loss):
-            reason = ExitReason.STOP_LOSS
-        elif (side == "BUY" and price >= take_profit) or \
-             (side == "SELL" and price <= take_profit):
-            reason = ExitReason.TAKE_PROFIT
+    if (side == "BUY" and price <= stop_loss) or \
+       (side == "SELL" and price >= stop_loss):
+        reason = ExitReason.STOP_LOSS
+    elif (side == "BUY" and price >= take_profit) or \
+         (side == "SELL" and price <= take_profit):
+        reason = ExitReason.TAKE_PROFIT
 
     if reason is None:
         return
@@ -673,7 +609,6 @@ def main() -> None:
             timeframe=settings.timeframe,
         )
         _apply_ema_config(db, orch)
-        _apply_trail_config(db, orch.risk_manager.config)
         _init_quantity_precision(orch, db)
         return orch
 

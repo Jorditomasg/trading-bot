@@ -10,19 +10,19 @@ def _weekly(closes: list) -> pd.DataFrame:
 
 class TestMomentumFilterStates:
     def test_bullish_when_price_above_upper_band(self):
-        # SMA of last 20 from 21 bars = 100.0; 106 > 100*1.05 = 105
+        # SMA of last 20 from 21 bars = 100.0; 109 > 100*1.08 = 108 → BULLISH
         df = _weekly([100.0] * 21)
-        assert MomentumFilter.get_state(df, 106.0) == MomentumState.BULLISH
+        assert MomentumFilter.get_state(df, 109.0) == MomentumState.BULLISH
 
     def test_bearish_when_price_below_lower_band(self):
-        # SMA = 100.0; 94 < 100*0.95 = 95
+        # SMA = 100.0; 91 < 100*0.92 = 92 → BEARISH
         df = _weekly([100.0] * 21)
-        assert MomentumFilter.get_state(df, 94.0) == MomentumState.BEARISH
+        assert MomentumFilter.get_state(df, 91.0) == MomentumState.BEARISH
 
     def test_neutral_when_price_within_band(self):
-        # SMA = 100.0; 102 is within ±5%
+        # SMA = 100.0; 105 is within ±8%
         df = _weekly([100.0] * 21)
-        assert MomentumFilter.get_state(df, 102.0) == MomentumState.NEUTRAL
+        assert MomentumFilter.get_state(df, 105.0) == MomentumState.NEUTRAL
 
     def test_failopen_returns_bullish_when_df_is_none(self):
         assert MomentumFilter.get_state(None, 50000.0) == MomentumState.BULLISH
@@ -34,10 +34,10 @@ class TestMomentumFilterStates:
 
     def test_sma_uses_last_20_closes(self):
         # First bar is 200, rest are 100. SMA of last 20 = 100.
-        # Price 106 > 100*1.05=105 → BULLISH (not affected by outlier)
+        # Price 109 > 100*1.08=108 → BULLISH (not affected by outlier)
         closes = [200.0] + [100.0] * 20
         df = _weekly(closes)
-        assert MomentumFilter.get_state(df, 106.0) == MomentumState.BULLISH
+        assert MomentumFilter.get_state(df, 109.0) == MomentumState.BULLISH
 
 
 class TestSignalMomentumColumn:

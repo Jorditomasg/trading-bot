@@ -116,7 +116,6 @@ def run_entry_quality_grid_search(
             cost_per_side_pct=cost_per_side,
             ema_stop_mult=ema_stop,
             ema_tp_mult=ema_tp,
-            simulate_trailing=False,
             ema_volume_mult=vol_mult,
             ema_require_bar_dir=bar_dir,
             ema_require_momentum=momentum,

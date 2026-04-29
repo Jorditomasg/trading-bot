@@ -228,8 +228,6 @@ def main() -> int:
         timeframe         = args.timeframe,
         cost_per_side_pct = args.cost,
         min_signal_strength = args.min_strength,
-        force_strategy    = args.force_strategy,
-        hold_in_ranging   = args.skip_ranging,
     )
     engine = BacktestEngine(cfg)
 

@@ -2,11 +2,8 @@ from enum import Enum
 
 
 class ExitReason(str, Enum):
-    TRAILING_STOP    = "TRAILING_STOP"
-    STOP_LOSS        = "STOP_LOSS"
-    TAKE_PROFIT      = "TAKE_PROFIT"
-    SIGNAL_REVERSAL  = "SIGNAL_REVERSAL"
-    REGIME_CHANGE    = "REGIME_CHANGE"
+    STOP_LOSS    = "STOP_LOSS"
+    TAKE_PROFIT  = "TAKE_PROFIT"
 
 
 class TradeAction(str, Enum):
@@ -21,6 +18,4 @@ class OrderSide(str, Enum):
 
 
 class StrategyName(str, Enum):
-    EMA_CROSSOVER  = "EMA_CROSSOVER"
-    MEAN_REVERSION = "MEAN_REVERSION"
-    BREAKOUT       = "BREAKOUT"
+    EMA_CROSSOVER = "EMA_CROSSOVER"

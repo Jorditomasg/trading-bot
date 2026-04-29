@@ -11,9 +11,9 @@ Design decisions:
 - win-rate-based strategy switching is disabled (no DB); always uses regime default.
 - 1m precision mode: when df_1m is passed to run(), each primary bar's exit check
   iterates the corresponding 1m sub-bars using numpy.searchsorted for O(log n)
-  slicing.  Trailing-stop ratcheting happens at 1m resolution — no same-bar ambiguity.
-- Coarse mode (no df_1m): exits checked at primary bar resolution; trailing stop
-  ratcheted using bar high/low; same-bar SL+TP resolved conservatively (SL wins).
+  slicing.
+- Coarse mode (no df_1m): exits checked at primary bar resolution; same-bar SL+TP
+  resolved conservatively (SL wins).
 """
 
 import logging
@@ -32,26 +32,16 @@ from bot.metrics import (
 )
 from bot.regime.detector import MarketRegime, RegimeDetector
 from bot.strategy.base import Signal
-from bot.strategy.breakout import BreakoutConfig, BreakoutStrategy
 from bot.strategy.ema_crossover import EMACrossoverConfig, EMACrossoverStrategy
-from bot.strategy.mean_reversion import MeanReversionConfig, MeanReversionStrategy
 from bot.strategy.signal_factory import hold_signal
 
 logger = logging.getLogger(__name__)
 
-# Same mapping as the live orchestrator
-_REGIME_STRATEGY_MAP: dict[MarketRegime, StrategyName] = {
-    MarketRegime.TRENDING: StrategyName.EMA_CROSSOVER,
-    MarketRegime.RANGING:  StrategyName.MEAN_REVERSION,
-    MarketRegime.VOLATILE: StrategyName.BREAKOUT,
-}
-
 # Exit reason constants
-EXIT_STOP_LOSS       = "STOP_LOSS"
-EXIT_TAKE_PROFIT     = "TAKE_PROFIT"
-EXIT_SIGNAL_REVERSAL = "SIGNAL_REVERSAL"
-EXIT_END_OF_PERIOD   = "END_OF_PERIOD"
-EXIT_LIQUIDATED      = "LIQUIDATED"
+EXIT_STOP_LOSS     = "STOP_LOSS"
+EXIT_TAKE_PROFIT   = "TAKE_PROFIT"
+EXIT_END_OF_PERIOD = "END_OF_PERIOD"
+EXIT_LIQUIDATED    = "LIQUIDATED"
 
 _OHLCV_COLS = ["open", "high", "low", "close", "volume"]
 
@@ -64,22 +54,11 @@ class BacktestConfig:
     cost_per_side_pct: float = 0.0015
     min_signal_strength: float = 0.5
     min_4h_bars:       int   = 22
-    reversal_strength_threshold: float = 0.75
-    reversal_only_if_loss: bool = True
-    min_hold_bars:     int   = 4
     post_close_cooldown_bars: int = 3
-    hold_in_volatile:  bool  = True
-    hold_in_ranging:   bool  = False
-    disable_reversal_exits: bool = True
-    force_strategy: str | None = None
     # EMA strategy TP/SL multipliers (searchable by optimizer)
     ema_stop_mult:     float = 1.5
     ema_tp_mult:       float = 4.5   # 3yr backtest optimal (long-only 4h, dist=1.0): PF=1.551, Ann=22.5%
     long_only:         bool  = False  # when True: EMA strategy ignores SELL signals
-    # Trailing stop simulation (approximated at bar resolution)
-    simulate_trailing:        bool  = False
-    trail_atr_mult:           float = 1.5
-    trail_activation_mult:    float = 2.0   # was 1.0 — activate only after 2×ATR profit
     # Leverage simulation (1.0 = spot, no change to existing behaviour)
     leverage:              float = 1.0
     funding_rate_per_8h:   float = 0.0001   # ~0.01% per 8h — typical BTC perp
@@ -134,12 +113,6 @@ class BacktestEngine:
         self._strategies: dict[StrategyName, object] = {
             StrategyName.EMA_CROSSOVER: EMACrossoverStrategy(
                 EMACrossoverConfig(**ema_cfg)
-            ),
-            StrategyName.MEAN_REVERSION: MeanReversionStrategy(
-                MeanReversionConfig(**strategy_cfgs[StrategyName.MEAN_REVERSION])
-            ),
-            StrategyName.BREAKOUT: BreakoutStrategy(
-                BreakoutConfig(**strategy_cfgs[StrategyName.BREAKOUT])
             ),
         }
         # BiasFilter is disabled when no 4h data is expected (e.g. 4h primary timeframe).
@@ -216,13 +189,16 @@ class BacktestEngine:
         window: pd.DataFrame,
         window_4h: pd.DataFrame | None,
     ) -> tuple[MarketRegime, Signal]:
-        """Regime detection → strategy signal → bias filter gate."""
-        regime        = self._regime_detector.detect(window)
-        if self.config.force_strategy:
-            strategy_name = StrategyName(self.config.force_strategy)
-        else:
-            strategy_name = _REGIME_STRATEGY_MAP[regime]
-        strategy      = self._strategies[strategy_name]
+        """Regime detection → strategy signal → bias filter gate.
+
+        Only generates entries when regime == TRENDING. Other regimes return HOLD.
+        """
+        regime  = self._regime_detector.detect(window)
+        atr_val = 0.0
+        if regime != MarketRegime.TRENDING:
+            return regime, hold_signal(atr=atr_val)
+
+        strategy = self._strategies[StrategyName.EMA_CROSSOVER]
         signal: Signal = strategy.generate_signal(window)
 
         bias = self._bias_filter.get_bias(window_4h)
@@ -235,67 +211,29 @@ class BacktestEngine:
 
         return regime, signal
 
-    def _update_trailing(self, trade: dict, bar: pd.Series) -> None:
-        """Ratchet the trailing stop using bar high/low (bar-resolution approximation)."""
-        if not self.config.simulate_trailing:
-            return
-        atr   = trade.get("atr") or 0.0
-        if atr <= 0:
-            return
-
-        trail_dist = self.config.trail_atr_mult * atr
-        activation = self.config.trail_activation_mult * atr
-        entry      = trade["entry_price"]
-        side       = trade["side"]
-
-        if side == "BUY":
-            # Update peak using bar high
-            trade["peak_price"] = max(trade.get("peak_price", entry), float(bar["high"]))
-            if trade["peak_price"] >= entry + activation:
-                new_trail = trade["peak_price"] - trail_dist
-                if trade.get("trailing_sl") is None or new_trail > trade["trailing_sl"]:
-                    trade["trailing_sl"] = new_trail
-        else:
-            # Update trough using bar low
-            trade["peak_price"] = min(trade.get("peak_price", entry), float(bar["low"]))
-            if trade["peak_price"] <= entry - activation:
-                new_trail = trade["peak_price"] + trail_dist
-                if trade.get("trailing_sl") is None or new_trail < trade["trailing_sl"]:
-                    trade["trailing_sl"] = new_trail
-
     def _check_exit(
         self,
         trade: dict,
         bar: pd.Series,
     ) -> tuple[str, float] | None:
-        """Return (exit_reason, raw_exit_price) if SL, trailing SL, or TP was hit this bar.
+        """Return (exit_reason, raw_exit_price) if SL or TP was hit this bar.
 
         Uses the bar's high and low to detect intra-bar hits.
         If both SL and TP are breached in the same bar, SL wins (conservative).
-        Trailing stop is ratcheted first, then checked.
         """
-        # Ratchet trailing stop before checking exits
-        self._update_trailing(trade, bar)
-
         high = float(bar["high"])
         low  = float(bar["low"])
         sl   = trade["stop_loss"]
         tp   = trade["take_profit"]
-        tsl  = trade.get("trailing_sl")
 
         if trade["side"] == "BUY":
-            # Trailing SL takes priority over static SL
-            active_sl = max(sl, tsl) if tsl is not None else sl
-            if low <= active_sl:
-                reason = "TRAILING_STOP" if tsl is not None and active_sl == tsl else EXIT_STOP_LOSS
-                return reason, active_sl
+            if low <= sl:
+                return EXIT_STOP_LOSS, sl
             if high >= tp:
                 return EXIT_TAKE_PROFIT, tp
         else:  # SELL
-            active_sl = min(sl, tsl) if tsl is not None else sl
-            if high >= active_sl:
-                reason = "TRAILING_STOP" if tsl is not None and active_sl == tsl else EXIT_STOP_LOSS
-                return reason, active_sl
+            if high >= sl:
+                return EXIT_STOP_LOSS, sl
             if low <= tp:
                 return EXIT_TAKE_PROFIT, tp
 
@@ -304,14 +242,12 @@ class BacktestEngine:
     def _check_exit_precise(
         self, trade: dict, m1_slice: pd.DataFrame
     ) -> tuple[str, float] | None:
-        """Check exit using 1m sub-bars — exact timing, correct SL/TP sequence.
+        """Check exit using 1m sub-bars — exact timing.
 
-        For each 1m bar we first ratchet the trailing stop (if enabled), then
-        check SL/TP.  This eliminates the same-bar ambiguity of the coarse engine
-        and gives ~1-minute precision on exit timing.
+        For each 1m bar we check SL/TP. This eliminates the same-bar ambiguity
+        of the coarse engine and gives ~1-minute precision on exit timing.
         """
         for _, m1_bar in m1_slice.iterrows():
-            self._update_trailing(trade, m1_bar)
             result = self._check_exit(trade, m1_bar)
             if result is not None:
                 return result
@@ -510,7 +446,7 @@ class BacktestEngine:
 
             # Generate signal (regime + strategy + bias filter)
             regime, signal = self._generate_signal(window, window_4h)
-            strategy_name  = _REGIME_STRATEGY_MAP[regime]
+            strategy_name  = StrategyName.EMA_CROSSOVER
 
             closed_this_bar = False
 
@@ -558,28 +494,6 @@ class BacktestEngine:
                         exit_info = self._check_exit(open_trade, bar)
 
                     # Signal reversal — skipped when disable_reversal_exits=True
-                    if exit_info is None and not self.config.disable_reversal_exits:
-                        bars_held = i - open_trade["entry_bar"]
-                        current_price = float(bar["close"])
-                        is_in_loss = (
-                            (open_trade["side"] == "BUY"  and current_price < open_trade["entry_price"]) or
-                            (open_trade["side"] == "SELL" and current_price > open_trade["entry_price"])
-                        )
-                        reversal_allowed = (
-                            bars_held >= self.config.min_hold_bars
-                            and (not self.config.reversal_only_if_loss or is_in_loss)
-                        )
-                        opposite = (
-                            (
-                                (open_trade["side"] == "BUY"  and signal.action == "SELL") or
-                                (open_trade["side"] == "SELL" and signal.action == "BUY")
-                            )
-                            and signal.strength >= self.config.reversal_strength_threshold
-                            and reversal_allowed
-                        )
-                        if opposite:
-                            exit_info = (EXIT_SIGNAL_REVERSAL, float(bar["close"]))
-
                     if exit_info is not None:
                         reason, raw_exit       = exit_info
                         net_exit               = self._apply_exit_cost(open_trade["side"], raw_exit)
@@ -607,14 +521,10 @@ class BacktestEngine:
                 cooldown_bars -= 1
 
             # ── 2. Entry check ────────────────────────────────────────────────
-            volatile_skip = self.config.hold_in_volatile and regime == MarketRegime.VOLATILE
-            ranging_skip  = self.config.hold_in_ranging  and regime == MarketRegime.RANGING
             if (
                 not closed_this_bar
                 and open_trade is None
                 and cooldown_bars == 0
-                and not volatile_skip
-                and not ranging_skip
                 and momentum_state != "BEARISH"
                 and signal.action != "HOLD"
                 and signal.strength >= self.config.min_signal_strength
@@ -644,9 +554,6 @@ class BacktestEngine:
                         "atr":         signal.atr,
                         "strategy":    strategy_name.value,
                         "regime":      regime.value,
-                        # trailing stop tracking
-                        "peak_price":  net_entry,
-                        "trailing_sl": None,
                         # filled on close:
                         "exit_bar":    None,
                         "exit_time":   None,

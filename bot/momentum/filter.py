@@ -5,7 +5,7 @@ from enum import Enum
 import pandas as pd
 
 SMA_PERIOD   = 20
-NEUTRAL_BAND = 0.05   # ±5% around SMA
+NEUTRAL_BAND = 0.08   # ±8% around SMA — OOS-validated band (research/round4)
 
 
 class MomentumState(str, Enum):

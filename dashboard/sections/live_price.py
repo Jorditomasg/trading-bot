@@ -62,12 +62,9 @@ def _match_signal_to_bar(sig_ts_str: str, timestamps: pd.DatetimeIndex) -> int |
 def _add_position_levels(fig: go.Figure, trades: list[dict]) -> None:
     """Overlay Entry / SL / TP horizontal lines for each open position."""
     for trade in trades:
-        entry       = trade["entry_price"]
-        sl          = trade["stop_loss"]
-        tp          = trade["take_profit"]
-        trailing_sl = trade.get("trailing_sl")
-        active_sl   = trailing_sl if trailing_sl is not None else sl
-        sl_label    = "TRAIL SL" if trailing_sl is not None else "SL"
+        entry = trade["entry_price"]
+        sl    = trade["stop_loss"]
+        tp    = trade["take_profit"]
 
         fig.add_hline(
             y=entry,
@@ -90,11 +87,11 @@ def _add_position_levels(fig: go.Figure, trades: list[dict]) -> None:
             annotation_font_size=10,
         )
         fig.add_hline(
-            y=active_sl,
+            y=sl,
             line_dash="dot",
             line_color=RED,
             line_width=ChartConfig.LINE_WIDTH,
-            annotation_text=f"{sl_label}  ${fmt(active_sl, ',.0f')}",
+            annotation_text=f"SL  ${fmt(sl, ',.0f')}",
             annotation_position="left",
             annotation_font_color=RED,
             annotation_font_size=10,

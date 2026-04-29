@@ -90,25 +90,6 @@ CREATE TABLE IF NOT EXISTS optimizer_runs (
     status        TEXT    NOT NULL DEFAULT 'pending'
 );
 
-CREATE TABLE IF NOT EXISTS trail_optimizer_runs (
-    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp             TEXT    NOT NULL,
-    symbol                TEXT    NOT NULL,
-    timeframe             TEXT    NOT NULL,
-    period_days           INTEGER NOT NULL,
-    trail_activation_mult REAL    NOT NULL,
-    trail_atr_mult        REAL    NOT NULL,
-    ema_stop_mult         REAL    NOT NULL,
-    ema_tp_mult           REAL    NOT NULL,
-    profit_factor         REAL    NOT NULL,
-    sharpe_ratio          REAL    NOT NULL,
-    win_rate              REAL    NOT NULL,
-    max_drawdown          REAL    NOT NULL,
-    total_trades          INTEGER NOT NULL,
-    total_pnl             REAL    NOT NULL,
-    status                TEXT    NOT NULL DEFAULT 'pending'
-);
-
 CREATE TABLE IF NOT EXISTS entry_quality_runs (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp      TEXT    NOT NULL,
@@ -268,27 +249,6 @@ class Database:
             "Trade closed id=%s exit=%.2f pnl=%.4f (%.2f%%)",
             trade_id, exit_price, pnl, pnl_pct * 100,
         )
-
-    def update_trailing_sl(self, trade_id: int, trailing_sl: float) -> None:
-        with self._conn() as conn:
-            conn.execute(
-                "UPDATE trades SET trailing_sl = ? WHERE id = ?",
-                (trailing_sl, trade_id),
-            )
-        logger.debug("Trailing SL updated trade_id=%s sl=%.2f", trade_id, trailing_sl)
-
-    def update_peak_price(self, trade_id: int, peak_price: float) -> None:
-        """Persist the running price peak (BUY: highest high; SELL: lowest low).
-
-        Used by position_manager to ratchet the trailing stop from the true
-        price peak rather than from the last tick, matching backtest behaviour.
-        """
-        with self._conn() as conn:
-            conn.execute(
-                "UPDATE trades SET peak_price = ? WHERE id = ?",
-                (peak_price, trade_id),
-            )
-        logger.debug("Peak price updated trade_id=%s peak=%.2f", trade_id, peak_price)
 
     def insert_equity_snapshot(self, balance: float, drawdown: float = 0.0) -> None:
         ts = datetime.now().isoformat()
@@ -651,65 +611,6 @@ class Database:
                 "UPDATE optimizer_runs SET status = ? WHERE id = ?", (status, run_id)
             )
         logger.info("Optimizer run id=%d status=%s", run_id, status)
-
-    def insert_trail_run(
-        self,
-        symbol: str,
-        timeframe: str,
-        period_days: int,
-        trail_activation_mult: float,
-        trail_atr_mult: float,
-        ema_stop_mult: float,
-        ema_tp_mult: float,
-        profit_factor: float,
-        sharpe_ratio: float,
-        win_rate: float,
-        max_drawdown: float,
-        total_trades: int,
-        total_pnl: float,
-        status: str = "pending",
-    ) -> int:
-        ts = datetime.now().isoformat()
-        with self._conn() as conn:
-            cursor = conn.execute(
-                """INSERT INTO trail_optimizer_runs
-                   (timestamp, symbol, timeframe, period_days,
-                    trail_activation_mult, trail_atr_mult, ema_stop_mult, ema_tp_mult,
-                    profit_factor, sharpe_ratio, win_rate, max_drawdown,
-                    total_trades, total_pnl, status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (ts, symbol, timeframe, period_days,
-                 trail_activation_mult, trail_atr_mult, ema_stop_mult, ema_tp_mult,
-                 profit_factor, sharpe_ratio, win_rate, max_drawdown,
-                 total_trades, total_pnl, status),
-            )
-            return cursor.lastrowid
-
-    def get_trail_runs(self, limit: int = 20) -> list[dict]:
-        with self._conn() as conn:
-            rows = conn.execute(
-                """SELECT * FROM trail_optimizer_runs
-                   ORDER BY timestamp DESC LIMIT ?""",
-                (limit,),
-            ).fetchall()
-        return [dict(r) for r in rows]
-
-    def get_best_pending_trail_run(self) -> dict | None:
-        with self._conn() as conn:
-            row = conn.execute(
-                """SELECT * FROM trail_optimizer_runs
-                   WHERE status = 'pending'
-                   ORDER BY profit_factor DESC LIMIT 1""",
-            ).fetchone()
-        return dict(row) if row else None
-
-    def set_trail_run_status(self, run_id: int, status: str) -> None:
-        with self._conn() as conn:
-            conn.execute(
-                "UPDATE trail_optimizer_runs SET status = ? WHERE id = ?",
-                (status, run_id),
-            )
-        logger.info("Trail run id=%d status=%s", run_id, status)
 
     # ── Entry Quality Optimizer ───────────────────────────────────────────────
 

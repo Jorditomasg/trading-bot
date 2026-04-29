@@ -9,9 +9,7 @@ import logging
 
 from bot.constants import StrategyName
 from bot.regime.detector import RegimeDetectorConfig
-from bot.strategy.breakout import BreakoutConfig
 from bot.strategy.ema_crossover import EMACrossoverConfig
-from bot.strategy.mean_reversion import MeanReversionConfig
 
 logger = logging.getLogger(__name__)
 
@@ -77,19 +75,7 @@ _STRATEGY_PRESETS: dict[str, dict[StrategyName, dict]] = {
             min_atr_pct=0.0,
             require_bar_direction=False,
             require_ema_momentum=False,
-        ),
-        StrategyName.MEAN_REVERSION: dict(
-            bb_period=20,
-            bb_std=2.0,
-            rsi_period=14,
-            rsi_oversold=30.0,
-            rsi_overbought=70.0,
-            atr_period=14,
-        ),
-        StrategyName.BREAKOUT: dict(
-            channel_period=20,
-            volume_multiplier=1.2,
-            atr_period=14,
+            long_only=True,               # BTC upward bias: eliminates losing short trades
         ),
     },
     "4h": {
@@ -107,19 +93,6 @@ _STRATEGY_PRESETS: dict[str, dict[StrategyName, dict]] = {
             require_ema_momentum=True,     # continuation: EMA9 must be trending
             long_only=True,                # BTC has long-term upward bias; backtests prove long-only outperforms
         ),
-        StrategyName.MEAN_REVERSION: dict(
-            bb_period=20,
-            bb_std=2.0,
-            rsi_period=14,
-            rsi_oversold=25.0,      # extreme oversold on 4h (was 35)
-            rsi_overbought=75.0,    # extreme overbought on 4h (was 65)
-            atr_period=14,
-        ),
-        StrategyName.BREAKOUT: dict(
-            channel_period=30,      # 30 × 4h = 5-day channel
-            volume_multiplier=2.0,  # require strong volume spike on 4h
-            atr_period=14,
-        ),
     },
     "2h": {
         StrategyName.EMA_CROSSOVER: dict(
@@ -135,19 +108,6 @@ _STRATEGY_PRESETS: dict[str, dict[StrategyName, dict]] = {
             require_bar_direction=True,
             require_ema_momentum=True,
         ),
-        StrategyName.MEAN_REVERSION: dict(
-            bb_period=20,
-            bb_std=2.0,
-            rsi_period=14,
-            rsi_oversold=28.0,
-            rsi_overbought=72.0,
-            atr_period=14,
-        ),
-        StrategyName.BREAKOUT: dict(
-            channel_period=24,
-            volume_multiplier=1.6,
-            atr_period=14,
-        ),
     },
     "15m": {
         StrategyName.EMA_CROSSOVER: dict(
@@ -157,19 +117,6 @@ _STRATEGY_PRESETS: dict[str, dict[StrategyName, dict]] = {
             max_distance_atr=1.0,
             stop_atr_mult=1.5,
             tp_atr_mult=3.5,
-        ),
-        StrategyName.MEAN_REVERSION: dict(
-            bb_period=20,
-            bb_std=2.0,
-            rsi_period=14,
-            rsi_oversold=30.0,
-            rsi_overbought=70.0,
-            atr_period=14,
-        ),
-        StrategyName.BREAKOUT: dict(
-            channel_period=40,
-            volume_multiplier=1.5,
-            atr_period=14,
         ),
     },
 }

@@ -85,12 +85,9 @@ def _render_symbol_card(db: Database, symbol: str, trade: dict | None) -> None:
             unsafe_allow_html=True,
         )
         c1, c2, c3 = st.columns(3)
-        trailing_sl = trade.get("trailing_sl")
-        active_sl   = trailing_sl if trailing_sl is not None else sl
-        sl_label    = "TRAIL SL" if trailing_sl is not None else "SL"
-        c1.metric("Entry",  f"${fmt(entry, ',.0f')}")
-        c2.metric(sl_label, f"${fmt(active_sl, ',.0f')}")
-        c3.metric("TP",     f"${fmt(tp, ',.0f')}")
+        c1.metric("Entry", f"${fmt(entry, ',.0f')}")
+        c2.metric("SL",    f"${fmt(sl, ',.0f')}")
+        c3.metric("TP",    f"${fmt(tp, ',.0f')}")
         st.caption(f"{trade['strategy']} · {trade['regime']}")
     else:
         st.markdown(

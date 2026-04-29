@@ -14,14 +14,7 @@ class RiskConfig:
     max_concurrent_trades: int = 1
     min_signal_strength: float = 0.5
     cooldown_hours: int = 4
-    trailing_stop_enabled: bool = False
-    trail_atr_mult: float = 1.5
-    trail_activation_mult: float = 1.0
     quantity_precision: int = 5
-    enable_regime_exit: bool = False
-    reversal_strength_threshold: float = 0.75
-    reversal_only_if_loss: bool = True
-    disable_reversal_exits: bool = True  # only close via SL/TP; proven better in backtests
     kelly_max_mult: float = 2.0
     kelly_min_mult: float = 0.25
     kelly_min_trades: int = 15

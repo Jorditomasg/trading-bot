@@ -9,7 +9,6 @@ from bot.backtest.engine import (
     BacktestConfig,
     BacktestEngine,
     EXIT_END_OF_PERIOD,
-    EXIT_SIGNAL_REVERSAL,
     EXIT_STOP_LOSS,
     EXIT_TAKE_PROFIT,
 )
@@ -210,8 +209,7 @@ class TestExitReasons:
         result = engine.run(df)
         for t in result.trades:
             assert t["exit_reason"] in {
-                EXIT_STOP_LOSS, EXIT_TAKE_PROFIT,
-                EXIT_SIGNAL_REVERSAL, EXIT_END_OF_PERIOD,
+                EXIT_STOP_LOSS, EXIT_TAKE_PROFIT, EXIT_END_OF_PERIOD,
             }
 
     def test_pnl_populated_on_all_trades(self):
@@ -432,8 +430,6 @@ def _leveraged_engine(leverage: float, timeframe: str = "1h") -> BacktestEngine:
         leverage=leverage,
         funding_rate_per_8h=0.0,
         momentum_filter_enabled=False,
-        simulate_trailing=False,
-        disable_reversal_exits=True,
         long_only=True,
     )
     return BacktestEngine(cfg)
@@ -518,13 +514,13 @@ def test_funding_cost_reduces_pnl():
     zero_funding = BacktestEngine(BacktestConfig(
         initial_capital=10_000.0, risk_per_trade=0.01, timeframe="1h",
         cost_per_side_pct=0.0, leverage=3.0, funding_rate_per_8h=0.0,
-        simulate_trailing=False, disable_reversal_exits=True, long_only=True,
+        long_only=True,
         momentum_filter_enabled=False,
     ))
     with_funding = BacktestEngine(BacktestConfig(
         initial_capital=10_000.0, risk_per_trade=0.01, timeframe="1h",
         cost_per_side_pct=0.0, leverage=3.0, funding_rate_per_8h=0.001,
-        simulate_trailing=False, disable_reversal_exits=True, long_only=True,
+        long_only=True,
         momentum_filter_enabled=False,
     ))
 
@@ -561,8 +557,6 @@ def _momentum_engine(enabled: bool = True) -> BacktestEngine:
         momentum_filter_enabled=enabled,
         momentum_sma_period=4,        # short period for synthetic test data
         momentum_neutral_band=0.05,
-        simulate_trailing=False,
-        disable_reversal_exits=True,
         long_only=True,
     )
     return BacktestEngine(cfg)

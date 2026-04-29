@@ -50,8 +50,6 @@ def config_manager_section(db: Database) -> None:
     cur_max_dd           = float(cfg.get("max_drawdown",      0.15))
     cur_max_conc         = int(cfg.get("max_concurrent",      1))
     cur_cooldown         = int(cfg.get("cooldown_hours",      4))
-    cur_trail_atr        = float(cfg.get("trail_atr_mult",    1.5))
-    cur_trail_act        = float(cfg.get("trail_act_mult",    2.0))
     cur_bias_passthrough = cfg.get("bias_neutral_passthrough", "true") == "true"
     cur_bias_threshold   = float(cfg.get("bias_neutral_threshold", "0.001"))
     cur_long_only        = cfg.get("long_only", "false") == "true"
@@ -97,21 +95,6 @@ def config_manager_section(db: Database) -> None:
                 "Cooldown (h)", min_value=1, max_value=48, value=cur_cooldown, step=1,
             )
 
-        st.markdown("## Trailing Stop")
-        t1, t2 = st.columns(2)
-        with t1:
-            trail_atr = st.number_input(
-                "ATR Distance Mult", min_value=0.5, max_value=5.0,
-                value=cur_trail_atr, step=0.5, format="%.1f",
-                help="Stop placed at price ± trail_atr × ATR once activated",
-            )
-        with t2:
-            trail_act = st.number_input(
-                "Activation Mult", min_value=0.5, max_value=5.0,
-                value=cur_trail_act, step=0.5, format="%.1f",
-                help="Trailing activates when price moves activation_mult × ATR from entry",
-            )
-
         st.markdown("## BiasFilter & Direction")
         b1, b2, b3 = st.columns(3)
         with b1:
@@ -154,8 +137,6 @@ def config_manager_section(db: Database) -> None:
                 max_drawdown=str(round(max_dd_pct / 100, 3)),
                 max_concurrent=str(max_concurrent),
                 cooldown_hours=str(cooldown_hours),
-                trail_atr_mult=str(trail_atr),
-                trail_act_mult=str(trail_act),
                 bias_neutral_passthrough="true" if bias_passthrough else "false",
                 bias_neutral_threshold=str(round(bias_threshold_pct / 100, 4)),
                 long_only="true" if long_only_mode else "false",
@@ -349,8 +330,6 @@ def config_manager_section(db: Database) -> None:
         "Max Drawdown":      f"{float(snap_cfg.get('max_drawdown', 0.15)) * 100:.1f}%",
         "Max Positions":     snap_cfg.get("max_concurrent", "1"),
         "Cooldown":          f"{snap_cfg.get('cooldown_hours', '4')}h",
-        "Trail ATR Mult":    snap_cfg.get("trail_atr_mult", "1.5"),
-        "Trail Act. Mult":   snap_cfg.get("trail_act_mult", "1.0"),
         "Environment":       db.get_active_mode(),
         "Neutral Passthru":  "ON" if bias_pass else "OFF (blocks all in neutral)",
         "Neutral Threshold": f"{bias_thr:.2f}%",

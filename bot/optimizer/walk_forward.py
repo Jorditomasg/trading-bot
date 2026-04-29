@@ -110,7 +110,6 @@ def run_grid_search(
             cost_per_side_pct=cost_per_side,
             ema_stop_mult=stop_mult,
             ema_tp_mult=tp_mult,
-            simulate_trailing=False,
         )
         engine = BacktestEngine(cfg)
 
