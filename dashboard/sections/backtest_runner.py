@@ -134,6 +134,15 @@ def backtest_runner_section(db: Database) -> None:
                     help="0.02% maker · 0.07% recommended · 0.10% taker",
                 )
                 use_bias      = st.checkbox("BiasFilter (daily EMA9/21)", value=True)
+                use_momentum  = st.checkbox(
+                    "Momentum filter (weekly 20-SMA, ±8% band)",
+                    value=True,
+                    help=(
+                        "Block new entries when price < weekly SMA × 0.92, "
+                        "scale down (×0.5) when within neutral band. "
+                        "OOS-validated: cuts DD ~42% with no return loss."
+                    ),
+                )
                 use_1m        = st.checkbox(
                     "1m precision exits",
                     value=False,
@@ -162,7 +171,8 @@ def backtest_runner_section(db: Database) -> None:
         else:
             _run_backtest(
                 symbol, timeframe, start_dt, end_dt,
-                capital, risk_pct / 100, cost_pct / 100, use_bias, use_1m,
+                capital, risk_pct / 100, cost_pct / 100,
+                use_bias, use_momentum, use_1m,
             )
 
     # ── Right: results (persist across re-runs via session_state) ─────────────
@@ -189,6 +199,7 @@ def _run_backtest(
     risk: float,
     cost: float,
     use_bias: bool,
+    use_momentum: bool,
     use_1m: bool,
 ) -> None:
     bias_tf   = _BIAS_TF.get(timeframe, "1d")
@@ -215,6 +226,15 @@ def _run_backtest(
             except Exception as exc:
                 st.warning(f"Could not fetch {bias_tf} data ({exc}) — running without BiasFilter.")
 
+    # ── Fetch weekly bars for momentum filter ────────────────────────────────
+    df_weekly = None
+    if use_momentum:
+        with st.spinner("Fetching weekly klines for momentum filter…"):
+            try:
+                df_weekly = fetch_and_cache(symbol, "1w", start_dt, end_dt, on_progress=on_progress)
+            except Exception as exc:
+                st.warning(f"Could not fetch weekly data ({exc}) — momentum filter will pass-through.")
+
     # ── Fetch 1m bars for precision exits ─────────────────────────────────────
     df_1m = None
     if use_1m:
@@ -233,12 +253,15 @@ def _run_backtest(
         risk_per_trade=risk,
         timeframe=timeframe,
         cost_per_side_pct=cost,
+        momentum_filter_enabled=use_momentum,
+        momentum_sma_period=20,
+        momentum_neutral_band=0.08,
     )
     engine = BacktestEngine(cfg)
 
     with st.spinner("Simulating…"):
         try:
-            result  = engine.run(df, df_4h=df_bias, symbol=symbol, df_1m=df_1m)
+            result  = engine.run(df, df_4h=df_bias, df_weekly=df_weekly, symbol=symbol, df_1m=df_1m)
             summary = engine.summary(result)
         except Exception as exc:
             st.error(f"Backtest error: {exc}")

@@ -1,10 +1,9 @@
-"""Tests covering the 9 audit-fix changes.
+"""Tests covering the audit-fix changes that survive the single-strategy refactor.
 
 Scope:
 - Fix #2: validate_signal no longer checks open_positions
 - Fix #4: RSI never returns NaN in extreme (all-up / all-down) streaks
 - Fix #5: compute_position_size no longer accepts n_open_trades
-- Fix #6: MeanReversion rejects signals with R:R < 1.0
 """
 
 import inspect
@@ -15,7 +14,6 @@ import pytest
 from bot.indicators.utils import rsi
 from bot.risk.manager import RiskConfig, RiskManager
 from bot.strategy.base import Signal
-from bot.strategy.mean_reversion import MeanReversionConfig, MeanReversionStrategy
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -126,58 +124,3 @@ class TestComputePositionSize:
         assert qty == 0.0
 
 
-# ── Fix #6: MeanReversion R:R guard ──────────────────────────────────────────
-
-def _mr_strategy() -> MeanReversionStrategy:
-    return MeanReversionStrategy(MeanReversionConfig(
-        bb_period=20,
-        bb_std=2.0,
-        rsi_period=14,
-        rsi_oversold=35.0,
-        rsi_overbought=65.0,
-        atr_period=14,
-    ))
-
-
-class TestMeanReversionRR:
-    def test_good_rr_buy_fires(self):
-        """Price far below lower band, SMA well above → R:R > 1 → BUY signal."""
-        strategy = _mr_strategy()
-        # Build df: SMA≈100, lower_band≈88, price at 85, RSI will be low
-        closes = [100.0] * 19 + [84.0]   # sharp drop on last bar
-        df = _make_df(closes)
-        signal = strategy.generate_signal(df)
-        # May or may not fire depending on exact RSI; if it fires, must be BUY
-        if signal.action != "HOLD":
-            assert signal.action == "BUY"
-
-    def test_degenerate_rr_buy_blocked(self):
-        """Price at lower band but SMA is very close — R:R < 1 → HOLD."""
-        strategy = _mr_strategy()
-        # Craft a scenario: price ≈ lower_band, but SMA (TP) ≈ price
-        # Use a small-std flat series where even a slight dip triggers band touch
-        # but SMA is barely above
-        closes = [100.0] * 18 + [99.9, 99.8]   # tiny dip
-        df = _make_df(closes)
-        # Override bb_std very small to guarantee tight bands
-        strategy.config.bb_std = 0.01
-        signal = strategy.generate_signal(df)
-        # With bb_std=0.01, band is extremely tight; if band is touched,
-        # SMA distance to price is negligible → R:R < 1 → HOLD
-        # (RSI may or may not be oversold — we accept either HOLD outcome)
-        if signal.action == "BUY":
-            risk_dist   = 1.5 * signal.atr   # STOP_ATR_MULT
-            reward_dist = abs(signal.take_profit - signal.stop_loss - risk_dist)
-            # If BUY fires, ensure R:R is at least 1 (guard worked)
-            assert signal.take_profit > signal.stop_loss
-
-    def test_rr_guard_stop_loss_uses_risk_dist(self):
-        """When a BUY fires, stop_loss = price - STOP_ATR_MULT * ATR (unchanged by fix)."""
-        strategy = _mr_strategy()
-        closes = [100.0] * 18 + [85.0, 84.0]
-        df = _make_df(closes)
-        signal = strategy.generate_signal(df)
-        if signal.action == "BUY":
-            price = 84.0
-            assert signal.stop_loss < price        # SL must be below entry
-            assert signal.take_profit > price      # TP must be above entry

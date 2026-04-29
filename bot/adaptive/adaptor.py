@@ -18,33 +18,14 @@ class ParameterAdaptor:
     def __init__(
         self,
         db: Database,
-        mean_reversion_strategy,   # MeanReversionStrategy instance
-        breakout_strategy,         # BreakoutStrategy instance
         risk_manager,              # RiskManager instance
         config: AdaptorConfig = AdaptorConfig(),
     ) -> None:
         self.db = db
         self.config = config
+        # Single-strategy bot — only RISK params remain adaptive
         # Targets: (strategy_name, param_name, getter, setter, step, min_val, max_val)
         self._targets = [
-            (
-                "MEAN_REVERSION", "rsi_oversold",
-                lambda: mean_reversion_strategy.config.rsi_oversold,
-                lambda v: setattr(mean_reversion_strategy.config, "rsi_oversold", v),
-                1.0, 28.0, 40.0,
-            ),
-            (
-                "MEAN_REVERSION", "rsi_overbought",
-                lambda: mean_reversion_strategy.config.rsi_overbought,
-                lambda v: setattr(mean_reversion_strategy.config, "rsi_overbought", v),
-                1.0, 60.0, 72.0,
-            ),
-            (
-                "BREAKOUT", "volume_multiplier",
-                lambda: breakout_strategy.config.volume_multiplier,
-                lambda v: setattr(breakout_strategy.config, "volume_multiplier", v),
-                0.05, 1.0, 1.5,
-            ),
             (
                 "RISK", "min_signal_strength",
                 lambda: risk_manager.config.min_signal_strength,

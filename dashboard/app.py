@@ -24,7 +24,7 @@ DB_PATH = os.getenv("DB_PATH", "trading_bot.db")
 
 # ─── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="BOT / BTC-USDT",
+    page_title="BOT / Trading Dashboard",
     page_icon="*",
     layout="wide",
     initial_sidebar_state="collapsed",

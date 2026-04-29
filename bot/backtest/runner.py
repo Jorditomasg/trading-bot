@@ -168,10 +168,6 @@ def _parse_args() -> argparse.Namespace:
                    help="Cost per side as a fraction (slippage + commission)")
     p.add_argument("--min-strength",  type=float, default=0.5,
                    help="Minimum signal strength to enter a trade (0.0–1.0)")
-    p.add_argument("--force-strategy",  default=None,
-                   help="Override regime→strategy map, e.g. EMA_CROSSOVER")
-    p.add_argument("--skip-ranging",    action="store_true",
-                   help="Skip new entries during RANGING regime (trade only TRENDING)")
     return p.parse_args()
 
 
@@ -193,13 +189,12 @@ def main() -> int:
     bias_tf = args.bias_tf or _BIAS_DEFAULTS.get(args.timeframe, "4h")
 
     logger.info(
-        "Backtest: %s  %s  %s → %s  capital=%.0f  risk=%.2f%%  bias=%s  min_strength=%.2f  strategy=%s",
+        "Backtest: %s  %s  %s → %s  capital=%.0f  risk=%.2f%%  bias=%s  min_strength=%.2f",
         args.symbol, args.timeframe,
         start_dt.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"),
         args.capital, args.risk * 100,
         "OFF" if args.no_bias else f"{bias_tf} EMA",
         args.min_strength,
-        args.force_strategy or "regime-based",
     )
 
     # ── Fetch primary timeframe data ─────────────────────────────────────────

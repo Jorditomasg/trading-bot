@@ -619,8 +619,6 @@ def main() -> None:
 
     adaptor = ParameterAdaptor(
         db=db,
-        mean_reversion_strategy=primary_orch.get_strategy(StrategyName.MEAN_REVERSION),
-        breakout_strategy=primary_orch.get_strategy(StrategyName.BREAKOUT),
         risk_manager=primary_orch.risk_manager,
     )
     _init_price_precision(db)
