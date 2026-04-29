@@ -1,7 +1,7 @@
 services:
 
   bot:
-    image: ghcr.io/${GITHUB_REPO:-jorditomasg/trading-bot}:latest
+    image: ghcr.io/jorditomasg/trading-bot:latest
     container_name: trading-bot
     restart: unless-stopped
     command: python main.py
@@ -19,7 +19,7 @@ services:
         max-file: "5"
 
   dashboard:
-    image: ghcr.io/${GITHUB_REPO:-jorditomasg/trading-bot}:latest
+    image: ghcr.io/jorditomasg/trading-bot:latest
     container_name: trading-dashboard
     restart: unless-stopped
     command: >

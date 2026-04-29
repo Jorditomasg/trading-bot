@@ -288,13 +288,8 @@ The project is designed for automated deployment via GitHub Actions and GitHub C
 
 1. Push to `main` branch
 2. GitHub Actions workflow builds the Docker image
-3. Image is pushed to `ghcr.io/${GITHUB_REPO}:latest`
+3. Image is pushed to `ghcr.io/jorditomasg/trading-bot:latest`
 4. Server pulls the new image and restarts via `docker compose pull && docker compose up -d`
-
-**Setup:**
-
-Set the `GITHUB_REPO` environment variable to your `username/repository` slug. The `docker-compose.yml`
-references `ghcr.io/${GITHUB_REPO:-jorditomasg/trading-bot}:latest`.
 
 Both the `bot` and `dashboard` services use the same image. No separate Dockerfiles needed.
 

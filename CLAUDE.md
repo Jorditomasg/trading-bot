@@ -773,8 +773,7 @@ Docker mounts two named volumes:
 - `data` → `/app/data` (SQLite DB)
 - `logs` → `/app/logs` (bot.log)
 
-Both containers share the same image (`ghcr.io/${GITHUB_REPO}:latest`). The `GITHUB_REPO`
-env var must be set to your `user/repo` slug, or override the image name directly.
+Both containers share the same image (`ghcr.io/jorditomasg/trading-bot:latest`).
 
 Log rotation: bot container caps at 10 MB × 5 files, dashboard at 5 MB × 3 files.
 
