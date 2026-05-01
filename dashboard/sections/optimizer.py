@@ -20,6 +20,7 @@ from dashboard.utils import fmt
 
 _logger = logging.getLogger(__name__)
 PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
+PLOTLY_CONFIG = NothingOS.PLOTLY_CONFIG
 
 _SYMBOLS    = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT"]
 _TIMEFRAMES = ["1h", "2h", "4h", "8h", "1d"]
@@ -374,7 +375,7 @@ def _display_results(results: list[dict]) -> None:
 
     st.markdown("## Parameter Heatmap")
     st.caption("Profit Factor by SL × TP ATR multipliers. White = best. Grey cells = viable.")
-    st.plotly_chart(_heatmap(results), use_container_width=True)
+    st.plotly_chart(_heatmap(results), use_container_width=True, config=PLOTLY_CONFIG)
 
     st.markdown("## Top 10 Configs")
     import pandas as pd

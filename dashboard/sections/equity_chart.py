@@ -8,6 +8,7 @@ from dashboard.constants import RED, WHITE, CAPTION, ChartConfig, RefreshRates
 from dashboard.themes import NothingOS
 
 PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
+PLOTLY_CONFIG = NothingOS.PLOTLY_CONFIG
 
 
 @st.fragment(run_every=RefreshRates.CHARTS)
@@ -41,4 +42,4 @@ def equity_chart_section(db: Database) -> None:
     ))
     fig.add_hline(y=initial_balance, line_dash="dot", line_color=CAPTION, line_width=1)
     fig.update_layout(**PLOTLY_LAYOUT, height=ChartConfig.HEIGHT_EQUITY)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)

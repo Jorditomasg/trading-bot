@@ -22,6 +22,7 @@ from dashboard.utils import fmt
 _logger = logging.getLogger(__name__)
 
 PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
+PLOTLY_CONFIG = NothingOS.PLOTLY_CONFIG
 
 _SYMBOLS    = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT"]
 _TIMEFRAMES = ["1h", "2h", "4h", "8h", "1d"]
@@ -328,6 +329,7 @@ def _display_portfolio_results(result: PortfolioBacktestResult) -> None:
         st.plotly_chart(
             _equity_chart(result.combined_equity_curve, result.initial_capital),
             use_container_width=True,
+            config=PLOTLY_CONFIG,
         )
 
     # ── Per-symbol expander ───────────────────────────────────────────────────

@@ -11,6 +11,7 @@ from dashboard.themes import NothingOS
 from dashboard.utils import fmt, parse_fmt
 
 PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
+PLOTLY_CONFIG = NothingOS.PLOTLY_CONFIG
 
 
 @st.fragment(run_every=RefreshRates.PERFORMANCE)
@@ -44,7 +45,7 @@ def performance_section(db: Database, symbol: str) -> None:
                 xaxis=dict(range=[0, 100], gridcolor="#111", showline=False, zeroline=False),
                 height=ChartConfig.HEIGHT_PERFORMANCE,
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
         else:
             st.caption("no closed trades yet")
 
@@ -69,7 +70,7 @@ def performance_section(db: Database, symbol: str) -> None:
             fig_hist.update_layout(
                 **PLOTLY_LAYOUT, barmode="overlay", showlegend=False, height=ChartConfig.HEIGHT_HIST,
             )
-            st.plotly_chart(fig_hist, use_container_width=True)
+            st.plotly_chart(fig_hist, use_container_width=True, config=PLOTLY_CONFIG)
         else:
             st.caption("no closed trades yet")
 
@@ -111,7 +112,7 @@ def performance_section(db: Database, symbol: str) -> None:
                 xaxis=dict(range=[0, 100], gridcolor="#111", showline=False, zeroline=False),
                 height=ChartConfig.HEIGHT_REGIME,
             )
-            st.plotly_chart(fig_reg, use_container_width=True)
+            st.plotly_chart(fig_reg, use_container_width=True, config=PLOTLY_CONFIG)
         else:
             st.caption("no regime data yet")
 

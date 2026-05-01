@@ -9,6 +9,7 @@ from dashboard.themes import NothingOS
 from dashboard.utils import _bias_badge, _regime_badge, fmt
 
 PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
+PLOTLY_CONFIG = NothingOS.PLOTLY_CONFIG
 
 
 def _render_regime_timeline(signals: list[dict]) -> None:
@@ -127,7 +128,7 @@ def drawdown_section(db: Database) -> None:
         autorange="reversed",
         ticksuffix="%",
     )
-    st.plotly_chart(fig_dd, use_container_width=True)
+    st.plotly_chart(fig_dd, use_container_width=True, config=PLOTLY_CONFIG)
 
 
 @st.fragment(run_every=RefreshRates.POSITION)

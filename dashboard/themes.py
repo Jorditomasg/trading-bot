@@ -189,3 +189,6 @@ h2 { font-size: 0.85rem !important; letter-spacing: 0.18em; text-transform: uppe
         xaxis=dict(gridcolor="#111", showline=False, zeroline=False),
         yaxis=dict(gridcolor="#111", showline=False, zeroline=False),
     )
+
+    # Plotly chart config — passed to st.plotly_chart(config=...)
+    PLOTLY_CONFIG = {"displayModeBar": False}

@@ -15,6 +15,7 @@ from dashboard.themes import NothingOS
 
 _logger = logging.getLogger(__name__)
 PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
+PLOTLY_CONFIG = NothingOS.PLOTLY_CONFIG
 
 _SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"]
 
@@ -135,7 +136,7 @@ def scenario_compare_section() -> None:
     selected    = st.multiselect("Show scenarios", all_names, default=default_sel)
 
     if selected:
-        st.plotly_chart(_equity_chart(results, selected), use_container_width=True)
+        st.plotly_chart(_equity_chart(results, selected), use_container_width=True, config=PLOTLY_CONFIG)
 
     # ── Key callouts ──────────────────────────────────────────────────────────
     if results:

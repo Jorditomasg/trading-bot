@@ -12,6 +12,7 @@ from dashboard.themes import NothingOS
 from dashboard.utils import fmt
 
 PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
+PLOTLY_CONFIG = NothingOS.PLOTLY_CONFIG
 
 
 @st.cache_data(ttl=CacheTTL.KLINES)
@@ -194,4 +195,4 @@ def live_price_section(db: Database, symbol: str) -> None:
             _add_position_levels(fig, open_trades)
 
         fig.update_layout(**PLOTLY_LAYOUT, height=ChartConfig.HEIGHT_LIVE, showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
