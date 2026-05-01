@@ -58,6 +58,17 @@ def export_section(db: Database) -> None:
         to_dt      = _iso(to_date, end_of_day=True)
         date_label = f"{from_date}_to_{to_date}"
 
+    # ── Symbol filter ─────────────────────────────────────────────────────────
+    available_symbols = db.get_symbols() or []
+    symbol_options    = ["All"] + sorted(available_symbols)
+    selected_symbol   = st.selectbox(
+        "Symbol",
+        options=symbol_options,
+        key="exp_symbol",
+    )
+    symbol_filter: str | None = None if selected_symbol == "All" else selected_symbol
+    symbol_label = "all" if symbol_filter is None else symbol_filter.lower()
+
     # ── Dataset selection ─────────────────────────────────────────────────────
     st.markdown(
         "<span style='font-size:0.65rem;letter-spacing:0.1em;color:#555'>DATASETS</span>",
@@ -86,18 +97,19 @@ def export_section(db: Database) -> None:
     # ── Query ─────────────────────────────────────────────────────────────────
     datasets: dict[str, list[dict]] = {}
     if inc_trades:
-        datasets["trades"]               = db.get_trades_range(from_dt, to_dt)
+        datasets["trades"]               = db.get_trades_range(from_dt, to_dt, symbol=symbol_filter)
     if inc_equity:
+        # Exchange equity is global — symbol filter does not apply
         datasets["equity"]               = db.get_equity_range(from_dt, to_dt)
     if inc_signals:
-        datasets["signals"]              = db.get_signals_range(from_dt, to_dt)
+        datasets["signals"]              = db.get_signals_range(from_dt, to_dt, symbol=symbol_filter)
     if inc_params:
         datasets["adaptive_params"]      = db.get_adaptive_params_range(from_dt, to_dt)
     # Performance is always full-history (aggregate, not range-filtered)
     if inc_perf_strat:
-        datasets["perf_by_strategy"]     = db.get_performance_by_strategy()
+        datasets["perf_by_strategy"]     = db.get_performance_by_strategy(symbol=symbol_filter)
     if inc_perf_regime:
-        datasets["perf_by_regime"]       = db.get_performance_by_regime()
+        datasets["perf_by_regime"]       = db.get_performance_by_regime(symbol=symbol_filter)
 
     # Bot config snapshot (no CSV — included as metadata.json)
     metadata: dict | None = None
@@ -106,6 +118,7 @@ def export_section(db: Database) -> None:
         metadata = {
             "exported_at":      datetime.utcnow().isoformat() + "Z",
             "date_filter":      date_label,
+            "symbol_filter":    symbol_filter or "all",
             "active_mode":      db.get_active_mode(),
             "bot_paused":       db.get_bot_paused(),
             "telegram_enabled": tg["enabled"],
@@ -129,7 +142,7 @@ def export_section(db: Database) -> None:
         return
 
     zip_bytes = _build_zip(datasets, metadata)
-    filename  = f"trading-bot-{date_label}.zip"
+    filename  = f"trading-bot-{symbol_label}-{date_label}.zip"
 
     st.download_button(
         label=f"⬇  Export  ({total_rows:,} rows)",

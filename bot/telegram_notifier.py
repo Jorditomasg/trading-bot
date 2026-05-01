@@ -66,8 +66,8 @@ class TelegramNotifier:
         if not token:
             return
         commands = [
-            {"command": "status", "description": "Balance actual y posición abierta"},
-            {"command": "report", "description": "Resumen histórico completo"},
+            {"command": "status", "description": "Balance y posiciones abiertas (todos los símbolos)"},
+            {"command": "report", "description": "Resumen histórico — opcional: /report SYMBOL"},
             {"command": "pause",  "description": "Pausar el bot (no nuevas entradas)"},
             {"command": "resume", "description": "Reanudar el bot"},
         ]
@@ -85,10 +85,11 @@ class TelegramNotifier:
     # ── Trade events ──────────────────────────────────────────────────────────
 
     def trade_opened(self, trade: dict, mode: str) -> None:
-        side  = trade.get("side", "?")
-        emoji = "🟢" if side == "BUY" else "🔴"
+        side   = trade.get("side", "?")
+        symbol = trade.get("symbol", "?")
+        emoji  = "🟢" if side == "BUY" else "🔴"
         self._post(
-            f"{emoji} <b>TRADE OPENED</b>  [{self._mode_tag(mode)}]\n"
+            f"{emoji} <b>TRADE OPENED</b>  <code>{symbol}</code>  [{self._mode_tag(mode)}]\n"
             f"Side:     <code>{side}</code>\n"
             f"Entry:    <code>${_fmt(trade.get('entry_price', 0))}</code>\n"
             f"Qty:      <code>{trade.get('quantity', 0):.5f}</code>\n"
@@ -99,10 +100,11 @@ class TelegramNotifier:
         )
 
     def trade_closed(self, trade: dict, pnl: float, exit_reason: str, mode: str) -> None:
-        emoji = "✅" if pnl >= 0 else "❌"
-        sign  = "+" if pnl >= 0 else ""
+        symbol = trade.get("symbol", "?")
+        emoji  = "✅" if pnl >= 0 else "❌"
+        sign   = "+" if pnl >= 0 else ""
         self._post(
-            f"{emoji} <b>TRADE CLOSED</b>  [{self._mode_tag(mode)}]\n"
+            f"{emoji} <b>TRADE CLOSED</b>  <code>{symbol}</code>  [{self._mode_tag(mode)}]\n"
             f"Reason:   <code>{exit_reason}</code>\n"
             f"Exit:     <code>${_fmt(trade.get('exit_price', 0))}</code>\n"
             f"PnL:      <code>{sign}${_fmt(pnl, '.4f')}</code>\n"
@@ -151,39 +153,49 @@ class TelegramNotifier:
     def status(
         self,
         balance: float,
-        open_trade: dict | None,
+        open_positions: list[dict],
         mode: str,
         *,
         paused: bool = False,
-        btc_price: float | None = None,
-        unrealized_pnl: float | None = None,
     ) -> None:
-        bot_state  = "⏸ Paused" if paused else "▶️ Running"
-        price_line = (
-            f"BTC:     <code>${_fmt(btc_price)}</code>\n" if btc_price is not None else ""
-        )
+        """Send a /status reply.
 
-        if open_trade:
-            pnl_sign = "+" if (unrealized_pnl or 0) >= 0 else ""
-            pnl_line = (
-                f"\nPnL:     <code>{pnl_sign}${_fmt(unrealized_pnl, '.4f')}</code>"
-                if unrealized_pnl is not None else ""
-            )
-            pos = (
-                f"{open_trade['side']} @ <code>${_fmt(open_trade['entry_price'])}</code>\n"
-                f"SL <code>${_fmt(open_trade['stop_loss'])}</code>  "
-                f"TP <code>${_fmt(open_trade['take_profit'])}</code>"
-                f"{pnl_line}"
-            )
+        open_positions: list of dicts with keys: symbol, side, entry_price,
+        stop_loss, take_profit, and optionally current_price + unrealized_pnl.
+        """
+        bot_state = "⏸ Paused" if paused else "▶️ Running"
+
+        if not open_positions:
+            positions_block = "No open positions"
         else:
-            pos = "No open position"
+            sections: list[str] = []
+            for pos in open_positions:
+                sym   = pos.get("symbol", "?")
+                price = pos.get("current_price")
+                pnl   = pos.get("unrealized_pnl")
+
+                price_line = (
+                    f"  Price: <code>${_fmt(price)}</code>\n" if price is not None else ""
+                )
+                if pnl is not None:
+                    sign = "+" if pnl >= 0 else "-"
+                    pnl_line = f"  PnL:   <code>{sign}${_fmt(abs(pnl), '.2f')}</code>\n"
+                else:
+                    pnl_line = ""
+
+                sections.append(
+                    f"<b>{sym}</b>  {pos['side']} @ <code>${_fmt(pos['entry_price'])}</code>\n"
+                    f"  SL <code>${_fmt(pos['stop_loss'])}</code>  "
+                    f"TP <code>${_fmt(pos['take_profit'])}</code>\n"
+                    f"{price_line}{pnl_line}"
+                )
+            positions_block = "\n".join(sections).rstrip()
 
         self._post(
             f"📊 <b>STATUS</b>  [{self._mode_tag(mode)}]\n"
             f"Balance: <code>${_fmt(balance)}</code>\n"
-            f"{price_line}"
-            f"Bot:     <code>{bot_state}</code>\n"
-            f"{pos}"
+            f"Bot:     <code>{bot_state}</code>\n\n"
+            f"{positions_block}"
         )
 
     def report(
@@ -194,10 +206,18 @@ class TelegramNotifier:
         balance: float,
         mode: str,
         initial_capital: float,
+        *,
+        symbol: str | None = None,
+        symbols_breakdown: list[dict] | None = None,
     ) -> None:
+        header = f"📈 <b>REPORT</b>"
+        if symbol:
+            header += f"  <code>{symbol}</code>"
+        header += f"  [{self._mode_tag(mode)}]"
+
         if not closed_trades:
             self._post(
-                f"📈 <b>REPORT</b>  [{self._mode_tag(mode)}]\n"
+                f"{header}\n"
                 f"Balance: <code>${_fmt(balance)}</code>\n"
                 f"No closed trades yet."
             )
@@ -223,8 +243,20 @@ class TelegramNotifier:
         )
         pf_str = f"{pf:.2f}" if pf != float("inf") else "∞"
 
+        breakdown_block = ""
+        if symbols_breakdown:
+            lines = []
+            for row in symbols_breakdown:
+                row_sign = "+" if row["total_pnl"] >= 0 else ""
+                lines.append(
+                    f"  <code>{row['symbol']:<10}</code> "
+                    f"{row['total']:>3}t  WR {row['win_rate']:.0f}%  "
+                    f"<code>{row_sign}${_fmt(row['total_pnl'])}</code>"
+                )
+            breakdown_block = "\n\n<b>By symbol:</b>\n" + "\n".join(lines)
+
         self._post(
-            f"📈 <b>REPORT</b>  [{self._mode_tag(mode)}]\n\n"
+            f"{header}\n\n"
             f"Balance:         <code>${_fmt(balance)}  ({sign}{_fmt(pnl_pct, '.2f')}%)</code>\n"
             f"Trades:          <code>{total} closed  |  Win rate: {_fmt(win_rate, '.1f')}%</code>\n"
             f"PnL total:       <code>{sign}${_fmt(total_pnl)}</code>\n"
@@ -233,6 +265,7 @@ class TelegramNotifier:
             f"Max drawdown:    <code>{md:.2f}%</code>\n"
             f"Max loss streak: <code>{streak}</code>"
             f"{best_line}"
+            f"{breakdown_block}"
         )
 
     # ── Static test helper (used by dashboard) ────────────────────────────────

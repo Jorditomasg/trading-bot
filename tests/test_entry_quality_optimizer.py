@@ -449,7 +449,7 @@ class TestApplyEmaConfigEntryFilters:
         from bot.config_presets import get_strategy_configs
         from bot.constants import StrategyName
         db, orch = self._make_orch(tmp_path)
-        preset_val = get_strategy_configs("1h")[StrategyName.EMA_CROSSOVER].max_distance_atr
+        preset_val = get_strategy_configs("1h")[StrategyName.EMA_CROSSOVER]["max_distance_atr"]
         main._apply_ema_config(db, orch)
         ema = orch.get_strategy(StrategyName.EMA_CROSSOVER)
         assert ema.config.max_distance_atr == pytest.approx(preset_val)

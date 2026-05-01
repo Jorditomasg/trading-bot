@@ -22,9 +22,18 @@ class RiskConfig:
 
 
 class RiskManager:
-    def __init__(self, config: RiskConfig = RiskConfig()) -> None:
+    def __init__(
+        self,
+        config: RiskConfig = RiskConfig(),
+        symbol: str | None = None,
+    ) -> None:
         self.config = config
+        self.symbol = symbol
         self._breaker_triggered_at: Optional[datetime] = None
+
+    @property
+    def _tag(self) -> str:
+        return f"[{self.symbol}] " if self.symbol else ""
 
     def compute_position_size(
         self,
@@ -41,8 +50,8 @@ class RiskManager:
 
         if risk_per_unit <= 0:
             logger.warning(
-                "Invalid risk_per_unit=%.6f (entry=%.2f sl=%.2f) — returning 0",
-                risk_per_unit, entry, stop_loss,
+                "%sInvalid risk_per_unit=%.6f (entry=%.2f sl=%.2f) — returning 0",
+                self._tag, risk_per_unit, entry, stop_loss,
             )
             return 0.0
 
@@ -50,8 +59,9 @@ class RiskManager:
         quantity = round(quantity, self.config.quantity_precision)
 
         logger.info(
-            "Position size: capital=%.2f fraction=%.4f entry=%.2f sl=%.2f → qty=%.*f",
-            capital, fraction, entry, stop_loss, self.config.quantity_precision, quantity,
+            "%sPosition size: capital=%.2f fraction=%.4f entry=%.2f sl=%.2f → qty=%.*f",
+            self._tag, capital, fraction, entry, stop_loss,
+            self.config.quantity_precision, quantity,
         )
         return quantity
 
@@ -63,8 +73,8 @@ class RiskManager:
         if drawdown < self.config.max_drawdown:
             if self._breaker_triggered_at is not None:
                 logger.info(
-                    "Circuit breaker reset: drawdown recovered to %.2f%% (below %.2f%%)",
-                    drawdown * 100, self.config.max_drawdown * 100,
+                    "%sCircuit breaker reset: drawdown recovered to %.2f%% (below %.2f%%)",
+                    self._tag, drawdown * 100, self.config.max_drawdown * 100,
                 )
                 self._breaker_triggered_at = None
             return False
@@ -72,23 +82,23 @@ class RiskManager:
         if self._breaker_triggered_at is None:
             self._breaker_triggered_at = datetime.now()
             logger.warning(
-                "CIRCUIT BREAKER triggered: drawdown=%.2f%% peak=%.2f current=%.2f",
-                drawdown * 100, peak_capital, current_capital,
+                "%sCIRCUIT BREAKER triggered: drawdown=%.2f%% peak=%.2f current=%.2f",
+                self._tag, drawdown * 100, peak_capital, current_capital,
             )
             return True
 
         elapsed_hours = (datetime.now() - self._breaker_triggered_at).total_seconds() / 3600
         if elapsed_hours >= self.config.cooldown_hours:
             logger.info(
-                "Circuit breaker auto-reset: cooldown of %dh elapsed",
-                self.config.cooldown_hours,
+                "%sCircuit breaker auto-reset: cooldown of %dh elapsed",
+                self._tag, self.config.cooldown_hours,
             )
             self._breaker_triggered_at = None
             return False
 
         logger.debug(
-            "Circuit breaker active: %.1fh / %dh cooldown elapsed",
-            elapsed_hours, self.config.cooldown_hours,
+            "%sCircuit breaker active: %.1fh / %dh cooldown elapsed",
+            self._tag, elapsed_hours, self.config.cooldown_hours,
         )
         return True
 
@@ -99,18 +109,18 @@ class RiskManager:
         live in the orchestrator, which has full context.
         """
         if signal.action == "HOLD":
-            logger.debug("Signal skipped: action=HOLD")
+            logger.debug("%sSignal skipped: action=HOLD", self._tag)
             return False
 
         if signal.strength < self.config.min_signal_strength:
             logger.info(
-                "Signal rejected: strength=%.4f below min=%.2f (action=%s)",
-                signal.strength, self.config.min_signal_strength, signal.action,
+                "%sSignal rejected: strength=%.4f below min=%.2f (action=%s)",
+                self._tag, signal.strength, self.config.min_signal_strength, signal.action,
             )
             return False
 
         logger.debug(
-            "validate_signal: action=%s strength=%.4f → valid",
-            signal.action, signal.strength,
+            "%svalidate_signal: action=%s strength=%.4f → valid",
+            self._tag, signal.action, signal.strength,
         )
         return True

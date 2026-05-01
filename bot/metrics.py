@@ -40,3 +40,33 @@ def max_consecutive_losses(trades: list[dict]) -> int:
         else:
             cur = 0
     return max_s
+
+
+def derive_equity_curve(trades: list[dict], initial_capital: float) -> list[dict]:
+    """Build an equity curve from a chronological list of closed trades.
+
+    Each row contains: timestamp, balance, drawdown.
+    `trades` must be closed (`pnl is not None`) and ordered by exit_time ASC.
+    Open trades are skipped silently.
+    """
+    closed = [t for t in trades if t.get("pnl") is not None]
+    closed.sort(key=lambda t: t.get("exit_time") or "")
+
+    balance = initial_capital
+    peak    = initial_capital
+    curve: list[dict] = [{
+        "timestamp": closed[0].get("entry_time", "") if closed else "",
+        "balance":   balance,
+        "drawdown":  0.0,
+    }]
+    for t in closed:
+        balance += t["pnl"]
+        if balance > peak:
+            peak = balance
+        dd = (peak - balance) / peak if peak > 0 else 0.0
+        curve.append({
+            "timestamp": t.get("exit_time", ""),
+            "balance":   balance,
+            "drawdown":  dd,
+        })
+    return curve

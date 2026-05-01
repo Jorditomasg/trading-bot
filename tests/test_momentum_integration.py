@@ -26,6 +26,24 @@ def _buy_signal():
     return Signal(action="BUY", strength=0.9, stop_loss=49000.0, take_profit=52000.0, atr=500.0)
 
 
+def _patch_trending_buy(orch):
+    """Force the orchestrator to evaluate a strong BUY in TRENDING regime.
+
+    Returns a context-manager-like object that combines two patches:
+    - `regime_detector.detect` → MarketRegime.TRENDING
+    - the live EMA strategy's `generate_signal` → a synthetic BUY
+    """
+    from contextlib import ExitStack
+    from bot.constants import StrategyName
+    from bot.regime.detector import MarketRegime
+
+    stack = ExitStack()
+    stack.enter_context(patch.object(orch.regime_detector, "detect", return_value=MarketRegime.TRENDING))
+    ema = orch.get_strategy(StrategyName.EMA_CROSSOVER)
+    stack.enter_context(patch.object(ema, "generate_signal", return_value=_buy_signal()))
+    return stack
+
+
 class TestMomentumGate:
     def test_bearish_blocks_new_entry(self, db):
         from bot.orchestrator import StrategyOrchestrator
@@ -33,12 +51,7 @@ class TestMomentumGate:
         orch = StrategyOrchestrator(db=db, symbol="BTCUSDT")
         df = _make_df()
 
-        with patch.object(orch, "_select_strategy") as mock_sel:
-            mock_strat = MagicMock()
-            mock_strat.name = "EMA_CROSSOVER"
-            mock_strat.generate_signal.return_value = _buy_signal()
-            mock_sel.return_value = mock_strat
-
+        with _patch_trending_buy(orch):
             with patch.object(MomentumFilter, "get_state", return_value=MomentumState.BEARISH):
                 result = orch.step(df, 10000.0, None, None)
 
@@ -70,12 +83,7 @@ class TestMomentumGate:
             capitals.append(capital)
             return original(capital=capital, entry=entry, stop_loss=stop_loss, risk_fraction=risk_fraction)
 
-        with patch.object(orch, "_select_strategy") as mock_sel:
-            mock_strat = MagicMock()
-            mock_strat.name = "EMA_CROSSOVER"
-            mock_strat.generate_signal.return_value = _buy_signal()
-            mock_sel.return_value = mock_strat
-
+        with _patch_trending_buy(orch):
             with patch.object(orch.risk_manager, "compute_position_size", side_effect=capture):
                 with patch.object(MomentumFilter, "get_state", return_value=MomentumState.NEUTRAL):
                     orch.step(df, 10000.0, None, None)
@@ -95,12 +103,7 @@ class TestMomentumGate:
             capitals.append(capital)
             return original(capital=capital, entry=entry, stop_loss=stop_loss, risk_fraction=risk_fraction)
 
-        with patch.object(orch, "_select_strategy") as mock_sel:
-            mock_strat = MagicMock()
-            mock_strat.name = "EMA_CROSSOVER"
-            mock_strat.generate_signal.return_value = _buy_signal()
-            mock_sel.return_value = mock_strat
-
+        with _patch_trending_buy(orch):
             with patch.object(orch.risk_manager, "compute_position_size", side_effect=capture):
                 with patch.object(MomentumFilter, "get_state", return_value=MomentumState.BULLISH):
                     orch.step(df, 10000.0, None, None)
@@ -126,12 +129,7 @@ class TestMomentumGate:
         orch = StrategyOrchestrator(db=db, symbol="BTCUSDT")
         df = _make_df()
 
-        with patch.object(orch, "_select_strategy") as mock_sel:
-            mock_strat = MagicMock()
-            mock_strat.name = "EMA_CROSSOVER"
-            mock_strat.generate_signal.return_value = _buy_signal()
-            mock_sel.return_value = mock_strat
-
+        with _patch_trending_buy(orch):
             with patch.object(MomentumFilter, "get_state", return_value=MomentumState.NEUTRAL):
                 orch.step(df, 10000.0, None, None)
 

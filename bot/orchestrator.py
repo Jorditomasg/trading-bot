@@ -30,7 +30,7 @@ class StrategyOrchestrator:
         self.db = db
         self.symbol = symbol
         self.timeframe = timeframe
-        self.risk_manager = RiskManager(risk_config or RiskConfig())
+        self.risk_manager = RiskManager(risk_config or RiskConfig(), symbol=symbol)
         self.regime_detector = RegimeDetector(config=get_regime_config(timeframe))
         self.bias_filter = bias_filter
 
@@ -54,27 +54,29 @@ class StrategyOrchestrator:
         df_high: Optional[pd.DataFrame] = None,
         df_weekly: Optional[pd.DataFrame] = None,
     ) -> list[dict]:
+        sym = self.symbol
+
         # Update High Water Mark (HWM)
         if current_balance > self._peak_capital:
             self._peak_capital = current_balance
             self.db.set_peak_capital(self._peak_capital)
-            logger.info("Orchestrator: New High Water Mark (Peak Capital) = %.2f", self._peak_capital)
+            logger.info("[%s] HWM updated: peak=%.2f", sym, self._peak_capital)
 
         if self.risk_manager.check_circuit_breaker(current_balance, self._peak_capital):
-            logger.warning("Orchestrator: circuit breaker active — no trading this cycle")
+            logger.warning("[%s] circuit breaker active — no trading this cycle", sym)
             return []
 
         current_price = float(df["close"].iloc[-1])
         momentum_state = MomentumFilter.get_state(df_weekly, current_price)
         self._last_momentum_state = momentum_state
-        logger.info("Orchestrator: momentum=%s symbol=%s", momentum_state, self.symbol)
+        logger.info("[%s] momentum=%s", sym, momentum_state)
 
         regime = self.regime_detector.detect(df)
-        logger.info("Orchestrator: regime=%s balance=%.2f", regime.value, current_balance)
+        logger.info("[%s] regime=%s balance=%.2f", sym, regime.value, current_balance)
 
         strategy = self._strategies[StrategyName.EMA_CROSSOVER]
         if regime != MarketRegime.TRENDING:
-            logger.info("Orchestrator: regime=%s — holding (only TRENDING entries)", regime.value)
+            logger.info("[%s] regime=%s — holding (only TRENDING entries)", sym, regime.value)
             signal = hold_signal(atr=0.0)
         else:
             signal = strategy.generate_signal(df)
@@ -84,8 +86,8 @@ class StrategyOrchestrator:
             bias = self.bias_filter.get_bias(df_high)
             if not self.bias_filter.allows_signal(signal, bias):
                 logger.info(
-                    "BiasFilter blocked signal action=%s bias=%s — holding",
-                    signal.action, bias.value,
+                    "[%s] BiasFilter blocked signal action=%s bias=%s — holding",
+                    sym, signal.action, bias.value,
                 )
                 signal = hold_signal(atr=signal.atr)
 
@@ -100,41 +102,38 @@ class StrategyOrchestrator:
                 momentum=momentum_state.value,
             )
         else:
-            logger.debug("Orchestrator: HOLD signal — skipping signals table insert")
+            logger.debug("[%s] HOLD signal — skipping signals table insert", sym)
         logger.info(
-            "Orchestrator: signal action=%s strength=%.2f strategy=%s bias=%s",
-            signal.action, signal.strength, strategy.name,
+            "[%s] signal action=%s strength=%.2f strategy=%s bias=%s",
+            sym, signal.action, signal.strength, strategy.name,
             bias.value if bias is not None else "N/A",
         )
 
         open_trades = self.db.get_open_trades(symbol=self.symbol)
 
         if momentum_state == "BEARISH":
-            logger.info(
-                "Orchestrator: [%s] momentum BEARISH — new entry blocked this cycle",
-                self.symbol,
-            )
+            logger.info("[%s] momentum BEARISH — new entry blocked this cycle", sym)
             return []
 
         # Entry guard: respect max_concurrent_trades
         if len(open_trades) >= self.risk_manager.config.max_concurrent_trades:
             logger.debug(
-                "Orchestrator: max concurrent trades reached (%d/%d) — skipping new entry",
-                len(open_trades), self.risk_manager.config.max_concurrent_trades,
+                "[%s] max concurrent trades reached (%d/%d) — skipping new entry",
+                sym, len(open_trades), self.risk_manager.config.max_concurrent_trades,
             )
             return []
 
         # Duplicate guard: no two open trades with the same side + strategy
         if any(t["side"] == signal.action and t["strategy"] == strategy.name for t in open_trades):
             logger.info(
-                "Orchestrator: duplicate %s %s already open — skipping",
-                signal.action, strategy.name,
+                "[%s] duplicate %s %s already open — skipping",
+                sym, signal.action, strategy.name,
             )
             return []
 
         # Validate signal strength and direction
         if not self.risk_manager.validate_signal(signal):
-            logger.debug("Orchestrator: signal not valid for execution — skipping")
+            logger.debug("[%s] signal not valid for execution — skipping", sym)
             return []
 
         kelly_stats = self.db.get_kelly_stats(
@@ -156,8 +155,8 @@ class StrategyOrchestrator:
                 min_mult=self.risk_manager.config.kelly_min_mult,
             )
             logger.info(
-                "Kelly sizing: strategy=%s win_rate=%.1f%% b=%.2f kf=%.4f strength=%.2f → risk_frac=%.4f (base=%.4f)",
-                strategy.name,
+                "[%s] Kelly sizing: strategy=%s win_rate=%.1f%% b=%.2f kf=%.4f strength=%.2f → risk_frac=%.4f (base=%.4f)",
+                sym, strategy.name,
                 kelly_stats["win_rate"] * 100,
                 kelly_stats["avg_win_pct"] / kelly_stats["avg_loss_pct"],
                 kf,
@@ -168,16 +167,13 @@ class StrategyOrchestrator:
         else:
             risk_frac = None
             logger.debug(
-                "Kelly sizing: insufficient trades for %s — using fixed risk_per_trade",
-                strategy.name,
+                "[%s] Kelly sizing: insufficient trades for %s — using fixed risk_per_trade",
+                sym, strategy.name,
             )
 
         risk_frac_mult = 0.5 if momentum_state == "NEUTRAL" else 1.0
         if risk_frac_mult != 1.0:
-            logger.info(
-                "Orchestrator: [%s] momentum NEUTRAL — risk scaled to 50%%",
-                self.symbol,
-            )
+            logger.info("[%s] momentum NEUTRAL — risk scaled to 50%%", sym)
         quantity = self.risk_manager.compute_position_size(
             capital=current_balance * risk_frac_mult,
             entry=current_price,
@@ -185,11 +181,12 @@ class StrategyOrchestrator:
             risk_fraction=risk_frac,
         )
         if quantity <= 0:
-            logger.warning("Orchestrator: computed quantity=0 — skipping")
+            logger.warning("[%s] computed quantity=0 — skipping", sym)
             return []
 
         return [{
             "action":      TradeAction.OPEN,
+            "symbol":      self.symbol,
             "side":        signal.action,
             "quantity":    quantity,
             "entry_price": current_price,

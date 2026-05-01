@@ -56,28 +56,51 @@ class TestStatus:
     def test_status_running_no_position(self):
         n = _notifier()
         with patch("bot.telegram_notifier._COMMA_DECIMAL", False), patch.object(n, "_post") as mock_post:
-            n.status(10432.50, None, "TESTNET", paused=False)
+            n.status(10432.50, [], "TESTNET", paused=False)
         text = mock_post.call_args[0][0]
         assert "10,432.50" in text
         assert "Running" in text
-        assert "No open position" in text
+        assert "No open positions" in text
 
     def test_status_paused(self):
         n = _notifier()
         with patch.object(n, "_post") as mock_post:
-            n.status(10000.0, None, "TESTNET", paused=True)
+            n.status(10000.0, [], "TESTNET", paused=True)
         text = mock_post.call_args[0][0]
         assert "Paused" in text
 
     def test_status_with_open_position(self):
         n = _notifier()
-        trade = {"side": "BUY", "entry_price": 50000.0, "stop_loss": 49000.0, "take_profit": 52000.0}
+        positions = [{
+            "symbol": "BTCUSDT", "side": "BUY",
+            "entry_price": 50000.0, "stop_loss": 49000.0, "take_profit": 52000.0,
+            "current_price": None, "unrealized_pnl": None,
+        }]
         with patch("bot.telegram_notifier._COMMA_DECIMAL", False), patch.object(n, "_post") as mock_post:
-            n.status(10000.0, trade, "TESTNET", paused=False)
+            n.status(10000.0, positions, "TESTNET", paused=False)
         text = mock_post.call_args[0][0]
+        assert "BTCUSDT" in text
         assert "50,000.00" in text
         assert "49,000.00" in text
         assert "52,000.00" in text
+
+    def test_status_with_multiple_positions(self):
+        n = _notifier()
+        positions = [
+            {"symbol": "BTCUSDT", "side": "BUY", "entry_price": 50000.0,
+             "stop_loss": 49000.0, "take_profit": 52000.0,
+             "current_price": 51000.0, "unrealized_pnl": 12.34},
+            {"symbol": "ETHUSDT", "side": "BUY", "entry_price": 3000.0,
+             "stop_loss": 2900.0, "take_profit": 3200.0,
+             "current_price": 3050.0, "unrealized_pnl": -1.5},
+        ]
+        with patch("bot.telegram_notifier._COMMA_DECIMAL", False), patch.object(n, "_post") as mock_post:
+            n.status(10000.0, positions, "TESTNET", paused=False)
+        text = mock_post.call_args[0][0]
+        assert "BTCUSDT" in text
+        assert "ETHUSDT" in text
+        assert "+$12.34" in text
+        assert "-$1.50" in text
 
 
 # ── /status integration ───────────────────────────────────────────────────────
@@ -87,14 +110,14 @@ class TestStatusIntegration:
         db = MagicMock()
         db.get_telegram_config.return_value = {"token": "tok", "chat_id": "123", "enabled": True}
         db.get_equity_curve.return_value = [{"balance": 10000.0}]
-        db.get_open_trade.return_value = None
+        db.get_open_trades.return_value = []
         db.get_active_mode.return_value = "TESTNET"
         db.get_bot_paused.return_value = True
         notifier = MagicMock()
         handler = TelegramCommandHandler(db, notifier)
         update = {"update_id": 1, "message": {"chat": {"id": "123"}, "text": "/status"}}
         handler._handle(update, "123")
-        notifier.status.assert_called_once_with(10000.0, None, "TESTNET", paused=True, btc_price=None, unrealized_pnl=None)
+        notifier.status.assert_called_once_with(10000.0, [], "TESTNET", paused=True)
 
 
 # ── register_commands() ───────────────────────────────────────────────────────
@@ -199,6 +222,7 @@ class TestCommandHandler:
         db.get_all_trades.return_value              = []
         db.get_equity_curve.return_value            = []
         db.get_performance_by_strategy.return_value = []
+        db.get_symbols.return_value                 = []
         db.get_active_mode.return_value             = "TESTNET"
         h._handle(_update("/report"), "123")
         notifier.report.assert_called_once()
@@ -214,10 +238,33 @@ class TestCommandHandler:
         ]
         db.get_equity_curve.return_value            = []
         db.get_performance_by_strategy.return_value = []
+        db.get_symbols.return_value                 = []
         db.get_active_mode.return_value             = "TESTNET"
         h._handle(_update("/report"), "123")
         closed_arg = notifier.report.call_args[0][0]
         assert len(closed_arg) == 1
+
+    def test_report_with_symbol_arg_filters_db_query(self):
+        h, db, notifier = _handler()
+        db.get_all_trades.return_value              = []
+        db.get_equity_curve.return_value            = []
+        db.get_performance_by_strategy.return_value = []
+        db.get_symbols.return_value                 = ["BTCUSDT", "ETHUSDT"]
+        db.get_active_mode.return_value             = "TESTNET"
+        h._handle(_update("/report ETHUSDT"), "123")
+        # DB queries filtered by symbol
+        db.get_all_trades.assert_called_with(symbol="ETHUSDT")
+        db.get_performance_by_strategy.assert_called_with(symbol="ETHUSDT")
+        # Notifier received the symbol kwarg
+        kwargs = notifier.report.call_args[1]
+        assert kwargs.get("symbol") == "ETHUSDT"
+
+    def test_report_unknown_symbol_aborts_with_hint(self):
+        h, db, notifier = _handler()
+        db.get_symbols.return_value     = ["BTCUSDT"]
+        db.get_active_mode.return_value = "TESTNET"
+        h._handle(_update("/report DOGEUSDT"), "123")
+        notifier.report.assert_not_called()
 
     def test_unknown_chat_id_ignored(self):
         h, db, notifier = _handler()
@@ -233,7 +280,7 @@ class TestCommandHandler:
     def test_status_passes_paused_flag(self):
         h, db, notifier = _handler()
         db.get_equity_curve.return_value  = [{"balance": 10000.0}]
-        db.get_open_trade.return_value    = None
+        db.get_open_trades.return_value   = []
         db.get_bot_paused.return_value    = True
         db.get_active_mode.return_value   = "TESTNET"
         h._handle(_update("/status"), "123")

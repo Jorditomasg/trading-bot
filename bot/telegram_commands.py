@@ -30,8 +30,9 @@ class TelegramCommandHandler:
         self,
         db: Database,
         notifier: TelegramNotifier,
-        price_fetcher: Callable[[], float] | None = None,
+        price_fetcher: Callable[[str], float] | None = None,
     ) -> None:
+        """price_fetcher: callable that takes a symbol and returns its current price."""
         self._db            = db
         self._notifier      = notifier
         self._price_fetcher = price_fetcher
@@ -92,46 +93,89 @@ class TelegramCommandHandler:
             logger.info("Bot resumed via Telegram command")
 
         elif command == "/status":
-            curve      = self._db.get_equity_curve()
-            balance    = curve[-1]["balance"] if curve else 0.0
-            open_trade = self._db.get_open_trade()
-            paused     = self._db.get_bot_paused()
-            mode       = self._db.get_active_mode()
+            curve       = self._db.get_equity_curve()
+            balance     = curve[-1]["balance"] if curve else 0.0
+            open_trades = self._db.get_open_trades()
+            paused      = self._db.get_bot_paused()
+            mode        = self._db.get_active_mode()
 
-            btc_price: float | None = None
-            unrealized_pnl: float | None = None
-            if self._price_fetcher:
-                try:
-                    btc_price = self._price_fetcher()
-                except Exception as exc:
-                    logger.warning("Could not fetch BTC price for /status: %s", exc)
+            positions: list[dict] = []
+            for trade in open_trades:
+                sym   = trade["symbol"]
+                price: float | None = None
+                pnl:   float | None = None
 
-            if open_trade and btc_price is not None:
-                side  = open_trade.get("side", "BUY")
-                entry = float(open_trade.get("entry_price", 0.0))
-                qty   = float(open_trade.get("quantity", 0.0))
-                unrealized_pnl = (
-                    (btc_price - entry) * qty if side == "BUY"
-                    else (entry - btc_price) * qty
-                )
+                if self._price_fetcher:
+                    try:
+                        price = self._price_fetcher(sym)
+                    except Exception as exc:
+                        logger.warning("Could not fetch price for %s in /status: %s", sym, exc)
 
-            self._notifier.status(
-                balance, open_trade, mode,
-                paused=paused,
-                btc_price=btc_price,
-                unrealized_pnl=unrealized_pnl,
-            )
+                if price is not None:
+                    side  = trade.get("side", "BUY")
+                    entry = float(trade.get("entry_price", 0.0))
+                    qty   = float(trade.get("quantity", 0.0))
+                    pnl = (price - entry) * qty if side == "BUY" else (entry - price) * qty
+
+                positions.append({
+                    "symbol":          sym,
+                    "side":            trade["side"],
+                    "entry_price":     trade["entry_price"],
+                    "stop_loss":       trade["stop_loss"],
+                    "take_profit":     trade["take_profit"],
+                    "current_price":   price,
+                    "unrealized_pnl":  pnl,
+                })
+
+            self._notifier.status(balance, positions, mode, paused=paused)
 
         elif command == "/report":
             from bot.config import settings
-            trades  = self._db.get_all_trades()
+
+            # Parse optional symbol argument: /report BTCUSDT
+            parts        = raw.split()
+            symbol_arg   = parts[1].upper() if len(parts) > 1 else None
+            known        = set(self._db.get_symbols() or [])
+            if symbol_arg and known and symbol_arg not in known:
+                # Unknown symbol — surface a hint, don't silently ignore
+                self._notifier._post(
+                    f"Symbol <code>{symbol_arg}</code> is not active. "
+                    f"Try one of: <code>{', '.join(sorted(known))}</code>"
+                )
+                return
+
+            trades  = self._db.get_all_trades(symbol=symbol_arg)
             closed  = [t for t in trades if t.get("exit_price") is not None]
             curve   = self._db.get_equity_curve()
-            perf    = self._db.get_performance_by_strategy()
+            perf    = self._db.get_performance_by_strategy(symbol=symbol_arg)
             balance = curve[-1]["balance"] if curve else 0.0
             mode    = self._db.get_active_mode()
-            self._notifier.report(closed, curve, perf, balance, mode, settings.initial_capital)
-            logger.info("Report sent via Telegram command")
+
+            # When showing the global report, attach a per-symbol breakdown
+            breakdown: list[dict] | None = None
+            if symbol_arg is None and known:
+                breakdown = []
+                for sym in sorted(known):
+                    sym_trades = [t for t in closed if t.get("symbol") == sym]
+                    if not sym_trades:
+                        continue
+                    wins      = sum(1 for t in sym_trades if t.get("pnl", 0) > 0)
+                    total     = len(sym_trades)
+                    total_pnl = sum(t.get("pnl", 0) for t in sym_trades)
+                    breakdown.append({
+                        "symbol":    sym,
+                        "total":     total,
+                        "wins":      wins,
+                        "win_rate":  (wins / total * 100) if total else 0.0,
+                        "total_pnl": total_pnl,
+                    })
+
+            self._notifier.report(
+                closed, curve, perf, balance, mode, settings.initial_capital,
+                symbol=symbol_arg,
+                symbols_breakdown=breakdown,
+            )
+            logger.info("Report sent via Telegram command (symbol=%s)", symbol_arg or "ALL")
 
     def _poll_loop(self) -> None:
         while not self._stop.is_set():

@@ -255,46 +255,50 @@ def run_cycle(
     adaptor: ParameterAdaptor | None = None,
     notifier: TelegramNotifier | None = None,
 ) -> None:
-    logger.info("─── Cycle start %s ───", dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    sym = orchestrator.symbol
+    logger.info(
+        "─── [%s] Cycle start %s ───",
+        sym, dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    )
 
     if db.get_bot_paused():
-        logger.info("Bot is paused — skipping cycle")
+        logger.info("[%s] Bot is paused — skipping cycle", sym)
         return
 
     client = _build_client(db)
 
     try:
-        df = client.get_klines(orchestrator.symbol, settings.timeframe, KLINES_LIMIT)
+        df = client.get_klines(sym, settings.timeframe, KLINES_LIMIT)
     except Exception as exc:
-        logger.error("Failed to fetch klines for %s: %s", orchestrator.symbol, exc)
+        logger.error("[%s] Failed to fetch klines: %s", sym, exc)
         return
 
     # Daily klines for BiasFilter — backtest-proven: daily EMA9/21 gate
     # outperforms 4h EMA gate (PF 1.19-1.30 vs 0.82-0.93 with taker fees)
     df_4h = None
     try:
-        df_4h = client.get_klines(orchestrator.symbol, "1d", 60)
+        df_4h = client.get_klines(sym, "1d", 60)
     except Exception as exc:
         logger.warning(
-            "Failed to fetch daily klines for %s: %s — BiasFilter will use NEUTRAL "
+            "[%s] Failed to fetch daily klines: %s — BiasFilter will use NEUTRAL "
             "(signals pass if neutral_passthrough=True, blocked if block_on_data_failure=True)",
-            orchestrator.symbol, exc,
+            sym, exc,
         )
 
     # Weekly klines for momentum filter
     df_weekly: pd.DataFrame | None = None
     try:
-        df_weekly = client.get_klines(orchestrator.symbol, "1w", 60)
+        df_weekly = client.get_klines(sym, "1w", 60)
     except Exception as exc:
         logger.warning(
-            "Failed to fetch weekly klines for %s: %s — momentum filter will use BULLISH (fail-open)",
-            orchestrator.symbol, exc,
+            "[%s] Failed to fetch weekly klines: %s — momentum filter will use BULLISH (fail-open)",
+            sym, exc,
         )
 
     try:
         balance = client.get_balance("USDT")
     except Exception as exc:
-        logger.warning("Failed to fetch balance, using last known: %s", exc)
+        logger.warning("[%s] Failed to fetch balance, using last known: %s", sym, exc)
         curve = db.get_equity_curve()
         balance = curve[-1]["balance"] if curve else settings.initial_capital
 
@@ -311,17 +315,17 @@ def run_cycle(
 
     if orders:
         for order in orders:
-            logger.info("Orchestrator returned order: %s", order)
+            logger.info("[%s] Orchestrator returned order: %s", sym, order)
             if dry_run:
-                logger.info("[DRY-RUN] Would execute: %s", order)
+                logger.info("[%s] [DRY-RUN] Would execute: %s", sym, order)
             else:
                 _execute_order(client, db, order, notifier)
     else:
-        logger.info("No orders this cycle")
+        logger.info("[%s] No orders this cycle", sym)
 
     drawdown = compute_drawdown(db, balance)
     db.insert_equity_snapshot(balance=balance, drawdown=drawdown)
-    logger.info("Equity snapshot balance=%.2f drawdown=%.4f", balance, drawdown)
+    logger.info("[%s] Equity snapshot balance=%.2f drawdown=%.4f", sym, balance, drawdown)
 
     if adaptor is not None:
         peak = db.get_peak_capital() or balance
@@ -329,7 +333,7 @@ def run_cycle(
             circuit_breaker_active=orchestrator.risk_manager.check_circuit_breaker(balance, peak)
         )
 
-    logger.info("─── Cycle end ───")
+    logger.info("─── [%s] Cycle end ───", sym)
 
 
 def _avg_fill_price(order_result: dict) -> float | None:
@@ -355,12 +359,13 @@ def _execute_order(
     notifier: TelegramNotifier | None = None,
 ) -> None:
     action = order["action"]
+    symbol = order["symbol"]
     mode   = db.get_active_mode()
 
     if action == "OPEN":
         try:
             result = client.place_entry_order(
-                symbol=settings.symbol,
+                symbol=symbol,
                 side=order["side"],
                 quantity=order["quantity"],
                 entry_price=order["entry_price"],
@@ -369,7 +374,7 @@ def _execute_order(
             # Use the actual fill price from the exchange; fall back to signal price
             actual_entry = _avg_fill_price(result) or order["entry_price"]
             trade_id = db.insert_trade(
-                symbol=settings.symbol,
+                symbol=symbol,
                 side=order["side"],
                 strategy=order["strategy"],
                 regime=order["regime"],
@@ -381,18 +386,18 @@ def _execute_order(
                 timeframe=order.get("timeframe", "1h"),
             )
             logger.info(
-                "Opened trade id=%d orderId=%s",
-                trade_id, result.get("orderId"),
+                "[%s] Opened trade id=%d orderId=%s",
+                symbol, trade_id, result.get("orderId"),
             )
             if notifier:
-                notifier.trade_opened(order, mode)
+                notifier.trade_opened({**order, "symbol": symbol}, mode)
         except Exception as exc:
-            logger.error("Failed to open position: %s", exc)
+            logger.error("[%s] Failed to open position: %s", symbol, exc)
 
     elif action == "CLOSE":
         try:
             result = client.place_order(
-                symbol=settings.symbol,
+                symbol=symbol,
                 side=order["side"],
                 quantity=order["quantity"],
             )
@@ -402,15 +407,15 @@ def _execute_order(
                 exit_reason=order["exit_reason"],
             )
             logger.info(
-                "Closed trade id=%d orderId=%s reason=%s",
-                order["trade_id"], result.get("orderId"), order["exit_reason"],
+                "[%s] Closed trade id=%d orderId=%s reason=%s",
+                symbol, order["trade_id"], result.get("orderId"), order["exit_reason"],
             )
             if notifier:
                 trade = db.get_trade(order["trade_id"])
                 pnl   = trade["pnl"] if trade else 0.0
                 notifier.trade_closed(trade or order, pnl, order["exit_reason"], mode)
         except Exception as exc:
-            logger.error("Failed to close position: %s", exc)
+            logger.error("[%s] Failed to close position: %s", symbol, exc)
 
 
 def _manage_single_position(
@@ -423,6 +428,7 @@ def _manage_single_position(
 ) -> None:
     """Check SL/TP exit for one open trade."""
     trade_id    = trade["id"]
+    sym         = trade["symbol"]
     side        = trade["side"]
     stop_loss   = trade["stop_loss"]
     take_profit = trade["take_profit"]
@@ -430,7 +436,7 @@ def _manage_single_position(
     # Guard: re-verify trade is still open (race condition with run_cycle)
     fresh = db.get_trade(trade_id)
     if fresh is None or fresh.get("exit_price") is not None:
-        logger.debug("position_manager: trade id=%d already closed — skipping", trade_id)
+        logger.debug("[%s] position_manager: trade id=%d already closed — skipping", sym, trade_id)
         return
 
     # ── Exit condition check ──────────────────────────────────────────────────
@@ -447,12 +453,12 @@ def _manage_single_position(
         return
 
     logger.info(
-        "position_manager: closing trade id=%d reason=%s price=%.2f",
-        trade_id, reason, price,
+        "[%s] position_manager: closing trade id=%d reason=%s price=%.2f",
+        sym, trade_id, reason, price,
     )
 
     if dry_run:
-        logger.info("[DRY-RUN] position_manager would close trade id=%d", trade_id)
+        logger.info("[%s] [DRY-RUN] position_manager would close trade id=%d", sym, trade_id)
         return
 
     try:
@@ -460,6 +466,7 @@ def _manage_single_position(
         close_side = "SELL" if side == "BUY" else "BUY"
         _execute_order(client, db, {
             "action":      TradeAction.CLOSE,
+            "symbol":      sym,
             "side":        close_side,
             "trade_id":    trade_id,
             "quantity":    trade["quantity"],
@@ -468,7 +475,7 @@ def _manage_single_position(
         }, notifier)
     except Exception as exc:
         logger.error(
-            "position_manager: failed to close trade id=%d: %s", trade_id, exc
+            "[%s] position_manager: failed to close trade id=%d: %s", sym, trade_id, exc
         )
 
 
@@ -486,7 +493,7 @@ def position_manager(
     for trade in trades:
         tick = db.get_live_tick(trade["symbol"])
         if tick is None:
-            logger.debug("position_manager: no live tick for %s — skipping", trade["symbol"])
+            logger.debug("[%s] position_manager: no live tick — skipping", trade["symbol"])
             continue
         price = tick["price"]
         _manage_single_position(trade, price, db, dry_run, risk_config, notifier)
@@ -641,7 +648,7 @@ def main() -> None:
     cmd_handler = TelegramCommandHandler(
         db=db,
         notifier=notifier,
-        price_fetcher=lambda: stream_client.get_ticker_price(symbols[0]),
+        price_fetcher=lambda sym: stream_client.get_ticker_price(sym),
     )
     cmd_handler.start()
 

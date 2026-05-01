@@ -303,6 +303,18 @@ class Database:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_symbol_equity_curve(self, symbol: str, initial_capital: float) -> list[dict]:
+        """Derived equity curve for a single symbol.
+
+        The exchange balance is shared across symbols, so per-symbol equity is
+        computed from the cumulative realised PnL of that symbol's closed trades
+        starting at `initial_capital`. Open trades are not included.
+        """
+        from bot.metrics import derive_equity_curve
+        trades = self.get_all_trades(symbol=symbol)
+        # get_all_trades returns DESC by entry_time; derive_equity_curve sorts by exit_time itself.
+        return derive_equity_curve(trades, initial_capital)
+
     def get_open_trades(self, symbol: str | None = None) -> list[dict]:
         """Return open trades, optionally filtered by symbol, ordered by entry_time descending."""
         with self._conn() as conn:
@@ -727,6 +739,9 @@ class Database:
     )
     _ALLOWED_ORDERS = frozenset({"ASC", "DESC"})
 
+    # Tables that have a symbol column and accept symbol filtering
+    _SYMBOL_AWARE_TABLES = frozenset({"trades", "signals"})
+
     def _get_range(
         self,
         table: str,
@@ -734,8 +749,14 @@ class Database:
         from_dt: str | None,
         to_dt: str | None,
         order: str = "ASC",
+        symbol: str | None = None,
     ) -> list[dict]:
-        """Generic range query over any table with an ISO timestamp column."""
+        """Generic range query over any table with an ISO timestamp column.
+
+        When `symbol` is provided AND the table has a symbol column, results are
+        filtered to that symbol. For tables without a symbol column the parameter
+        is silently ignored (the caller may pass it uniformly across datasets).
+        """
         if table not in self._ALLOWED_RANGE_TABLES:
             raise ValueError(f"_get_range: table '{table}' is not allowed")
         if ts_col not in self._ALLOWED_RANGE_COLS:
@@ -752,6 +773,9 @@ class Database:
         if to_dt:
             conditions.append(f"{ts_col} <= ?")
             params.append(to_dt)
+        if symbol and table in self._SYMBOL_AWARE_TABLES:
+            conditions.append("symbol = ?")
+            params.append(symbol)
         where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
         query = f"SELECT * FROM {table}{where} ORDER BY {ts_col} {order}"
         with self._conn() as conn:
@@ -759,9 +783,12 @@ class Database:
         return [dict(r) for r in rows]
 
     def get_trades_range(
-        self, from_dt: str | None = None, to_dt: str | None = None
+        self,
+        from_dt: str | None = None,
+        to_dt: str | None = None,
+        symbol: str | None = None,
     ) -> list[dict]:
-        return self._get_range("trades", "entry_time", from_dt, to_dt)
+        return self._get_range("trades", "entry_time", from_dt, to_dt, symbol=symbol)
 
     def get_equity_range(
         self, from_dt: str | None = None, to_dt: str | None = None
@@ -769,9 +796,12 @@ class Database:
         return self._get_range("equity", "timestamp", from_dt, to_dt)
 
     def get_signals_range(
-        self, from_dt: str | None = None, to_dt: str | None = None
+        self,
+        from_dt: str | None = None,
+        to_dt: str | None = None,
+        symbol: str | None = None,
     ) -> list[dict]:
-        return self._get_range("signals", "timestamp", from_dt, to_dt)
+        return self._get_range("signals", "timestamp", from_dt, to_dt, symbol=symbol)
 
     def get_adaptive_params_range(
         self, from_dt: str | None = None, to_dt: str | None = None
