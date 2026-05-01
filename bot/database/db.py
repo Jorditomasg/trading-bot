@@ -283,11 +283,17 @@ class Database:
             action, strength, bias, momentum,
         )
 
-    def get_all_trades(self) -> list[dict]:
+    def get_all_trades(self, symbol: str | None = None) -> list[dict]:
         with self._conn() as conn:
-            rows = conn.execute(
-                "SELECT * FROM trades ORDER BY entry_time DESC"
-            ).fetchall()
+            if symbol is None:
+                rows = conn.execute(
+                    "SELECT * FROM trades ORDER BY entry_time DESC"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM trades WHERE symbol = ? ORDER BY entry_time DESC",
+                    (symbol,),
+                ).fetchall()
         return [dict(r) for r in rows]
 
     def get_equity_curve(self) -> list[dict]:
@@ -317,10 +323,8 @@ class Database:
         trades = self.get_open_trades()
         return trades[0] if trades else None
 
-    def get_performance_by_strategy(self) -> list[dict]:
-        with self._conn() as conn:
-            rows = conn.execute(
-                """SELECT
+    def get_performance_by_strategy(self, symbol: str | None = None) -> list[dict]:
+        base_sql = """SELECT
                        strategy,
                        COUNT(*)                                        AS total_trades,
                        SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END)       AS wins,
@@ -329,9 +333,14 @@ class Database:
                        ROUND(SUM(pnl), 4)                              AS total_pnl,
                        ROUND(AVG(pnl), 4)                              AS avg_pnl
                    FROM trades
-                   WHERE exit_price IS NOT NULL
-                   GROUP BY strategy"""
-            ).fetchall()
+                   WHERE exit_price IS NOT NULL"""
+        with self._conn() as conn:
+            if symbol is None:
+                rows = conn.execute(base_sql + " GROUP BY strategy").fetchall()
+            else:
+                rows = conn.execute(
+                    base_sql + " AND symbol = ? GROUP BY strategy", (symbol,)
+                ).fetchall()
         return [dict(r) for r in rows]
 
     def get_kelly_stats(self, strategy_name: str, min_trades: int = 15) -> dict | None:
@@ -372,10 +381,8 @@ class Database:
             "avg_loss_pct": float(row["avg_loss_pct"]),
         }
 
-    def get_performance_by_regime(self) -> list[dict]:
-        with self._conn() as conn:
-            rows = conn.execute(
-                """SELECT
+    def get_performance_by_regime(self, symbol: str | None = None) -> list[dict]:
+        base_sql = """SELECT
                        regime,
                        COUNT(*)                                        AS total_trades,
                        SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END)       AS wins,
@@ -384,9 +391,14 @@ class Database:
                        ROUND(SUM(pnl), 4)                              AS total_pnl,
                        ROUND(AVG(pnl), 4)                              AS avg_pnl
                    FROM trades
-                   WHERE exit_price IS NOT NULL
-                   GROUP BY regime"""
-            ).fetchall()
+                   WHERE exit_price IS NOT NULL"""
+        with self._conn() as conn:
+            if symbol is None:
+                rows = conn.execute(base_sql + " GROUP BY regime").fetchall()
+            else:
+                rows = conn.execute(
+                    base_sql + " AND symbol = ? GROUP BY regime", (symbol,)
+                ).fetchall()
         return [dict(r) for r in rows]
 
     def get_recent_signals(self, limit: int = 20, symbol: str | None = None) -> list[dict]:

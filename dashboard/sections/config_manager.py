@@ -48,7 +48,6 @@ def config_manager_section(db: Database) -> None:
     cur_tf               = cfg.get("timeframe",               settings.timeframe)
     cur_risk             = float(cfg.get("risk_per_trade",    settings.risk_per_trade))
     cur_max_dd           = float(cfg.get("max_drawdown",      0.15))
-    cur_max_conc         = int(cfg.get("max_concurrent",      1))
     cur_cooldown         = int(cfg.get("cooldown_hours",      4))
     cur_bias_passthrough = cfg.get("bias_neutral_passthrough", "true") == "true"
     cur_bias_threshold   = float(cfg.get("bias_neutral_threshold", "0.001"))
@@ -73,7 +72,7 @@ def config_manager_section(db: Database) -> None:
             timeframe = st.selectbox("Timeframe", _TIMEFRAMES, index=tf_idx)
 
         st.markdown("## Risk")
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3 = st.columns(3)
         with c1:
             risk_pct = st.number_input(
                 "Risk / Trade (%)", min_value=0.1, max_value=10.0,
@@ -87,10 +86,6 @@ def config_manager_section(db: Database) -> None:
                 value=round(cur_max_dd * 100, 1), step=1.0, format="%.1f",
             )
         with c3:
-            max_concurrent = st.number_input(
-                "Max Positions", min_value=1, max_value=5, value=cur_max_conc, step=1,
-            )
-        with c4:
             cooldown_hours = st.number_input(
                 "Cooldown (h)", min_value=1, max_value=48, value=cur_cooldown, step=1,
             )
@@ -135,7 +130,6 @@ def config_manager_section(db: Database) -> None:
                 timeframe=timeframe,
                 risk_per_trade=str(round(risk_pct / 100, 4)),
                 max_drawdown=str(round(max_dd_pct / 100, 3)),
-                max_concurrent=str(max_concurrent),
                 cooldown_hours=str(cooldown_hours),
                 bias_neutral_passthrough="true" if bias_passthrough else "false",
                 bias_neutral_threshold=str(round(bias_threshold_pct / 100, 4)),
@@ -328,7 +322,6 @@ def config_manager_section(db: Database) -> None:
         "Timeframe":         snap_cfg.get("timeframe",    settings.timeframe),
         "Risk / Trade":      f"{float(snap_cfg.get('risk_per_trade', settings.risk_per_trade)) * 100:.2f}%",
         "Max Drawdown":      f"{float(snap_cfg.get('max_drawdown', 0.15)) * 100:.1f}%",
-        "Max Positions":     snap_cfg.get("max_concurrent", "1"),
         "Cooldown":          f"{snap_cfg.get('cooldown_hours', '4')}h",
         "Environment":       db.get_active_mode(),
         "Neutral Passthru":  "ON" if bias_pass else "OFF (blocks all in neutral)",

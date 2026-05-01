@@ -6,7 +6,7 @@ import streamlit as st
 
 from bot.database.db import Database
 from bot.metrics import profit_factor, max_consecutive_losses
-from dashboard.constants import RED, WHITE, MUTED, REGIME_COLORS, ChartConfig, Thresholds, RefreshRates
+from dashboard.constants import RED, WHITE, REGIME_COLORS, ChartConfig, Thresholds, RefreshRates
 from dashboard.themes import NothingOS
 from dashboard.utils import fmt, parse_fmt
 
@@ -14,10 +14,10 @@ PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
 
 
 @st.fragment(run_every=RefreshRates.PERFORMANCE)
-def performance_section(db: Database) -> None:
-    strategy_perf = db.get_performance_by_strategy()
-    regime_perf   = db.get_performance_by_regime()
-    trades        = db.get_all_trades()
+def performance_section(db: Database, symbol: str) -> None:
+    strategy_perf = db.get_performance_by_strategy(symbol=symbol)
+    regime_perf   = db.get_performance_by_regime(symbol=symbol)
+    trades        = db.get_all_trades(symbol=symbol)
     closed        = [t for t in trades if t.get("exit_price") is not None]
     wins          = sum(1 for t in closed if t.get("pnl") and t["pnl"] > 0)
 
@@ -119,24 +119,13 @@ def performance_section(db: Database) -> None:
 
     st.markdown("## Trade History")
     if closed:
-        symbols_in_trades = sorted({t["symbol"] for t in closed})
-        sym_options = ["All"] + symbols_in_trades
-        selected_sym = st.selectbox(
-            "Filter by symbol", sym_options, index=0, key="trade_hist_sym_filter",
-            label_visibility="collapsed",
-        )
-        filtered_closed = (
-            closed if selected_sym == "All"
-            else [t for t in closed if t["symbol"] == selected_sym]
-        )
-        display_trades = filtered_closed[:50]
+        display_trades = closed[:50]
         rows = []
         for t in display_trades:
             pnl     = t.get("pnl") or 0.0
             pnl_pct = (t.get("pnl_pct") or 0.0) * 100
             rows.append({
                 "DATE":     (t["entry_time"] or "")[:19].replace("T", " "),
-                "SYMBOL":   t["symbol"],
                 "SIDE":     t["side"],
                 "STRATEGY": t["strategy"],
                 "ENTRY":    fmt(t["entry_price"], ",.2f"),
@@ -165,7 +154,10 @@ def performance_section(db: Database) -> None:
     else:
         st.caption("no completed trades yet")
 
-    st.divider()
+
+@st.fragment(run_every=RefreshRates.PERFORMANCE)
+def adaptive_params_section(db: Database) -> None:
+    """Bot-wide adaptive parameter changes log. Not symbol-scoped."""
     st.markdown("## Adaptive Parameters Log")
     adaptive = db.get_adaptive_params(10)
     if adaptive:

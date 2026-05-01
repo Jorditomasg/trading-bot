@@ -1,20 +1,21 @@
-"""Backtest runner section — run backtests from the dashboard."""
+"""Backtest runner section — run multi-symbol portfolio backtests from the dashboard."""
 
 from __future__ import annotations
 
-import io
-import json
 import logging
-import zipfile
 from datetime import datetime, timedelta, timezone
 
 import plotly.graph_objects as go
 import streamlit as st
 
 from bot.backtest.cache import cache_info, fetch_and_cache
-from bot.backtest.engine import BacktestConfig, BacktestEngine
+from bot.backtest.engine import BacktestConfig
+from bot.backtest.portfolio_engine import (
+    PortfolioBacktestEngine,
+    PortfolioBacktestResult,
+)
 from bot.database.db import Database
-from dashboard.constants import GREEN, RED, WHITE, MUTED, ChartConfig
+from dashboard.constants import GREEN, RED, ChartConfig
 from dashboard.themes import NothingOS
 from dashboard.utils import fmt
 
@@ -25,34 +26,6 @@ PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
 _SYMBOLS    = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT"]
 _TIMEFRAMES = ["1h", "2h", "4h", "8h", "1d"]
 _BIAS_TF    = {"1h": "4h", "2h": "4h", "4h": "1d", "8h": "1d", "1d": "1w"}
-
-# ── Verdict helpers ───────────────────────────────────────────────────────────
-
-def _verdict(summary: dict) -> tuple[bool, list[str]]:
-    notes: list[str] = []
-    passed = True
-    wr, sharpe = summary["win_rate_pct"], summary["sharpe_ratio"]
-    dd, pf, n   = summary["max_drawdown_pct"], summary["profit_factor"], summary["total_trades"]
-
-    if n < 20:
-        notes.append(f"Too few trades ({n}) — not statistically significant"); passed = False
-    if wr < 30.0:
-        notes.append(f"Win rate {wr:.1f}% below 30% minimum"); passed = False
-    elif wr < 40.0:
-        notes.append(f"Win rate {wr:.1f}% below 40% (acceptable if PF compensates)")
-    if sharpe < 0.5:
-        notes.append(f"Sharpe {sharpe:.2f} below 0.5 — poor risk-adjusted return"); passed = False
-    if dd > 25.0:
-        notes.append(f"Max drawdown {dd:.1f}% exceeds 25% limit"); passed = False
-    elif dd > 20.0:
-        notes.append(f"Max drawdown {dd:.1f}% exceeds 20% (watch closely)")
-    if pf != float("inf") and pf < 1.1:
-        notes.append(f"Profit factor {pf:.2f} below 1.1 — marginal edge"); passed = False
-    elif pf != float("inf") and pf < 1.2:
-        notes.append(f"Profit factor {pf:.2f} below 1.2 (solid but improvable)")
-    if passed:
-        notes.append("All minimum viability thresholds met")
-    return passed, notes
 
 
 # ── Equity mini-chart ─────────────────────────────────────────────────────────
@@ -80,11 +53,11 @@ def _cache_badge(symbol: str, interval: str) -> str:
     if info is None:
         return (
             f"<span style='font-size:0.6rem;color:#555;letter-spacing:0.1em'>"
-            f"NO CACHE — will download on run</span>"
+            f"{symbol} {interval} — NO CACHE, will download on run</span>"
         )
     return (
         f"<span style='font-size:0.6rem;color:#555;letter-spacing:0.1em'>"
-        f"CACHE: {info['rows']:,} bars · "
+        f"{symbol} {interval} CACHE: {info['rows']:,} bars · "
         f"{info['from'].strftime('%Y-%m-%d')} → {info['to'].strftime('%Y-%m-%d')} · "
         f"{info['size_mb']} MB</span>"
     )
@@ -101,13 +74,20 @@ def backtest_runner_section(db: Database) -> None:
     with col_form:
         st.markdown("## Parameters")
 
+        # Default symbol selection — active list filtered to those we support,
+        # falling back to the first known symbol when none are configured yet.
+        active_symbols = [s for s in db.get_symbols() if s in _SYMBOLS]
+        if not active_symbols:
+            active_symbols = [_SYMBOLS[0]]
+
         with st.form("backtest_form"):
             c1, c2 = st.columns(2)
 
             with c1:
-                sym_default = cfg.get("symbol", "BTCUSDT")
-                sym_idx     = _SYMBOLS.index(sym_default) if sym_default in _SYMBOLS else 0
-                symbol      = st.selectbox("Symbol", _SYMBOLS, index=sym_idx)
+                symbols = st.multiselect(
+                    "Symbols", _SYMBOLS, default=active_symbols,
+                    help="Pick one or more symbols. Capital is shared across all of them.",
+                )
 
                 tf_default = cfg.get("timeframe", "4h")
                 tf_idx     = _TIMEFRAMES.index(tf_default) if tf_default in _TIMEFRAMES else 2
@@ -156,29 +136,34 @@ def backtest_runner_section(db: Database) -> None:
                 "▶  Run Backtest", use_container_width=True, type="primary",
             )
 
-        # Cache status (outside form so it updates without submit)
-        st.markdown(_cache_badge(symbol, timeframe), unsafe_allow_html=True)
-        if use_1m:
-            st.markdown(_cache_badge(symbol, "1m"), unsafe_allow_html=True)
+        # Cache status — one badge per selected symbol (outside the form so it
+        # updates without resubmitting).
+        for sym in symbols:
+            st.markdown(_cache_badge(sym, timeframe), unsafe_allow_html=True)
+            if use_1m:
+                st.markdown(_cache_badge(sym, "1m"), unsafe_allow_html=True)
 
     # ── Trigger run ───────────────────────────────────────────────────────────
     if submitted:
-        start_dt = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=timezone.utc)
-        end_dt   = datetime.combine(end_date,   datetime.min.time()).replace(tzinfo=timezone.utc)
-
-        if start_dt >= end_dt:
-            st.error("Start date must be before end date.")
+        if len(symbols) < 1:
+            st.error("Select at least one symbol.")
         else:
-            _run_backtest(
-                symbol, timeframe, start_dt, end_dt,
-                capital, risk_pct / 100, cost_pct / 100,
-                use_bias, use_momentum, use_1m,
-            )
+            start_dt = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+            end_dt   = datetime.combine(end_date,   datetime.min.time()).replace(tzinfo=timezone.utc)
+
+            if start_dt >= end_dt:
+                st.error("Start date must be before end date.")
+            else:
+                _run_portfolio_backtest(
+                    symbols, timeframe, start_dt, end_dt,
+                    capital, risk_pct / 100, cost_pct / 100,
+                    use_bias, use_momentum, use_1m,
+                )
 
     # ── Right: results (persist across re-runs via session_state) ─────────────
     with col_results:
-        if "bt_result" in st.session_state:
-            _display_results(st.session_state["bt_result"], st.session_state["bt_summary"])
+        if "bt_portfolio_result" in st.session_state:
+            _display_portfolio_results(st.session_state["bt_portfolio_result"])
         else:
             st.markdown("## Results")
             st.markdown(
@@ -190,195 +175,201 @@ def backtest_runner_section(db: Database) -> None:
 
 # ── Runner ────────────────────────────────────────────────────────────────────
 
-def _run_backtest(
-    symbol: str,
-    timeframe: str,
-    start_dt: datetime,
-    end_dt: datetime,
-    capital: float,
-    risk: float,
-    cost: float,
-    use_bias: bool,
+def _run_portfolio_backtest(
+    symbols:      list[str],
+    timeframe:    str,
+    start_dt:     datetime,
+    end_dt:       datetime,
+    capital:      float,
+    risk:         float,
+    cost:         float,
+    use_bias:     bool,
     use_momentum: bool,
-    use_1m: bool,
+    use_1m:       bool,
 ) -> None:
-    bias_tf   = _BIAS_TF.get(timeframe, "1d")
-    progress  = st.empty()
+    bias_tf  = _BIAS_TF.get(timeframe, "1d")
+    progress = st.empty()
 
     def on_progress(msg: str) -> None:
         progress.caption(msg)
 
-    # ── Fetch primary bars ────────────────────────────────────────────────────
-    with st.spinner(f"Fetching {symbol} {timeframe} data…"):
-        try:
-            df = fetch_and_cache(symbol, timeframe, start_dt, end_dt, on_progress=on_progress)
-        except Exception as exc:
-            st.error(f"Failed to fetch {timeframe} data: {exc}")
-            progress.empty()
-            return
+    dfs:        dict = {}
+    dfs_4h:     dict = {}
+    dfs_weekly: dict = {}
+    dfs_1m:     dict = {}
 
-    # ── Fetch bias bars ───────────────────────────────────────────────────────
-    df_bias = None
-    if use_bias:
-        with st.spinner(f"Fetching {bias_tf} klines for BiasFilter…"):
+    # ── Per-symbol fetch ──────────────────────────────────────────────────────
+    for sym in symbols:
+        # Primary bars — hard requirement; skip the symbol if this fails.
+        with st.spinner(f"Fetching {sym} {timeframe} data…"):
             try:
-                df_bias = fetch_and_cache(symbol, bias_tf, start_dt, end_dt, on_progress=on_progress)
+                dfs[sym] = fetch_and_cache(sym, timeframe, start_dt, end_dt, on_progress=on_progress)
             except Exception as exc:
-                st.warning(f"Could not fetch {bias_tf} data ({exc}) — running without BiasFilter.")
+                st.error(f"Failed to fetch {sym} {timeframe} data: {exc} — skipping {sym}.")
+                continue
 
-    # ── Fetch weekly bars for momentum filter ────────────────────────────────
-    df_weekly = None
-    if use_momentum:
-        with st.spinner("Fetching weekly klines for momentum filter…"):
-            try:
-                df_weekly = fetch_and_cache(symbol, "1w", start_dt, end_dt, on_progress=on_progress)
-            except Exception as exc:
-                st.warning(f"Could not fetch weekly data ({exc}) — momentum filter will pass-through.")
+        # Bias bars — fail-soft per symbol.
+        if use_bias:
+            with st.spinner(f"Fetching {sym} {bias_tf} klines for BiasFilter…"):
+                try:
+                    dfs_4h[sym] = fetch_and_cache(sym, bias_tf, start_dt, end_dt, on_progress=on_progress)
+                except Exception as exc:
+                    dfs_4h[sym] = None
+                    st.warning(f"Could not fetch {sym} {bias_tf} data ({exc}) — running {sym} without BiasFilter.")
 
-    # ── Fetch 1m bars for precision exits ─────────────────────────────────────
-    df_1m = None
-    if use_1m:
-        with st.spinner("Fetching 1m klines for precision exits (this may take a while)…"):
-            try:
-                df_1m = fetch_and_cache(symbol, "1m", start_dt, end_dt, on_progress=on_progress)
-                on_progress(f"1m cache ready: {len(df_1m):,} bars")
-            except Exception as exc:
-                st.warning(f"Could not fetch 1m data ({exc}) — falling back to bar-level precision.")
+        # Weekly bars for momentum filter — fail-soft per symbol.
+        if use_momentum:
+            with st.spinner(f"Fetching {sym} weekly klines for momentum filter…"):
+                try:
+                    dfs_weekly[sym] = fetch_and_cache(sym, "1w", start_dt, end_dt, on_progress=on_progress)
+                except Exception as exc:
+                    dfs_weekly[sym] = None
+                    st.warning(f"Could not fetch {sym} weekly data ({exc}) — momentum filter pass-through for {sym}.")
+
+        # 1m precision bars — fail-soft per symbol.
+        if use_1m:
+            with st.spinner(f"Fetching {sym} 1m klines for precision exits (this may take a while)…"):
+                try:
+                    dfs_1m[sym] = fetch_and_cache(sym, "1m", start_dt, end_dt, on_progress=on_progress)
+                    on_progress(f"{sym} 1m cache ready: {len(dfs_1m[sym]):,} bars")
+                except Exception as exc:
+                    dfs_1m[sym] = None
+                    st.warning(f"Could not fetch {sym} 1m data ({exc}) — bar-level precision for {sym}.")
 
     progress.empty()
 
+    if not dfs:
+        st.error("No primary data could be fetched for any selected symbol — aborting.")
+        return
+
     # ── Run engine ────────────────────────────────────────────────────────────
     cfg = BacktestConfig(
-        initial_capital=capital,
-        risk_per_trade=risk,
-        timeframe=timeframe,
-        cost_per_side_pct=cost,
-        momentum_filter_enabled=use_momentum,
-        momentum_sma_period=20,
-        momentum_neutral_band=0.08,
+        initial_capital         = capital,
+        risk_per_trade          = risk,
+        timeframe               = timeframe,
+        cost_per_side_pct       = cost,
+        momentum_filter_enabled = use_momentum,
+        momentum_sma_period     = 20,
+        momentum_neutral_band   = 0.08,
     )
-    engine = BacktestEngine(cfg)
+    engine = PortfolioBacktestEngine(cfg)
 
-    with st.spinner("Simulating…"):
+    with st.spinner("Simulating portfolio…"):
         try:
-            result  = engine.run(df, df_4h=df_bias, df_weekly=df_weekly, symbol=symbol, df_1m=df_1m)
-            summary = engine.summary(result)
+            result = engine.run_portfolio(
+                dfs,
+                dfs_4h     = dfs_4h     or None,
+                dfs_weekly = dfs_weekly or None,
+                dfs_1m     = dfs_1m     or None,
+            )
         except Exception as exc:
-            st.error(f"Backtest error: {exc}")
+            st.error(f"Portfolio backtest error: {exc}")
             return
 
-    st.session_state["bt_result"]  = result
-    st.session_state["bt_summary"] = summary
+    # Drop legacy single-symbol session keys so the old display path stays dark.
+    st.session_state.pop("bt_result",  None)
+    st.session_state.pop("bt_summary", None)
+    st.session_state["bt_portfolio_result"] = result
     st.rerun()
 
 
 # ── Results display ───────────────────────────────────────────────────────────
 
-def _display_results(result, summary: dict) -> None:
-    pnl     = summary["total_pnl"]
-    pnl_pct = summary["total_pnl_pct"]
-    wr      = summary["win_rate_pct"]
-    pf      = summary["profit_factor"]
-    sharpe  = summary["sharpe_ratio"]
-    dd      = summary["max_drawdown_pct"]
-    streak  = summary["max_loss_streak"]
-    n       = summary["total_trades"]
-    best    = summary["best_trade_pnl"]
-    worst   = summary["worst_trade_pnl"]
+def _display_portfolio_results(result: PortfolioBacktestResult) -> None:
+    summary = result.portfolio_summary
 
-    passed, notes = _verdict(summary)
+    def _get(key: str, default: str = "—") -> object:
+        return summary[key] if key in summary else default
 
     # ── Header ────────────────────────────────────────────────────────────────
     st.markdown("## Results")
+    n_sym = len(result.symbols)
     st.caption(
-        f"{result.symbol}  ·  {result.timeframe}  ·  "
-        f"{result.start_date} → {result.end_date}  ·  {result.total_bars:,} bars"
+        f"{n_sym} symbol(s)  ·  {result.timeframe}  ·  "
+        f"{result.start_date} → {result.end_date}"
     )
 
-    # ── Verdict banner ────────────────────────────────────────────────────────
-    verdict_color = GREEN if passed else RED
-    verdict_label = "PASS" if passed else "NEEDS REVIEW"
-    st.markdown(
-        f"<div style='border:1px solid {verdict_color};padding:8px 16px;"
-        f"font-size:0.75rem;letter-spacing:0.18em;color:{verdict_color};"
-        f"margin-bottom:0.5rem'>"
-        f"● {verdict_label}"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-    for note in notes:
-        marker = "✓" if passed else "·"
-        color  = MUTED if passed else "#888"
-        st.markdown(
-            f"<span style='font-size:0.65rem;color:{color};letter-spacing:0.08em'>"
-            f"{marker} {note}</span>",
-            unsafe_allow_html=True,
-        )
+    # ── Portfolio KPI metrics ────────────────────────────────────────────────
+    pnl         = _get("total_pnl")
+    pnl_pct     = _get("total_pnl_pct")
+    pf          = _get("profit_factor")
+    wr          = _get("win_rate_pct")
+    sharpe      = _get("sharpe_ratio")
+    dd          = _get("max_drawdown_pct")
+    streak      = _get("max_loss_streak")
+    n_trades    = _get("total_trades")
 
-    st.markdown("")
+    pnl_str     = f"{'+' if isinstance(pnl, (int, float)) and pnl >= 0 else ''}${fmt(abs(pnl))}" if isinstance(pnl, (int, float)) else "—"
+    pnl_delta   = f"{'+' if isinstance(pnl_pct, (int, float)) and pnl_pct >= 0 else ''}{pnl_pct:.1f}%" if isinstance(pnl_pct, (int, float)) else None
+    pf_str      = (f"{pf:.2f}" if pf != float("inf") else "∞") if isinstance(pf, (int, float)) else "—"
+    wr_str      = f"{wr:.1f}%" if isinstance(wr, (int, float)) else "—"
+    sharpe_str  = f"{sharpe:.2f}" if isinstance(sharpe, (int, float)) else "—"
+    dd_str      = f"{dd:.1f}%" if isinstance(dd, (int, float)) else "—"
+    streak_str  = str(streak) if isinstance(streak, (int, float)) else "—"
+    trades_str  = str(n_trades) if isinstance(n_trades, (int, float)) else "—"
 
-    # ── KPI metrics ──────────────────────────────────────────────────────────
-    pnl_sign = "+" if pnl >= 0 else ""
     m1, m2, m3 = st.columns(3)
-    m1.metric("Net PnL",       f"{pnl_sign}${fmt(abs(pnl))}",  delta=f"{pnl_sign}{pnl_pct:.1f}%")
-    m2.metric("Profit Factor", f"{pf:.2f}" if pf != float("inf") else "∞")
-    m3.metric("Win Rate",      f"{wr:.1f}%",  delta=f"{n} trades")
+    m1.metric("Net PnL",       pnl_str,  delta=pnl_delta)
+    m2.metric("Profit Factor", pf_str)
+    m3.metric("Win Rate",      wr_str,   delta=f"{trades_str} trades")
 
     m4, m5, m6 = st.columns(3)
-    m4.metric("Sharpe (ann.)", f"{sharpe:.2f}")
-    m5.metric("Max Drawdown",  f"{dd:.1f}%")
-    m6.metric("Max Loss Streak", str(streak))
+    m4.metric("Sharpe (ann.)",   sharpe_str)
+    m5.metric("Max Drawdown",    dd_str)
+    m6.metric("Max Loss Streak", streak_str)
 
     m7, m8 = st.columns(2)
-    m7.metric("Best Trade",  f"+${fmt(best)}")
-    m8.metric("Worst Trade", f"-${fmt(abs(worst))}")
+    m7.metric("Total Trades",  trades_str)
+    m8.metric("Total PnL %",   f"{pnl_pct:+.1f}%" if isinstance(pnl_pct, (int, float)) else "—")
 
-    # ── Equity curve ──────────────────────────────────────────────────────────
-    if result.equity_curve:
+    # ── Combined equity curve ─────────────────────────────────────────────────
+    if result.combined_equity_curve:
         st.markdown("## Equity")
-        st.plotly_chart(_equity_chart(result.equity_curve, result.initial_capital),
-                        use_container_width=True)
+        st.plotly_chart(
+            _equity_chart(result.combined_equity_curve, result.initial_capital),
+            use_container_width=True,
+        )
 
-    # ── Export ────────────────────────────────────────────────────────────────
-    st.markdown("## Export")
-    st.download_button(
-        label="⬇  Download ZIP (trades · equity · summary)",
-        data=_build_export_zip(result, summary),
-        file_name=f"backtest_{result.symbol}_{result.timeframe}_{result.start_date}_{result.end_date}.zip",
-        mime="application/zip",
-        use_container_width=True,
-    )
+    # ── Per-symbol expander ───────────────────────────────────────────────────
+    with st.expander("Per-Symbol Detail", expanded=False):
+        for symbol in result.symbols:
+            st.markdown(f"### {symbol}")
 
+            sym_summary = result.per_symbol_summary.get(symbol, {})
+            sym_pnl     = sym_summary.get("total_pnl",       0.0)
+            sym_pf      = sym_summary.get("profit_factor",   0.0)
+            sym_wr      = sym_summary.get("win_rate_pct",    0.0)
+            sym_n       = sym_summary.get("total_trades",    0)
+            sym_sharpe  = sym_summary.get("sharpe_ratio",    0.0)
+            sym_dd      = sym_summary.get("max_drawdown_pct", 0.0)
 
-# ── Export builder ────────────────────────────────────────────────────────────
+            sym_pnl_str = (
+                f"{'+' if sym_pnl >= 0 else '-'}${fmt(abs(sym_pnl))}"
+                if isinstance(sym_pnl, (int, float)) else "—"
+            )
+            sym_pf_str  = (f"{sym_pf:.2f}" if sym_pf != float("inf") else "∞") if isinstance(sym_pf, (int, float)) else "—"
+            sym_wr_str  = f"{sym_wr:.1f}%" if isinstance(sym_wr, (int, float)) else "—"
 
-def _build_export_zip(result, summary: dict) -> bytes:
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        # trades.csv
-        if result.trades:
-            header = list(result.trades[0].keys())
-            rows   = [",".join(str(v) for v in t.values()) for t in result.trades]
-            zf.writestr("trades.csv", ",".join(header) + "\n" + "\n".join(rows))
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Net PnL",       sym_pnl_str)
+            c2.metric("Profit Factor", sym_pf_str)
+            c3.metric("Win Rate",      sym_wr_str)
 
-        # equity.csv
-        if result.equity_curve:
-            eq_header = list(result.equity_curve[0].keys())
-            eq_rows   = [",".join(str(v) for v in r.values()) for r in result.equity_curve]
-            zf.writestr("equity.csv", ",".join(eq_header) + "\n" + "\n".join(eq_rows))
+            st.caption(
+                f"Trades: {sym_n}  ·  Sharpe: {sym_sharpe:.2f}  ·  MaxDD: {sym_dd:.1f}%"
+            )
 
-        # summary.json — sanitize inf/nan for JSON
-        safe_summary = {
-            k: (None if isinstance(v, float) and (v == float("inf") or v != v) else v)
-            for k, v in summary.items()
-        }
-        safe_summary.update({
-            "symbol":    result.symbol,
-            "timeframe": result.timeframe,
-            "from":      str(result.start_date),
-            "to":        str(result.end_date),
-            "bars":      result.total_bars,
-        })
-        zf.writestr("summary.json", json.dumps(safe_summary, indent=2))
-
-    return buf.getvalue()
+            sym_trades = result.per_symbol_trades.get(symbol, [])
+            if sym_trades:
+                rows = [
+                    {
+                        "entry_time":  t.get("entry_time"),
+                        "side":        t.get("side"),
+                        "entry_price": t.get("entry_price"),
+                        "exit_price":  t.get("exit_price"),
+                        "pnl":         t.get("pnl"),
+                        "exit_reason": t.get("exit_reason"),
+                    }
+                    for t in sym_trades[-20:]
+                ]
+                st.dataframe(rows, use_container_width=True, hide_index=True)

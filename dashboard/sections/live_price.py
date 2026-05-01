@@ -99,12 +99,12 @@ def _add_position_levels(fig: go.Figure, trades: list[dict]) -> None:
 
 
 @st.fragment(run_every=RefreshRates.LIVE_PRICE)
-def live_price_section(db: Database) -> None:
-    tick        = db.get_live_tick(settings.symbol)
-    open_trades = db.get_open_trades()
+def live_price_section(db: Database, symbol: str) -> None:
+    tick        = db.get_live_tick(symbol)
+    open_trades = db.get_open_trades(symbol=symbol)
 
     if tick is None:
-        price = get_rest_price(settings.symbol)
+        price = get_rest_price(symbol)
         if price is not None:
             tick = {"price": price}
 
@@ -116,7 +116,7 @@ def live_price_section(db: Database) -> None:
     col_live, col_chart = st.columns([1, 3])
 
     with col_live:
-        st.metric("BTC/USDT LIVE", f"${fmt(live_price)}")
+        st.metric(f"{symbol} LIVE", f"${fmt(live_price)}")
         if open_trades:
             total_upnl = 0.0
             for trade in open_trades:
@@ -136,7 +136,7 @@ def live_price_section(db: Database) -> None:
                 st.caption(f"{len(open_trades)} open positions")
 
     with col_chart:
-        records = get_klines_cached(settings.symbol, settings.timeframe)
+        records = get_klines_cached(symbol, settings.timeframe)
         df_k = pd.DataFrame(records)
         if df_k.empty:
             st.caption("chart data unavailable")
@@ -151,7 +151,7 @@ def live_price_section(db: Database) -> None:
             increasing_line_color=WHITE,
             decreasing_line_color=RED,
         ))
-        signals = db.get_recent_signals(50)
+        signals = db.get_recent_signals(50, symbol=symbol)
         buy_sigs  = [s for s in signals if s["action"] == "BUY"]
         sell_sigs = [s for s in signals if s["action"] == "SELL"]
 
@@ -181,7 +181,6 @@ def live_price_section(db: Database) -> None:
                 showlegend=False, hoverinfo="skip",
             ))
 
-        # Live price — always on the right
         fig.add_hline(
             y=live_price,
             line_dash="dash",
@@ -191,7 +190,6 @@ def live_price_section(db: Database) -> None:
             annotation_position="right",
         )
 
-        # Entry / SL / TP lines — on the left, only when position is open
         if open_trades:
             _add_position_levels(fig, open_trades)
 

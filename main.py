@@ -131,8 +131,6 @@ def _apply_runtime_config(db: Database, risk_config: RiskConfig) -> None:
         settings.risk_per_trade = float(cfg["risk_per_trade"])  # keep settings in sync
     if "max_drawdown" in cfg:
         risk_config.max_drawdown = float(cfg["max_drawdown"])
-    if "max_concurrent" in cfg:
-        risk_config.max_concurrent_trades = int(cfg["max_concurrent"])
     if "cooldown_hours" in cfg:
         risk_config.cooldown_hours = int(cfg["cooldown_hours"])
     logger.info("Runtime config applied: %s", list(cfg.keys()))

@@ -33,10 +33,10 @@ class RiskManager:
         stop_loss: float,
         risk_fraction: float | None = None,
     ) -> float:
-        # Portfolio-level risk: divide total risk budget evenly across max concurrent slots.
-        # With max_concurrent_trades=1 (default) each trade risks risk_per_trade of capital.
+        # Each trade risks risk_per_trade of capital. Multi-symbol concurrency is
+        # enforced by 1 orchestrator per symbol (each with max_concurrent_trades=1).
         fraction = risk_fraction if risk_fraction is not None else self.config.risk_per_trade
-        risk_amount = capital * fraction / self.config.max_concurrent_trades
+        risk_amount = capital * fraction
         risk_per_unit = abs(entry - stop_loss)
 
         if risk_per_unit <= 0:
@@ -50,9 +50,8 @@ class RiskManager:
         quantity = round(quantity, self.config.quantity_precision)
 
         logger.info(
-            "Position size: capital=%.2f fraction=%.4f max_concurrent=%d entry=%.2f sl=%.2f → qty=%.*f",
-            capital, fraction, self.config.max_concurrent_trades,
-            entry, stop_loss, self.config.quantity_precision, quantity,
+            "Position size: capital=%.2f fraction=%.4f entry=%.2f sl=%.2f → qty=%.*f",
+            capital, fraction, entry, stop_loss, self.config.quantity_precision, quantity,
         )
         return quantity
 

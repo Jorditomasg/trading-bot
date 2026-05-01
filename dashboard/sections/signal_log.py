@@ -8,31 +8,16 @@ from dashboard.constants import GREEN, RED, WHITE, MUTED, CAPTION, RefreshRates
 
 
 @st.fragment(run_every=RefreshRates.POSITION)
-def signal_log_section(db: Database) -> None:
-    recent_signals = db.get_recent_signals(50)
+def signal_log_section(db: Database, symbol: str) -> None:
+    recent_signals = db.get_recent_signals(50, symbol=symbol)
 
     if not recent_signals:
-        st.caption("no signals yet")
-        return
-
-    symbols_in_signals = sorted({s["symbol"] for s in recent_signals})
-    options = ["All"] + symbols_in_signals
-    selected = st.selectbox("Symbol", options, index=0, key="siglog_sym_filter",
-                            label_visibility="collapsed")
-
-    filtered = (
-        recent_signals if selected == "All"
-        else [s for s in recent_signals if s["symbol"] == selected]
-    )
-
-    if not filtered:
-        st.caption("no signals for selected symbol")
+        st.caption(f"no signals yet for {symbol}")
         return
 
     df_s = pd.DataFrame([
         {
             "TIME":     s["timestamp"][:19].replace("T", " "),
-            "SYMBOL":   s["symbol"],
             "STRATEGY": s["strategy"],
             "REGIME":   s["regime"],
             "BIAS":     s.get("bias")     or "—",
@@ -40,7 +25,7 @@ def signal_log_section(db: Database) -> None:
             "ACTION":   s["action"],
             "STR":      f"{s['strength']:.2f}",
         }
-        for s in filtered
+        for s in recent_signals
     ])
 
     def _style_action(val: str):

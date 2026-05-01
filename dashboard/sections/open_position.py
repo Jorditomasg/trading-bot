@@ -131,16 +131,8 @@ def drawdown_section(db: Database) -> None:
 
 
 @st.fragment(run_every=RefreshRates.POSITION)
-def open_position_section(db: Database) -> None:
-    """Regime status + open trade details — one card per active symbol."""
-    symbols     = db.get_symbols()
-    open_trades = {t["symbol"]: t for t in db.get_open_trades()}
-
-    if not symbols:
-        st.caption("No symbols configured")
-        return
-
-    cols = st.columns(len(symbols))
-    for col, sym in zip(cols, symbols):
-        with col:
-            _render_symbol_card(db, sym, open_trades.get(sym))
+def open_position_section(db: Database, symbol: str) -> None:
+    """Regime status + open trade details for a single symbol."""
+    open_trades = db.get_open_trades(symbol=symbol)
+    trade = open_trades[0] if open_trades else None
+    _render_symbol_card(db, symbol, trade)

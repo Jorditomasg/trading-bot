@@ -13,8 +13,9 @@ from dashboard.sections.equity_chart import equity_chart_section
 from dashboard.sections.export import export_section
 from dashboard.sections.kpi_row import kpi_row_section
 from dashboard.sections.live_price import live_price_section
+from dashboard.sections.mini_cards import mini_cards_section
 from dashboard.sections.open_position import drawdown_section, open_position_section
-from dashboard.sections.performance import performance_section
+from dashboard.sections.performance import adaptive_params_section, performance_section
 from dashboard.sections.signal_log import signal_log_section
 from dashboard.constants import RefreshRates
 from dashboard.themes import NothingOS
@@ -22,7 +23,6 @@ from dashboard.utils import _bias_badge, _regime_badge
 
 DB_PATH = os.getenv("DB_PATH", "trading_bot.db")
 
-# ─── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="BOT / Trading Dashboard",
     page_icon="*",
@@ -30,17 +30,20 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ─── Nothing OS styles ────────────────────────────────────────────────────────
 st.markdown(NothingOS.NOTHING_CSS, unsafe_allow_html=True)
 
 
-# ─── DB ───────────────────────────────────────────────────────────────────────
 @st.cache_resource
 def get_db() -> Database:
     return Database(DB_PATH)
 
 
-# ─── Topbar fragment (updates clock + mode + bias every 5s) ───────────────────
+def _bot_label(symbols: list[str]) -> str:
+    if len(symbols) == 1:
+        return f"BOT / {symbols[0]}"
+    return f"BOT / {len(symbols)} SYMBOLS"
+
+
 @st.fragment(run_every=RefreshRates.TOPBAR)
 def _topbar(db: Database) -> None:
     recent_signals = db.get_recent_signals(1)
@@ -49,6 +52,7 @@ def _topbar(db: Database) -> None:
     is_paused      = db.get_bot_paused()
     active_mode    = db.get_active_mode()
     last_ts        = datetime.now().strftime("%H:%M:%S")
+    symbols        = db.get_symbols()
 
     mode_pill = (
         "<span class='pill pill-mainnet'>⚠ MAINNET</span>"
@@ -64,7 +68,7 @@ def _topbar(db: Database) -> None:
     st.markdown(
         f"""
         <div class="topbar">
-            <span class="bot-name"><span class="glyph">*</span> BOT / BTC·USDT</span>
+            <span class="bot-name"><span class="glyph">*</span> {_bot_label(symbols)}</span>
             {status_pill}
             {mode_pill}
             {_regime_badge(last_regime)}
@@ -76,11 +80,9 @@ def _topbar(db: Database) -> None:
     )
 
 
-# ─── Render ───────────────────────────────────────────────────────────────────
 def render() -> None:
     db = get_db()
 
-    # Topbar + action buttons — always visible across all tabs
     bar_col, exp_col = st.columns([14, 1])
     with bar_col:
         _topbar(db)
@@ -90,15 +92,21 @@ def render() -> None:
 
     st.divider()
 
-    # ── Navigation tabs ────────────────────────────────────────────────────
     tab_monitor, tab_config, tab_backtest = st.tabs(
         ["MONITOR", "CONFIG", "BACKTEST"]
     )
 
-    # ── MONITOR ────────────────────────────────────────────────────────────
     with tab_monitor:
-        kpi_row_section(db)
+        # Persistent strip: 4 KPIs globales + cards mini per-symbol
+        col_kpi, col_cards = st.columns([3, 4])
+        with col_kpi:
+            kpi_row_section(db)
+        with col_cards:
+            mini_cards_section(db)
 
+        st.divider()
+
+        # Global charts
         col_eq, col_dd = st.columns([3, 2])
         with col_eq:
             st.markdown("## Equity")
@@ -109,24 +117,35 @@ def render() -> None:
 
         st.divider()
 
-        st.markdown("## Live")
-        live_price_section(db)
+        # Per-symbol tabs
+        symbols = db.get_symbols()
+        if not symbols:
+            st.caption("No symbols configured — add symbols in CONFIG.")
+        else:
+            sym_tabs = st.tabs(symbols)
+            for sym, sym_tab in zip(symbols, sym_tabs):
+                with sym_tab:
+                    st.markdown("## Live")
+                    live_price_section(db, sym)
 
-        st.markdown("## State")
-        open_position_section(db)
+                    st.markdown("## State")
+                    open_position_section(db, sym)
+                    st.divider()
+
+                    st.markdown("## Signals")
+                    signal_log_section(db, sym)
+                    st.divider()
+
+                    performance_section(db, sym)
+
         st.divider()
 
-        st.markdown("## Signals")
-        signal_log_section(db)
-        st.divider()
+        # Bot-wide adaptive params log
+        adaptive_params_section(db)
 
-        performance_section(db)
-
-    # ── CONFIG ─────────────────────────────────────────────────────────────
     with tab_config:
         config_manager_section(db)
 
-    # ── BACKTEST ───────────────────────────────────────────────────────────
     with tab_backtest:
         sub_backtest, sub_compare = st.tabs(["BACKTEST", "COMPARE"])
         with sub_backtest:
