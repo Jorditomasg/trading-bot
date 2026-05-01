@@ -336,16 +336,34 @@ class PortfolioBacktestEngine:
             equity_curve.append({"time": "", "balance": capital})
 
         # ── Per-symbol summaries via the shared BacktestEngine helper ─────────
+        # Each symbol gets its own derived equity curve (initial + cumulative
+        # realised PnL of its own trades) so total_pnl, Sharpe and MaxDD are
+        # symbol-specific instead of mirroring the portfolio total.
         per_symbol_trades:  dict[str, list[dict]] = {s: st.trades for s, st in states.items()}
         per_symbol_summary: dict[str, dict]       = {}
         for symbol, state in states.items():
             symbol_start = state.df.iloc[state.min_lookback]["open_time"].strftime("%Y-%m-%d")
             symbol_end   = state.df.iloc[-1]["open_time"].strftime("%Y-%m-%d")
+
+            initial      = self.config.initial_capital
+            running      = initial
+            sym_equity: list[dict] = [
+                {"bar": 0, "time": str(state.df.iloc[state.min_lookback]["open_time"]), "balance": running}
+            ]
+            for t in state.trades:
+                running += t.get("pnl") or 0.0
+                sym_equity.append({
+                    "bar":     t.get("exit_bar")  or 0,
+                    "time":    str(t.get("exit_time") or ""),
+                    "balance": running,
+                })
+            sym_final = running
+
             sym_result   = BacktestResult(
                 trades          = state.trades,
-                equity_curve    = equity_curve,
-                initial_capital = self.config.initial_capital,
-                final_capital   = capital,
+                equity_curve    = sym_equity,
+                initial_capital = initial,
+                final_capital   = sym_final,
                 timeframe       = self.config.timeframe,
                 symbol          = symbol,
                 start_date      = symbol_start,
