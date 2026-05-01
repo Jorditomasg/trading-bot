@@ -57,3 +57,4 @@ data/
 # Agent tooling
 .atl/
 .worktrees/
+.claude/

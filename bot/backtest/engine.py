@@ -31,6 +31,7 @@ from bot.metrics import (
     sharpe_ratio,
 )
 from bot.regime.detector import MarketRegime, RegimeDetector
+from bot.risk.news_pause import NewsPauseConfig, is_pause_triggered
 from bot.strategy.base import Signal
 from bot.strategy.ema_crossover import EMACrossoverConfig, EMACrossoverStrategy
 from bot.strategy.signal_factory import hold_signal
@@ -72,6 +73,8 @@ class BacktestConfig:
     ema_require_momentum: bool  | None = None
     ema_min_atr_pct:      float | None = None
     ema_max_distance_atr: float | None = None
+    # Endogenous news-pause filter — passes through to NewsPauseConfig (defaults disable it)
+    news_pause: NewsPauseConfig | None = None
 
 
 @dataclass
@@ -85,13 +88,28 @@ class BacktestResult:
     start_date:      str
     end_date:        str
     total_bars:      int
+    news_pause_triggers: int = 0   # diagnostic: how many times the news-pause fired
 
 
 class BacktestEngine:
     """Simulates the complete live-bot pipeline (regime → strategy → bias → risk)
     bar by bar over a historical OHLCV DataFrame."""
 
-    def __init__(self, config: BacktestConfig = BacktestConfig()) -> None:
+    def __init__(
+        self,
+        config: BacktestConfig = BacktestConfig(),
+        strategy: object | None = None,
+        strategies_by_regime: dict | None = None,
+    ) -> None:
+        """If `strategy` is provided, it overrides the default EMA crossover.
+
+        If `strategies_by_regime` is provided (dict[MarketRegime, BaseStrategy]),
+        the engine dispatches per-regime. Regimes absent from the map return HOLD.
+        Used to backtest regime-switching architectures without forking the loop.
+
+        When neither is provided, defaults to: TRENDING → EMA crossover, others HOLD
+        (current production behavior).
+        """
         self.config = config
         tf = config.timeframe
 
@@ -110,11 +128,16 @@ class BacktestEngine:
         if config.long_only:
             ema_cfg["long_only"] = True
 
+        default_strategy = strategy if strategy is not None else EMACrossoverStrategy(
+            EMACrossoverConfig(**ema_cfg)
+        )
         self._strategies: dict[StrategyName, object] = {
-            StrategyName.EMA_CROSSOVER: EMACrossoverStrategy(
-                EMACrossoverConfig(**ema_cfg)
-            ),
+            StrategyName.EMA_CROSSOVER: default_strategy,
         }
+        # Per-regime dispatch table (overrides _strategies if set).
+        self._strategies_by_regime: dict | None = strategies_by_regime
+        # Most recent strategy name used by _generate_signal (for trade tagging).
+        self._last_strategy_name: str = "EMA_CROSSOVER"
         # BiasFilter is disabled when no 4h data is expected (e.g. 4h primary timeframe).
         # It will also auto-disable at runtime if run() receives df_4h=None.
         self._bias_filter = BiasFilter(BiasFilterConfig())
@@ -191,14 +214,26 @@ class BacktestEngine:
     ) -> tuple[MarketRegime, Signal]:
         """Regime detection → strategy signal → bias filter gate.
 
-        Only generates entries when regime == TRENDING. Other regimes return HOLD.
+        Dispatch:
+        - If `strategies_by_regime` was provided: pick strategy by regime
+          (regimes absent from the map → HOLD).
+        - Else (legacy): TRENDING → EMA crossover; other regimes → HOLD.
         """
         regime  = self._regime_detector.detect(window)
         atr_val = 0.0
-        if regime != MarketRegime.TRENDING:
-            return regime, hold_signal(atr=atr_val)
 
-        strategy = self._strategies[StrategyName.EMA_CROSSOVER]
+        if self._strategies_by_regime is not None:
+            strategy = self._strategies_by_regime.get(regime)
+            if strategy is None:
+                self._last_strategy_name = "NONE"
+                return regime, hold_signal(atr=atr_val)
+        else:
+            if regime != MarketRegime.TRENDING:
+                self._last_strategy_name = "NONE"
+                return regime, hold_signal(atr=atr_val)
+            strategy = self._strategies[StrategyName.EMA_CROSSOVER]
+
+        self._last_strategy_name = strategy.name
         signal: Signal = strategy.generate_signal(window)
 
         bias = self._bias_filter.get_bias(window_4h)
@@ -429,6 +464,9 @@ class BacktestEngine:
         open_trade: dict | None = None
         equity_curve: list[dict] = [{"bar": 0, "time": str(df.iloc[0]["open_time"]), "balance": capital}]
         cooldown_bars: int = 0   # bars remaining before next entry is allowed
+        news_pause_remaining: int = 0   # bars remaining of news-pause block
+        news_pause_triggers: int = 0    # diagnostic count
+        news_pause_cfg = self.config.news_pause
 
         for i in range(min_lb, len(df)):
             bar          = df.iloc[i]
@@ -446,7 +484,7 @@ class BacktestEngine:
 
             # Generate signal (regime + strategy + bias filter)
             regime, signal = self._generate_signal(window, window_4h)
-            strategy_name  = StrategyName.EMA_CROSSOVER
+            strategy_name  = self._last_strategy_name
 
             closed_this_bar = False
 
@@ -519,12 +557,21 @@ class BacktestEngine:
             # Tick down cooldown counter each bar
             if cooldown_bars > 0:
                 cooldown_bars -= 1
+            if news_pause_remaining > 0:
+                news_pause_remaining -= 1
+
+            # News-pause trigger check (endogenous: ATR + volume spike)
+            if news_pause_cfg is not None and news_pause_cfg.enabled:
+                if is_pause_triggered(window, news_pause_cfg):
+                    news_pause_remaining = news_pause_cfg.bars_after
+                    news_pause_triggers += 1
 
             # ── 2. Entry check ────────────────────────────────────────────────
             if (
                 not closed_this_bar
                 and open_trade is None
                 and cooldown_bars == 0
+                and news_pause_remaining == 0
                 and momentum_state != "BEARISH"
                 and signal.action != "HOLD"
                 and signal.strength >= self.config.min_signal_strength
@@ -552,7 +599,7 @@ class BacktestEngine:
                         "take_profit": signal.take_profit,
                         "quantity":    quantity,
                         "atr":         signal.atr,
-                        "strategy":    strategy_name.value,
+                        "strategy":    strategy_name,
                         "regime":      regime.value,
                         # filled on close:
                         "exit_bar":    None,
@@ -591,15 +638,16 @@ class BacktestEngine:
         end_date   = df.iloc[-1]["open_time"].strftime("%Y-%m-%d")
 
         return BacktestResult(
-            trades          = trades,
-            equity_curve    = equity_curve,
-            initial_capital = self.config.initial_capital,
-            final_capital   = capital,
-            timeframe       = self.config.timeframe,
-            symbol          = symbol,
-            start_date      = start_date,
-            end_date        = end_date,
-            total_bars      = len(df) - min_lb,
+            trades              = trades,
+            equity_curve        = equity_curve,
+            initial_capital     = self.config.initial_capital,
+            final_capital       = capital,
+            timeframe           = self.config.timeframe,
+            symbol              = symbol,
+            start_date          = start_date,
+            end_date            = end_date,
+            total_bars          = len(df) - min_lb,
+            news_pause_triggers = news_pause_triggers,
         )
 
     # ── Metrics summary (convenience) ─────────────────────────────────────────
