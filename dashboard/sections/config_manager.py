@@ -52,6 +52,7 @@ def config_manager_section(db: Database) -> None:
     cur_bias_passthrough = cfg.get("bias_neutral_passthrough", "true") == "true"
     cur_bias_threshold   = float(cfg.get("bias_neutral_threshold", "0.001"))
     cur_long_only        = cfg.get("long_only", "false") == "true"
+    cur_backtest_cost    = float(cfg.get("backtest_cost_per_side", "0.001"))
 
     # ── Trading ───────────────────────────────────────────────────────────────
     st.markdown("## Trading")
@@ -84,10 +85,27 @@ def config_manager_section(db: Database) -> None:
             max_dd_pct = st.number_input(
                 "Max Drawdown (%)", min_value=5.0, max_value=50.0,
                 value=round(cur_max_dd * 100, 1), step=1.0, format="%.1f",
+                help=(
+                    "Circuit breaker: when portfolio drawdown exceeds this %, "
+                    "new entries are blocked until DD recovers OR cooldown elapses. "
+                    "Calibrate to your risk: 1-2% risk → 15% (default). "
+                    "3-4% risk → 25-35% (otherwise the breaker traps the bot during normal swings)."
+                ),
             )
+            # Warn if max_drawdown is too tight relative to risk_per_trade
+            if risk_pct >= 3.0 and max_dd_pct < 25.0:
+                st.warning(
+                    f"⚠ Max DD {max_dd_pct:.0f}% may be too tight for {risk_pct:.0f}% risk. "
+                    f"Backtest suggests the breaker would trap the bot at this risk level. "
+                    f"Consider 25-35% to allow the strategy to breathe."
+                )
         with c3:
             cooldown_hours = st.number_input(
                 "Cooldown (h)", min_value=1, max_value=48, value=cur_cooldown, step=1,
+                help=(
+                    "Hours that the circuit breaker stays active after triggering. "
+                    "If DD recovers below threshold sooner, breaker resets early."
+                ),
             )
 
         st.markdown("## BiasFilter & Direction")
@@ -119,6 +137,21 @@ def config_manager_section(db: Database) -> None:
                 ),
             )
 
+        st.markdown("## Backtest")
+        bt1, _bt2 = st.columns([1, 2])
+        with bt1:
+            backtest_cost_pct = st.number_input(
+                "Backtest fee/side (%)",
+                min_value=0.000, max_value=0.500,
+                value=round(cur_backtest_cost * 100, 4),
+                step=0.005, format="%.4f",
+                help=(
+                    "Per-side fee + slippage assumed in backtests (round trip = 2× this). "
+                    "Production fees are charged automatically by Binance — this only affects sims. "
+                    "Reference Binance Spot VIP-0 = 0.10% per side. With BNB discount = 0.075%."
+                ),
+            )
+
         saved = st.form_submit_button("💾  Save Configuration", use_container_width=True)
 
     if saved:
@@ -134,6 +167,7 @@ def config_manager_section(db: Database) -> None:
                 bias_neutral_passthrough="true" if bias_passthrough else "false",
                 bias_neutral_threshold=str(round(bias_threshold_pct / 100, 4)),
                 long_only="true" if long_only_mode else "false",
+                backtest_cost_per_side=str(round(backtest_cost_pct / 100, 5)),
             )
             st.success("Configuration saved — restart the bot to apply all changes.")
 

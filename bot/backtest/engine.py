@@ -17,10 +17,11 @@ Design decisions:
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 
+from bot.backtest.cost import resolve_cost_per_side
 from bot.bias.filter import BiasFilter, BiasFilterConfig
 from bot.config_presets import get_regime_config, get_strategy_configs
 from bot.constants import StrategyName
@@ -52,7 +53,7 @@ class BacktestConfig:
     initial_capital:   float = 10_000.0
     risk_per_trade:    float = 0.01
     timeframe:         str   = "1h"
-    cost_per_side_pct: float = 0.0015
+    cost_per_side_pct: float = field(default_factory=resolve_cost_per_side)
     min_signal_strength: float = 0.5
     min_4h_bars:       int   = 22
     post_close_cooldown_bars: int = 3
@@ -73,6 +74,8 @@ class BacktestConfig:
     ema_require_momentum: bool  | None = None
     ema_min_atr_pct:      float | None = None
     ema_max_distance_atr: float | None = None
+    # Bias filter strictness — True: only matching-bias signals pass (no NEUTRAL trades)
+    bias_strict:          bool  = False
     # Endogenous news-pause filter — passes through to NewsPauseConfig (defaults disable it)
     news_pause: NewsPauseConfig | None = None
 
@@ -140,7 +143,10 @@ class BacktestEngine:
         self._last_strategy_name: str = "EMA_CROSSOVER"
         # BiasFilter is disabled when no 4h data is expected (e.g. 4h primary timeframe).
         # It will also auto-disable at runtime if run() receives df_4h=None.
-        self._bias_filter = BiasFilter(BiasFilterConfig())
+        # `bias_strict=True` blocks NEUTRAL bias signals (signal must match bias direction).
+        self._bias_filter = BiasFilter(BiasFilterConfig(
+            neutral_passthrough=not config.bias_strict
+        ))
 
     # ── Private helpers ───────────────────────────────────────────────────────
 

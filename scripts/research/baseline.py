@@ -97,7 +97,6 @@ def run_baseline() -> dict:
         initial_capital=10_000,
         risk_per_trade=0.02,
         timeframe="4h",
-        cost_per_side_pct=0.0015,
         # Current optimal (per CLAUDE.md):
         long_only=True,
         ema_stop_mult=1.5,

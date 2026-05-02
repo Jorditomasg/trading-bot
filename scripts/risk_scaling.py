@@ -23,7 +23,7 @@ IMPROVED_EMA_4H = EMACrossoverConfig(
 
 def run(tf, risk, df, df_bias):
     cfg = BacktestConfig(
-        timeframe=tf, risk_per_trade=risk, cost_per_side_pct=0.0007,
+        timeframe=tf, risk_per_trade=risk,
         ema_tp_mult=5.0, trail_atr_mult=1.5, trail_activation_mult=2.0,
     )
     engine = BacktestEngine(cfg)

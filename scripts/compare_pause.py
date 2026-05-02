@@ -91,7 +91,6 @@ def _run_variant(
         initial_capital   = 10_000.0,
         risk_per_trade    = risk,
         timeframe         = "4h",
-        cost_per_side_pct = 0.0015,
         leverage          = 1.0,
         long_only         = True,
         news_pause        = variant.pause,

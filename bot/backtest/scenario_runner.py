@@ -131,7 +131,6 @@ class ScenarioRunner:
             initial_capital         = 10_000.0,
             risk_per_trade          = self._risk,
             timeframe               = tf,
-            cost_per_side_pct       = 0.0015,
             leverage                = scenario.leverage,
             funding_rate_per_8h     = 0.0001,
             momentum_filter_enabled = scenario.momentum_filter,

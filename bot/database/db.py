@@ -583,6 +583,14 @@ class Database:
             return []
         return [s.strip() for s in raw.split(",") if s.strip()]
 
+    def get_backtest_cost_per_side(self) -> float:
+        """Return per-side fee+slippage assumed in backtests. Default 0.001 (0.10%)."""
+        cfg = self.get_runtime_config()
+        try:
+            return float(cfg.get("backtest_cost_per_side", "0.001"))
+        except (TypeError, ValueError):
+            return 0.001
+
     def set_symbols(self, symbols: list[str]) -> None:
         """Persist the symbol list to bot_config."""
         self.set_runtime_config(symbols=",".join(symbols))

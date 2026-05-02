@@ -18,6 +18,7 @@ import logging
 import sys
 from datetime import datetime, timezone, timedelta
 
+from bot.backtest.cost import resolve_cost_per_side
 from bot.backtest.engine import BacktestConfig, BacktestEngine
 from bot.backtest.fetcher import fetch_historical_klines
 
@@ -164,8 +165,10 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--no-bias",       action="store_true", help="Disable BiasFilter")
     p.add_argument("--bias-tf",       default=None,
                    help="Timeframe for BiasFilter data (e.g. 1d, 4h). Default: one step up from primary TF.")
-    p.add_argument("--cost",          type=float, default=0.0015,
-                   help="Cost per side as a fraction (slippage + commission)")
+    p.add_argument("--cost",          type=float, default=resolve_cost_per_side(),
+                   help="Cost per side as a fraction (slippage + commission). "
+                        "Default reads `backtest_cost_per_side` from DB bot_config "
+                        "(set it from dashboard CONFIG tab; falls back to 0.10%%).")
     p.add_argument("--min-strength",  type=float, default=0.5,
                    help="Minimum signal strength to enter a trade (0.0–1.0)")
     return p.parse_args()

@@ -25,7 +25,7 @@ BIAS   = "1d"
 CONFIGS = {
     "A — Baseline": {
         "bt": BacktestConfig(
-            timeframe=TF, cost_per_side_pct=0.0007,
+            timeframe=TF,
             ema_tp_mult=3.5,
             trail_atr_mult=1.5, trail_activation_mult=1.0,
         ),
@@ -37,7 +37,7 @@ CONFIGS = {
     },
     "B — Better trail only": {
         "bt": BacktestConfig(
-            timeframe=TF, cost_per_side_pct=0.0007,
+            timeframe=TF,
             ema_tp_mult=5.0,
             trail_atr_mult=1.5, trail_activation_mult=2.0,
         ),
@@ -49,7 +49,7 @@ CONFIGS = {
     },
     "C — Filters only (no trail change)": {
         "bt": BacktestConfig(
-            timeframe=TF, cost_per_side_pct=0.0007,
+            timeframe=TF,
             ema_tp_mult=3.5,
             trail_atr_mult=1.5, trail_activation_mult=1.0,
         ),
@@ -61,7 +61,7 @@ CONFIGS = {
     },
     "D — Full improvement": {
         "bt": BacktestConfig(
-            timeframe=TF, cost_per_side_pct=0.0007,
+            timeframe=TF,
             ema_tp_mult=5.0,
             trail_atr_mult=1.5, trail_activation_mult=2.0,
         ),

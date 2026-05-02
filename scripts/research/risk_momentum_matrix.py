@@ -25,7 +25,7 @@ for risk in (0.02, 0.03, 0.04):
     for mom in (False, True):
         cfg = BacktestConfig(
             initial_capital=10000, risk_per_trade=risk,
-            timeframe="4h", cost_per_side_pct=0.0015,
+            timeframe="4h",
             momentum_filter_enabled=mom,
             momentum_sma_period=20,
             momentum_neutral_band=0.08,

@@ -154,6 +154,7 @@ def _seed_optimized_defaults(db: Database) -> None:
         "ema_tp_mult":     "4.5",
         "ema_max_dist_atr":"1.0",
         "long_only":       "true",
+        "backtest_cost_per_side": "0.001",   # 0.10% per side (Binance VIP-0 spot, no BNB discount)
     }
 
     to_seed = {k: v for k, v in defaults.items() if k not in cfg}
