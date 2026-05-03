@@ -315,12 +315,12 @@ def run_cycle(
     # Snapshot circuit breaker state before step to detect new triggers
     breaker_was_active = orchestrator.risk_manager._breaker_triggered_at is not None
 
-    orders = orchestrator.step(df, balance, df_4h, df_weekly)
+    orders = orchestrator.step(df, balance, df_high=df_4h, df_weekly=df_weekly, total_balance=total_balance)
 
     # Notify if circuit breaker just fired this cycle
     if notifier and not breaker_was_active:
         if orchestrator.risk_manager._breaker_triggered_at is not None:
-            drawdown = compute_drawdown(db, balance)
+            drawdown = compute_drawdown(db, total_balance)
             notifier.circuit_breaker(drawdown, db.get_active_mode())
 
     if orders:
@@ -333,14 +333,14 @@ def run_cycle(
     else:
         logger.info("[%s] No orders this cycle", sym)
 
-    drawdown = compute_drawdown(db, balance)
-    db.insert_equity_snapshot(balance=balance, drawdown=drawdown)
-    logger.info("[%s] Equity snapshot balance=%.2f drawdown=%.4f", sym, balance, drawdown)
+    drawdown = compute_drawdown(db, total_balance)
+    db.insert_equity_snapshot(balance=total_balance, drawdown=drawdown)
+    logger.info("[%s] Equity snapshot total_balance=%.2f drawdown=%.4f", sym, total_balance, drawdown)
 
     if adaptor is not None:
-        peak = db.get_peak_capital() or balance
+        peak = db.get_peak_capital() or total_balance
         adaptor.maybe_adapt(
-            circuit_breaker_active=orchestrator.risk_manager.check_circuit_breaker(balance, peak)
+            circuit_breaker_active=orchestrator.risk_manager.check_circuit_breaker(total_balance, peak)
         )
 
     logger.info("─── [%s] Cycle end ───", sym)

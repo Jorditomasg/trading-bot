@@ -53,16 +53,18 @@ class StrategyOrchestrator:
         current_balance: float,
         df_high: Optional[pd.DataFrame] = None,
         df_weekly: Optional[pd.DataFrame] = None,
+        total_balance: Optional[float] = None,
     ) -> list[dict]:
         sym = self.symbol
+        cb_balance = total_balance if total_balance is not None else current_balance
 
         # Update High Water Mark (HWM)
-        if current_balance > self._peak_capital:
-            self._peak_capital = current_balance
+        if cb_balance > self._peak_capital:
+            self._peak_capital = cb_balance
             self.db.set_peak_capital(self._peak_capital)
             logger.info("[%s] HWM updated: peak=%.2f", sym, self._peak_capital)
 
-        if self.risk_manager.check_circuit_breaker(current_balance, self._peak_capital):
+        if self.risk_manager.check_circuit_breaker(cb_balance, self._peak_capital):
             logger.warning("[%s] circuit breaker active — no trading this cycle", sym)
             return []
 
