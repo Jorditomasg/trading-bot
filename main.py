@@ -214,7 +214,7 @@ def _init_quantity_precision(orchestrator: StrategyOrchestrator, db: Database) -
     """Fetch the real LOT_SIZE stepSize for the configured symbol and update risk config."""
     try:
         client    = _build_client(db)
-        precision = client.get_quantity_precision(settings.symbol)
+        precision = client.get_quantity_precision(orchestrator.symbol)
         orchestrator.risk_manager.config.quantity_precision = precision
     except Exception as exc:
         logger.warning(
@@ -700,13 +700,6 @@ def main() -> None:
     schedule.every(7).days.do(
         _launch_auto_entry_quality_optimizer, db, primary_orch, notifier
     )
-
-    # Evaluate immediately on startup so a mid-hour restart doesn't lose a window
-    logger.info("Running initial cycle on startup")
-    try:
-        run_all_cycles()
-    except Exception as exc:
-        logger.error("Initial cycle failed: %s", exc, exc_info=True)
 
     while not _shutdown:
         if db.consume_restart_request():

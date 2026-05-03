@@ -108,7 +108,9 @@ class BinanceClient:
             type=order_type,
             quantity=quantity,
         )
-        logger.info("Order placed orderId=%s status=%s", order["orderId"], order["status"])
+        order_id = order.get("orderId", "N/A")
+        status   = order.get("status", "N/A")
+        logger.info("Order placed orderId=%s status=%s", order_id, status)
         return order
 
     def get_price_precision(self, symbol: str) -> int:
@@ -173,34 +175,36 @@ class BinanceClient:
                 quantity=quantity,
                 price=price_str,
             )
+            order_id = order.get("orderId", "N/A")
+            status   = order.get("status", "N/A")
             logger.info(
                 "LIMIT_MAKER placed orderId=%s status=%s",
-                order["orderId"], order["status"],
+                order_id, status,
             )
 
-            if order["status"] == "FILLED":
+            if status == "FILLED":
                 return order
 
             # Poll for fill
-            order_id = order["orderId"]
             deadline  = time.time() + wait_seconds
             while time.time() < deadline:
                 time.sleep(2)
-                status = self._client.get_order(symbol=symbol, orderId=order_id)
+                status_dict = self._client.get_order(symbol=symbol, orderId=order_id)
+                current_status = status_dict.get("status", "N/A")
                 logger.debug(
                     "LIMIT_MAKER poll orderId=%s status=%s",
-                    order_id, status["status"],
+                    order_id, current_status,
                 )
-                if status["status"] == "FILLED":
+                if current_status == "FILLED":
                     logger.info(
                         "LIMIT_MAKER filled orderId=%s after %.0fs",
                         order_id, wait_seconds - max(0, deadline - time.time()),
                     )
-                    return status
-                if status["status"] in ("CANCELED", "REJECTED", "EXPIRED"):
+                    return status_dict
+                if current_status in ("CANCELED", "REJECTED", "EXPIRED"):
                     logger.warning(
                         "LIMIT_MAKER order reached terminal state=%s — falling back to MARKET",
-                        status["status"],
+                        current_status,
                     )
                     break
             else:
