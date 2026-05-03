@@ -255,6 +255,7 @@ def run_cycle(
     dry_run: bool,
     adaptor: ParameterAdaptor | None = None,
     notifier: TelegramNotifier | None = None,
+    n_symbols: int = 1,
 ) -> None:
     sym = orchestrator.symbol
     logger.info(
@@ -297,11 +298,19 @@ def run_cycle(
         )
 
     try:
-        balance = client.get_balance("USDT")
+        total_balance = client.get_balance("USDT")
     except Exception as exc:
         logger.warning("[%s] Failed to fetch balance, using last known: %s", sym, exc)
         curve = db.get_equity_curve()
-        balance = curve[-1]["balance"] if curve else settings.initial_capital
+        total_balance = curve[-1]["balance"] if curve else settings.initial_capital
+
+    # Allocate capital evenly across active symbols so one symbol can't drain the pool
+    balance = total_balance / max(1, n_symbols)
+    if n_symbols > 1:
+        logger.info(
+            "[%s] Capital allocation: total=%.2f / %d symbols → allocated=%.2f",
+            sym, total_balance, n_symbols, balance,
+        )
 
     # Snapshot circuit breaker state before step to detect new triggers
     breaker_was_active = orchestrator.risk_manager._breaker_triggered_at is not None
@@ -665,9 +674,10 @@ def main() -> None:
     notifier.register_commands()
 
     def run_all_cycles() -> None:
+        n = len(orchestrators)
         for sym, orch in orchestrators.items():
             try:
-                run_cycle(orch, db, dry_run=args.dry_run, adaptor=adaptor, notifier=notifier)
+                run_cycle(orch, db, dry_run=args.dry_run, adaptor=adaptor, notifier=notifier, n_symbols=n)
             except Exception as exc:
                 logger.error("run_cycle failed for %s: %s", sym, exc)
 

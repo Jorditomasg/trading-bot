@@ -55,7 +55,19 @@ class RiskManager:
             )
             return 0.0
 
-        quantity = risk_amount / risk_per_unit
+        qty_by_risk    = risk_amount / risk_per_unit
+        # Spot has no margin: notional must fit in capital. 99% leaves headroom for fees + slippage.
+        qty_by_capital = (capital * 0.99) / entry
+        quantity       = min(qty_by_risk, qty_by_capital)
+
+        if quantity < qty_by_risk:
+            logger.warning(
+                "%sQty capped by capital: risk-based=%.5f → %.5f "
+                "(risk %.2f%% × SL_dist %.2f%% would need notional > 100%% of capital)",
+                self._tag, qty_by_risk, quantity,
+                fraction * 100, (risk_per_unit / entry) * 100,
+            )
+
         quantity = round(quantity, self.config.quantity_precision)
 
         logger.info(

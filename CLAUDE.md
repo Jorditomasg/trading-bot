@@ -71,9 +71,14 @@ before and after to compare: annual return, Sharpe ratio, profit factor, and max
               ┌────────────▼────────────┐
               │    BinanceClient         │  bot/exchange/binance_client.py
               │  get_klines(200 bars)    │
-              │  get_balance("USDT")     │
+              │  get_balance("USDT")     │──► total_balance
               └────────────┬────────────┘
                            │  pd.DataFrame (OHLCV)
+              ┌────────────▼────────────┐
+              │  Capital allocation      │  main.py:run_cycle
+              │  balance = total / N     │  N = len(active symbols)
+              └────────────┬────────────┘
+                           │  allocated balance
               ┌────────────▼────────────┐
               │  StrategyOrchestrator    │  bot/orchestrator.py
               │    .step(df, balance)    │
@@ -97,8 +102,8 @@ before and after to compare: annual return, Sharpe ratio, profit factor, and max
       ┌──────────▼──────────┐
       │   RiskManager        │  bot/risk/manager.py
       │  validate_signal()   │  rejects if strength < 0.4 or circuit breaker active
-      │  compute_position_   │  risk_amount / (entry - stop_loss)
-      │  size()              │
+      │  compute_position_   │  qty = min(risk/(entry-SL),  capital*0.99/entry)
+      │  size()              │  ↑ risk-based            ↑ spot capital cap
       └──────────┬───────────┘
                  │ order dict
       ┌──────────▼──────────┐
@@ -122,13 +127,13 @@ before and after to compare: annual return, Sharpe ratio, profit factor, and max
 
 | File | Responsibility |
 |------|---------------|
-| `main.py` | Entry point, CLI flags, scheduler, run_cycle loop |
+| `main.py` | Entry point, CLI flags, scheduler, run_cycle loop; **`run_cycle` divides total USDT balance by `n_symbols` so each symbol gets an equitable allocation** |
 | `bot/config.py` | Settings dataclass, reads `.env` via python-dotenv |
 | `bot/constants.py` | All enums: ExitReason, TradeAction, OrderSide, StrategyName |
 | `bot/orchestrator.py` | Coordinates regime → strategy → bias filter → risk → order dict |
 | `bot/bias/filter.py` | `BiasFilter` — EMA9/21 on 4h candles; returns BULLISH/BEARISH/NEUTRAL; injected into orchestrator as hard gate before signal execution |
 | `bot/regime/detector.py` | 3-level regime detection: ATR volatility → ADX → Hurst |
-| `bot/risk/manager.py` | Circuit breaker, position sizing, signal validation |
+| `bot/risk/manager.py` | Circuit breaker, position sizing (risk-based **with spot capital cap**), signal validation |
 | `bot/strategy/base.py` | Abstract BaseStrategy + Signal dataclass |
 | `bot/strategy/ema_crossover.py` | EMA 9/21 crossover strategy (TRENDING) |
 | `bot/strategy/mean_reversion.py` | Bollinger Bands + RSI strategy (RANGING) |
@@ -241,19 +246,24 @@ The fallback can switch across regime boundaries (e.g., use EMA_CROSSOVER in a R
 
 These WILL bite you if you don't know them.
 
-### 1. Trailing stop is DISABLED — `RiskConfig.trailing_stop_enabled = False`
+### 1. Trailing stop has been REMOVED from the production code
 
 **The trailing stop was destroying performance.** 3-year backtest with trail ON: PF=0.764, Ann=-5%.
-Only 1 of 131 trades hit TP (trail cut every winner before it reached target).
-Trailing stop is now permanently disabled via `RiskConfig.trailing_stop_enabled = False`.
+Only 1 of 131 trades hit TP (trail cut every winner before it reached target). The ratcheting
+block, the `TRAILING_STOP` exit reason, and any `trailing_stop_enabled` config flag have been
+removed from `RiskConfig`, `position_manager()`, and `bot/constants.py`. Positions now exit
+ONLY via SL or TP.
 
-In `position_manager()` the ratcheting block and the `TRAILING_STOP` exit check are both gated
-on `risk_config.trailing_stop_enabled`. With it False, positions exit only via SL or TP.
+Legacy artifacts that remain (intentionally):
+- `trades.trailing_sl` column in the SQLite schema — preserved for legacy rows so old data
+  still loads. Never written by the live bot.
+- `BacktestConfig.simulate_trailing` defaults to False. All optimizers use `simulate_trailing=False`.
+- The docstring at `main.py:498` still mentions "ratchet trailing stop" — this is stale text,
+  the function only checks SL/TP.
 
-`trades.trailing_sl` column still exists in the DB (for legacy rows) but is never written.
-`BacktestConfig.simulate_trailing` defaults to False. All optimizers use `simulate_trailing=False`.
-
-To re-enable (not recommended): set `trailing_stop_enabled=True` in `RiskConfig.__init__`.
+To experiment with re-enabling trailing: you would need to re-introduce both the config flag
+AND the `position_manager` logic. Not recommended without re-running the full backtest first
+(the original removal was data-driven).
 
 ### 2. ADX uses Wilder smoothing, NOT simple rolling mean
 
@@ -469,6 +479,53 @@ momentum_neutral_band: float = 0.05   # ±5% around SMA
 Liquidation price for BUY: `entry × (1 − 0.9 / leverage)`. Trades closed with `EXIT_LIQUIDATED`; loss = full margin. Filter only gates **new entries** — open positions are never force-closed by momentum state.
 
 Use `ScenarioRunner` (not `BacktestEngine` directly) when comparing multiple leverage/momentum combinations — it handles data routing (1h→4h bias, 4h→1d bias) and computes annual return correctly.
+
+### 22. Multi-symbol balance is split equitably across symbols in `run_cycle`
+
+`run_cycle()` accepts `n_symbols: int` and divides the fetched USDT balance evenly:
+
+```python
+total_balance = client.get_balance("USDT")
+balance = total_balance / max(1, n_symbols)
+```
+
+`run_all_cycles()` passes `n_symbols=len(orchestrators)` so each per-symbol cycle sees a
+fair share of the pool. Without this, the first symbol in the loop would size positions
+against 100% of capital, draining the pool and starving every symbol after it
+(`-2010 insufficient balance` for the rest).
+
+The split is **equitable, not weighted**. To customise per-symbol weights you would have
+to plumb a weight map through `run_all_cycles()`. Currently each symbol gets `1/N`.
+
+A side effect: `BTCUSDT` and `ETHUSDT` both see `total/2` even when one of them has no
+open position. This trades capital efficiency for predictability — no symbol can blow up
+the pool. If you only want this behaviour above N>1, the `if n_symbols > 1` log line lets
+you spot the allocation in the cycle output.
+
+### 23. `RiskManager.compute_position_size` caps quantity by available capital
+
+Spot trading has no margin: notional cannot exceed cash. When `risk_per_trade / sl_distance_pct`
+yields more notional than 100% of capital (e.g. 3% risk × 2.76% SL = 108% of capital), the
+risk-based formula computes an impossible position. Binance rejects with `-2010`.
+
+To prevent this, `compute_position_size()` takes the minimum of two formulas:
+
+```python
+qty_by_risk    = (capital * risk_fraction) / (entry - stop_loss)
+qty_by_capital = (capital * 0.99) / entry          # 99% leaves margin for fees
+quantity       = min(qty_by_risk, qty_by_capital)  # cap kicks in only if needed
+```
+
+When the cap activates, a WARNING log line fires:
+
+```
+[BTCUSDT] Qty capped by capital: risk-based=0.54352 → 0.49507
+  (risk 3.00% × SL_dist 2.76% would need notional > 100% of capital)
+```
+
+The cap is a safety net — seeing it consistently means your `risk_per_trade` and
+`stop_atr_mult` combination is too aggressive for spot. The fix is to widen the SL
+(higher `ema_stop_mult`) or lower the risk per trade, not to ignore the warning.
 
 ---
 

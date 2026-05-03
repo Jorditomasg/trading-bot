@@ -123,4 +123,20 @@ class TestComputePositionSize:
         qty = self.rm.compute_position_size(capital=10_000, entry=50_000, stop_loss=50_000)
         assert qty == 0.0
 
+    def test_qty_capped_when_risk_exceeds_capital(self):
+        # 3% risk × 2.76% SL distance → risk-based qty would need 108.7% of capital.
+        # Cap must clamp to ~99% of capital / entry.
+        rm = RiskManager(RiskConfig(risk_per_trade=0.03))
+        qty = rm.compute_position_size(capital=39_280.54, entry=78_550.06, stop_loss=76_381.94)
+        notional = qty * 78_550.06
+        assert notional <= 39_280.54, f"notional {notional} exceeds capital"
+        assert notional >= 39_280.54 * 0.985, f"notional {notional} too far below 99% cap"
+
+    def test_qty_not_capped_when_risk_fits(self):
+        # 1% risk × 2% SL distance → 50% of capital. No cap needed.
+        rm = RiskManager(RiskConfig(risk_per_trade=0.01))
+        qty = rm.compute_position_size(capital=10_000, entry=50_000, stop_loss=49_000)
+        # risk-based qty = 0.1 (notional 5,000), well under 99% × 10,000 / 50,000 = 0.198 cap
+        assert abs(qty - 0.1) < 1e-6
+
 

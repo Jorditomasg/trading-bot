@@ -25,13 +25,13 @@ The bot runs on a configurable candle interval (default: 1h). Each cycle it:
 - 3-level regime detection: ATR volatility spike → ADX → Hurst exponent (R/S analysis)
 - 3 strategies, each tuned to a different market condition; calibrated per timeframe via presets (1h, 4h, 15m)
 - **Multi-timeframe BiasFilter**: EMA9/21 on the higher-TF candles gates primary-TF signals — only trades in the direction of the higher-timeframe trend; fail-closed (network errors block signals, not bypass them)
-- Dynamic position sizing: risk a fixed % of capital per trade (default 1%)
-- Trailing stop-loss that activates after a configurable ATR distance
+- Dynamic position sizing: risk a fixed % of capital per trade, with a spot capital cap that prevents notional from ever exceeding 99% of available capital
+- Multi-symbol equitable allocation: when running >1 symbol, each cycle sees `total_balance / N_symbols` as its working capital, so no single symbol can drain the pool
 - Circuit breaker: halts trading on >15% drawdown; auto-resets after 4 hours or recovery
 - Win-rate fallback: switches away from underperforming strategies automatically
 - Nothing OS dashboard — 4-tab Streamlit UI: MONITOR · CONFIG · BACKTEST · OPTIMIZER
 - **Walk-forward optimizer**: grid search over EMA SL/TP ATR multipliers on real historical data; approving a result updates the live config
-- **Backtest runner**: historical simulation with Parquet-cached klines; supports fee modelling and trailing stop
+- **Backtest runner**: historical simulation with Parquet-cached klines; supports fee modelling and weekly momentum filter
 - Full dry-run mode: no exchange calls, but equity curve is still recorded
 - DEMO / MAINNET mode switch from the dashboard settings panel
 - Telegram notifications: trade open/close, circuit breaker trigger, bot start/stop — tagged with `🧪 DEMO` or `🔴 MAINNET`
@@ -50,8 +50,14 @@ The bot runs on a configurable candle interval (default: 1h). Each cycle it:
                   │     BinanceClient        │
                   │  200 OHLCV candles (TF)  │
                   │  higher-TF bias candles  │
+                  │  USDT balance            │──► total_balance
                   └────────────┬────────────┘
                                │ df + df_high
+                  ┌────────────▼────────────┐
+                  │  Capital allocation      │  main.py
+                  │  balance = total / N     │  N = active symbols
+                  └────────────┬────────────┘
+                               │ allocated balance
                   ┌────────────▼────────────┐
                   │   StrategyOrchestrator   │
                   │                          │
@@ -79,7 +85,7 @@ The bot runs on a configurable candle interval (default: 1h). Each cycle it:
                   │  ┌────────────────────┐  │
                   │  │  RiskManager       │  │
                   │  │  validate_signal() │  │──► reject if strength < 0.4 or CB active
-                  │  │  position_size()   │  │──► qty = risk_amount / (entry - SL)
+                  │  │  position_size()   │  │──► qty = min(risk-based, capital cap)
                   │  └────────────────────┘  │
                   └────────────┬────────────┘
                                │ order dict
@@ -195,11 +201,14 @@ All configuration is read from environment variables (`.env` file or Docker env)
 | Parameter | Default | Description |
 |---|---|---|
 | `max_drawdown` | 0.15 (15%) | Circuit breaker threshold |
-| `max_concurrent_trades` | 1 | Maximum open positions |
+| `max_concurrent_trades` | 1 | Maximum open positions per symbol (each symbol has its own orchestrator) |
 | `min_signal_strength` | 0.4 | Minimum signal strength to trade |
 | `cooldown_hours` | 4 | Circuit breaker cooldown duration |
-| `trail_atr_mult` | 1.5 | Trailing SL distance in ATR units |
-| `trail_activation_mult` | 1.0 | Price must move this many ATRs before trailing SL activates |
+| `quantity_precision` | 5 | Decimal places for order quantity; overridden at startup from Binance `LOT_SIZE` filter |
+
+**Trailing stop has been removed.** Backtest evidence showed it destroyed performance (PF 1.55 → 0.76 with trailing on; only 1 of 131 trades hit TP). Positions exit only via SL or TP. The `trades.trailing_sl` DB column is preserved for legacy rows but never written by the live bot. See gotcha #1 in `CLAUDE.md`.
+
+Position sizing applies a **spot capital cap**: when the risk-based formula would request a notional larger than the available capital, `quantity` is reduced to `(capital × 0.99) / entry`. A WARNING log line fires when the cap activates so you can detect when your `risk_per_trade × stop_atr_mult` combination is too aggressive for spot.
 
 ---
 
@@ -322,8 +331,10 @@ on first startup with a fresh DB if the exchange returns fewer candles.
 
 **Trailing SL column is always NULL in the DB**
 
-This is normal for any trade that hasn't moved `trail_activation_mult × ATR` (default: 1 ATR)
-from entry. NULL means the trailing stop has not activated yet. The static SL is still in effect.
+This is expected: trailing stop is **disabled by default** (`RiskConfig.trailing_stop_enabled=False`).
+Backtest evidence showed it destroyed performance (PF 1.55 → 0.76, only 1 of 131 trades hit TP
+with trail on). The `trades.trailing_sl` column is preserved for legacy rows but no longer written.
+See gotcha #1 in `CLAUDE.md` for full context. Positions exit only via SL or TP.
 
 **Docker container exits immediately**
 
