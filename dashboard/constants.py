@@ -49,3 +49,9 @@ class RefreshRates:
 class CacheTTL:
     KLINES      = 300
     LIVE_PRICE  = 5
+
+# ─── Live chart bar buffer ────────────────────────────────────────────────────
+class LiveBars:
+    INITIAL = 200          # first load
+    STEP    = 200          # bars added per "Load more" click
+    MAX     = 1000         # Binance API hard limit per call

@@ -75,9 +75,13 @@ class BinanceClient:
             "close_time", "quote_asset_volume", "num_trades",
             "taker_buy_base", "taker_buy_quote", "ignore",
         ])
-        df = df[["open", "high", "low", "close", "volume"]].astype(float)
-        logger.debug("Fetched %d klines for %s/%s", len(df), symbol, interval)
-        return df
+        # open_time as datetime so chart consumers don't have to derive it
+        # synthetically. All numeric callers index by name (open/high/low/close/
+        # volume) so the extra column is non-breaking.
+        ohlcv = df[["open", "high", "low", "close", "volume"]].astype(float)
+        ohlcv.insert(0, "open_time", pd.to_datetime(df["open_time"], unit="ms"))
+        logger.debug("Fetched %d klines for %s/%s", len(ohlcv), symbol, interval)
+        return ohlcv
 
     @_retry
     def get_balance(self, asset: str = "USDT") -> float:
