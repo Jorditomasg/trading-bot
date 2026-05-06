@@ -4,57 +4,20 @@ Developer reference for this codebase. Read this before touching anything.
 
 ---
 
-## Project Goal — Profitability
+## Validated Baseline
 
-**Target: maximize annual return. The user considers 6% annual unacceptable.**
+Spot BTC/USDT, 4h timeframe, long-only, no trailing stop, `max_distance_atr=1.0`, TP=4.5×ATR, SL=1.5×ATR.
 
-The user has seen bots generating 70%+ annual and wants this project to reach that level.
+Hard rules from systematic 3-year backtests — do not change without re-running `BacktestEngine`:
 
-### Validated baseline (spot BTC/USDT, 4h, 3-year backtest Apr 2022–Apr 2025)
+- **Long-only on BTC**: bidirectional destroys PF (1.55 → 1.09). BTC's upward bias makes shorts net losers.
+- **No trailing stop**: trail cuts winners before TP (PF 1.55 → 0.76 with trail on). See gotcha #1.
+- **4h timeframe**: 1h is unviable (PF=0.75, Ann=-26%).
+- **No momentum filter**: reduces annual return without meaningful DD reduction.
+- **R:R ≥ 1.5**: optimizer skips any combo below this floor.
 
-**CURRENT OPTIMAL CONFIG**: long_only=True, no trailing stop, dist=1.0, TP=4.5, SL=1.5
-
-| Risk % | Annual return | Max drawdown | Sharpe | PF    | Trades/yr |
-|--------|--------------|--------------|--------|-------|-----------|
-| 1%     | ~11%         | ~11%         | 9.63   | 1.567 | ~30       |
-| 1.5%   | ~17%         | ~16%         | 9.63   | 1.560 | ~30       |
-| 2%     | ~22.5%       | ~20.5%       | 9.63   | 1.551 | ~30       |
-
-**Previous baseline** (with trailing stop, old params): PF=0.764, Ann=-5.2%, Sharpe=-5.19
-
-Key discoveries (April 2026 systematic optimization):
-1. **Trailing stop was destroying performance**: only 1 of 131 trades hit TP with trail ON; PF dropped from 1.55 to 0.76. Trailing stop is now fully disabled.
-2. **Long-only is mandatory for BTC**: bidirectional gave PF=1.09; long-only gives PF=1.55. BTC's upward bias means short trades are losers.
-3. **max_distance_atr=1.0 captures momentum zone**: captures trend-continuation entries up to 1 ATR from EMA9, not just tight crossovers. More trades (90/3yr vs 65) with better PF.
-4. **TP=4.5 is optimal at dist=1.0**: wider entry zone → stronger momentum → trades need more room to run.
-5. **1h timeframe is terrible**: PF=0.75, Ann=-26%. Stay on 4h.
-6. **Momentum filter hurts**: reduces annual from 22.5% to 9.6% without meaningful DD reduction.
-7. **SL=1.5 is optimal**: SL=1.0 causes too many stop-outs (PF<1), SL=2.0 over-risks.
-
-### Levers explored (as of April 2026)
-
-| Lever | Result |
-|-------|--------|
-| Trailing stop removal | **CRITICAL** — removing trail stop: PF 0.76 → 1.55, Ann -5% → +22% |
-| Long-only mode | **CRITICAL** — BTC bias: PF 1.09 → 1.55, eliminates losing short trades |
-| max_distance_atr=1.0 | Done — captures momentum zone; was 0.3 (too tight) |
-| TP=4.5 (was 3.5) | Done — optimal for dist=1.0 momentum entries |
-| Risk scaling to 2% | Recommended — doubles return, MaxDD stays ≤21% |
-| 1h timeframe | Tested and rejected — PF=0.75, Ann=-26% |
-| Momentum filter | Tested and rejected — reduces annual by 54% |
-| Widening RSI threshold (MR) | Tested — hurts quality, RSI<30 already optimal |
-| Multiple assets (3×) | +diversification, fees manageable at 30 trades/yr/asset |
-
-### Path to 30%+ (within reach)
-
-1. **Risk at 2%** — changes Jan from 11% to 22.5%. Half-Kelly at WR=38.9%, payoff=2.44x is 5.6%, so 2% is Quarter-Kelly (conservative).
-2. **Risk at 3%** — projects ~33% annual with ~30% DD. High but Kelly-justified (2/3 Quarter-Kelly).
-3. **Leverage 2×** — on spot with margin would project ~45% annual at 2% risk. Requires futures endpoint.
-
-70%+ annual requires leverage ≥3× or significantly higher risk (≥5%), both acceptable to aggressive traders but require careful liquidation management.
-
-When working on profitability improvements, always run a 3-year backtest (`BacktestEngine`)
-before and after to compare: annual return, Sharpe ratio, profit factor, and max drawdown.
+When working on profitability changes, always run a 3-year backtest before/after and compare:
+annual return, Sharpe, profit factor, max drawdown.
 
 ---
 
@@ -438,14 +401,8 @@ _apply_ema_config(db, orchestrator)   # hot-patches config.stop_atr_mult / confi
 ```
 
 Changes take effect on the very next `run_cycle()` tick — no restart needed.
-
-**Manual proposals** from the dashboard OPTIMIZER tab still require a restart. When a user
-clicks "Approve" in the dashboard, the values are written to the DB but `_apply_ema_config()`
-is not called until startup. The dashboard shows a "Restart the bot to activate" banner
-for manual approvals only.
-
-`_apply_ema_config()` is also called once at startup to pick up any DB values set
-while the bot was offline (manual approvals or previous auto-optimizer runs).
+Manual approvals from the dashboard OPTIMIZER tab write to the DB but require a restart;
+`_apply_ema_config()` is called once at startup to pick those up.
 
 ### 19. Optimizer viability constraints — all four must pass
 
@@ -551,21 +508,9 @@ Live SL/TP detection runs in two stages inside `_manage_single_position`:
 When a wick is detected, the **exit price stored is the bar's `close`**, NOT
 the SL/TP level. This is intentional: when we send a market close after the
 detection, Binance fills at spot, not at the level. The bar close is the
-honest proxy for what we'll actually fill at.
-
-**Empirical justification** (`scripts/test_wick_variants.py`, 3yr BTC 4h,
-optimal config long_only/dist=1.0/TP=4.5/SL=1.5/risk=1%):
-
-| Variant | Trades | PF | Sharpe | Ann% | MaxDD% |
-|---|---|---|---|---|---|
-| live-like (close-only, the bug) | 78 | 1.497 | 9.89 | 12.38% | 8.63% |
-| **fix (high/low + close exit)** | **97** | **1.565** | **10.15** | **13.63%** | **7.28%** |
-| baseline (high/low + level exit) | 97 | 1.546 | 10.11 | 13.36% | 9.64% |
-
-The fix beats both the bug (+1.25pp annual) AND the idealised "close at level"
-backtest variant (-24% on max drawdown). Counter-intuitive but robust: closing
-at the bar's close lets losers recover within the bar, which dominates the
-giveback on winners.
+honest proxy for what we'll actually fill at. Empirically validated — closing
+at bar close beats "close at level" on max drawdown by ~24% on a 3-year run
+(see `scripts/test_wick_variants.py`).
 
 `position_manager` builds the BinanceClient once per cycle (only when there
 are open trades), passes it to all `_manage_single_position` calls. Adds 1
@@ -677,11 +622,6 @@ and `🔴 MAINNET` for live trading. Mode is read from `db.get_active_mode()`.
 
 The command handler reads token and chat_id from DB on every poll cycle — config changes
 take effect without restarting the bot.
-
-### No new dependencies
-
-`TelegramNotifier` uses `requests`, which is already in `requirements.txt`. No new packages
-are needed.
 
 ---
 
@@ -806,15 +746,11 @@ REGIME_STRATEGY_MAP: dict[MarketRegime, StrategyName] = {
 
 ### Step 4 — Write tests
 
-Tests live in `tests/`. Follow the existing pattern:
-- One test file per strategy: `tests/test_my_strategy.py`
-- Use `pd.DataFrame` with synthetic OHLCV data
-- Test: BUY signal, SELL signal, HOLD when no condition met, insufficient data fallback
+Tests live in `tests/`. One test file per strategy: `tests/test_my_strategy.py`. Use synthetic
+OHLCV `pd.DataFrame` and cover BUY / SELL / HOLD / insufficient-data branches.
 
-### Step 5 — Verify dashboard compatibility
-
-The dashboard reads strategy names directly from the DB as strings. No changes needed as long
-as the `name` property matches the `StrategyName` enum value exactly.
+The dashboard reads strategy names from the DB as strings — no changes needed as long as
+`name` matches the `StrategyName` enum value exactly.
 
 ---
 

@@ -1,4 +1,4 @@
-# * Trading Bot — BTC/USDT
+# Trading Bot — BTC/USDT
 
 Regime-adaptive algorithmic trading bot for Binance (Testnet and Mainnet). Automatically selects between three strategies based on real-time market regime detection.
 
@@ -10,7 +10,8 @@ Regime-adaptive algorithmic trading bot for Binance (Testnet and Mainnet). Autom
 
 ## Overview
 
-The bot runs on a configurable candle interval (default: 1h). Each cycle it:
+The bot runs on a configurable candle interval (recommended: **4h** — the validated baseline).
+Each cycle it:
 
 1. Fetches the last 200 OHLCV candles (primary TF) and the corresponding higher-TF candles from Binance
 2. Classifies the market as TRENDING, RANGING, or VOLATILE using a 3-level detection cascade
@@ -112,7 +113,7 @@ The bot runs on a configurable candle interval (default: 1h). Each cycle it:
 
 | Strategy | Regime | Entry Condition | SL | TP | Key Parameters |
 |---|---|---|---|---|---|
-| **EMA Crossover** | TRENDING | EMA9 crosses EMA21 (or trend-continuation pullback within 1.5 ATR of EMA9) | 1.5× ATR | 3.5× ATR¹ | fast=9, slow=21 |
+| **EMA Crossover** | TRENDING | EMA9 crosses EMA21 (or trend-continuation pullback within 1.0 ATR of EMA9) | 1.5× ATR | 4.5× ATR¹ | fast=9, slow=21 |
 | **Mean Reversion** | RANGING | Price at Bollinger Band + RSI confirmation | 1.5× ATR | BB midline (SMA20) | BB(20, 2σ), RSI(14) oversold<35 / overbought>65 (1h) |
 | **Breakout** | VOLATILE | Close breaks Donchian channel with volume > 1.5–2.0× average | 2.0× ATR | 3.0× ATR | channel=20–30, vol_mult=1.5–2.0 (TF-dependent) |
 
@@ -185,7 +186,7 @@ All configuration is read from environment variables (`.env` file or Docker env)
 | `BINANCE_API_SECRET` | — | required (live) | Binance API secret |
 | `BINANCE_TESTNET` | `true` | `true` / `false` | Route requests to testnet endpoint |
 | `SYMBOL` | `BTCUSDT` | any Binance pair | Trading pair |
-| `TIMEFRAME` | `1h` | Binance intervals | Candle interval for strategy |
+| `TIMEFRAME` | `1h` | Binance intervals | Candle interval for strategy. **Set to `4h` for the validated baseline** — `1h` is unviable in backtest (PF=0.75). |
 | `INITIAL_CAPITAL` | `10000` | > 0 | Fallback balance when Binance API is unreachable |
 | `RISK_PER_TRADE` | `0.01` | 0.001 – 0.05 | Fraction of capital risked per trade |
 | `DB_PATH` | `trading_bot.db` | writable path | SQLite database file location |
@@ -206,7 +207,7 @@ All configuration is read from environment variables (`.env` file or Docker env)
 | `cooldown_hours` | 4 | Circuit breaker cooldown duration |
 | `quantity_precision` | 5 | Decimal places for order quantity; overridden at startup from Binance `LOT_SIZE` filter |
 
-**Trailing stop has been removed.** Backtest evidence showed it destroyed performance (PF 1.55 → 0.76 with trailing on; only 1 of 131 trades hit TP). Positions exit only via SL or TP. The `trades.trailing_sl` DB column is preserved for legacy rows but never written by the live bot. See gotcha #1 in `CLAUDE.md`.
+**Trailing stop has been removed from the production code.** Backtest evidence showed it destroyed performance (PF 1.55 → 0.76 with trailing on; only 1 of 131 trades hit TP). The `trailing_stop_enabled` config flag, the ratcheting logic in `position_manager`, and the `TRAILING_STOP` exit reason were all removed. Positions exit only via SL or TP. The `trades.trailing_sl` DB column is preserved for legacy rows but is never written by the live bot. See gotcha #1 in `CLAUDE.md`.
 
 Position sizing applies a **spot capital cap**: when the risk-based formula would request a notional larger than the available capital, `quantity` is reduced to `(capital × 0.99) / entry`. A WARNING log line fires when the cap activates so you can detect when your `risk_per_trade × stop_atr_mult` combination is too aggressive for spot.
 
@@ -331,10 +332,10 @@ on first startup with a fresh DB if the exchange returns fewer candles.
 
 **Trailing SL column is always NULL in the DB**
 
-This is expected: trailing stop is **disabled by default** (`RiskConfig.trailing_stop_enabled=False`).
-Backtest evidence showed it destroyed performance (PF 1.55 → 0.76, only 1 of 131 trades hit TP
-with trail on). The `trades.trailing_sl` column is preserved for legacy rows but no longer written.
-See gotcha #1 in `CLAUDE.md` for full context. Positions exit only via SL or TP.
+This is expected: trailing stop has been **removed from the production code**. Backtest
+evidence showed it destroyed performance (PF 1.55 → 0.76, only 1 of 131 trades hit TP with
+trail on). The `trades.trailing_sl` column is preserved for legacy rows but is no longer
+written. See gotcha #1 in `CLAUDE.md` for full context. Positions exit only via SL or TP.
 
 **Docker container exits immediately**
 
