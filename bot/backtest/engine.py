@@ -32,7 +32,9 @@ from bot.metrics import (
     sharpe_ratio,
 )
 from bot.regime.detector import MarketRegime, RegimeDetector
+from bot.risk.drawdown_scaler import DrawdownRiskConfig, drawdown_multiplier
 from bot.risk.news_pause import NewsPauseConfig, is_pause_triggered
+from bot.risk.vol_regime import VolRegime, VolRegimeConfig, VolRegimeFilter
 from bot.strategy.base import Signal
 from bot.strategy.ema_crossover import EMACrossoverConfig, EMACrossoverStrategy
 from bot.strategy.signal_factory import hold_signal
@@ -78,6 +80,17 @@ class BacktestConfig:
     bias_strict:          bool  = False
     # Endogenous news-pause filter — passes through to NewsPauseConfig (defaults disable it)
     news_pause: NewsPauseConfig | None = None
+    # Volatility-regime filter (defaults disable it). When enabled, gates entries by
+    # current realized vol vs trailing percentile distribution.
+    vol_regime: VolRegimeConfig | None = None
+    # Drawdown-aware risk scaler (defaults disable it). When enabled, multiplies
+    # effective risk_per_trade by a tier-based scalar derived from current DD vs HWM.
+    dd_risk: DrawdownRiskConfig | None = None
+    # Partial profit ladder (defaults disable it). When set, closes
+    # `partial_close_fraction` of the position at `partial_tp_atr_mult` × ATR profit
+    # and moves the SL to breakeven on the remaining position. Original TP unchanged.
+    partial_tp_atr_mult: float | None = None
+    partial_close_fraction: float = 0.5
 
 
 @dataclass
@@ -147,6 +160,15 @@ class BacktestEngine:
         self._bias_filter = BiasFilter(BiasFilterConfig(
             neutral_passthrough=not config.bias_strict
         ))
+        # Vol-regime filter — opt-in via config.vol_regime; disabled by default.
+        if config.vol_regime is None:
+            self._vol_filter = VolRegimeFilter(VolRegimeConfig(enabled=False))
+        else:
+            # Inherit timeframe from engine config if caller didn't set one
+            cfg = config.vol_regime
+            if cfg.timeframe == "4h" and config.timeframe != "4h":
+                cfg = VolRegimeConfig(**{**cfg.__dict__, "timeframe": config.timeframe})
+            self._vol_filter = VolRegimeFilter(cfg)
 
     # ── Private helpers ───────────────────────────────────────────────────────
 
@@ -466,6 +488,7 @@ class BacktestEngine:
             )
 
         capital     = self.config.initial_capital
+        peak_capital = capital  # HWM for drawdown-aware risk scaling
         trades:     list[dict] = []
         open_trade: dict | None = None
         equity_curve: list[dict] = [{"bar": 0, "time": str(df.iloc[0]["open_time"]), "balance": capital}]
@@ -473,6 +496,7 @@ class BacktestEngine:
         news_pause_remaining: int = 0   # bars remaining of news-pause block
         news_pause_triggers: int = 0    # diagnostic count
         news_pause_cfg = self.config.news_pause
+        dd_cfg = self.config.dd_risk if self.config.dd_risk is not None else DrawdownRiskConfig(enabled=False)
 
         for i in range(min_lb, len(df)):
             bar          = df.iloc[i]
@@ -504,13 +528,17 @@ class BacktestEngine:
                     notional            = open_trade["entry_price"] * open_trade["quantity"]
                     pnl                 = -margin
                     capital            += pnl
+                    peak_capital        = max(peak_capital, capital)
+
+                    partial_realised    = open_trade.get("partial_pnl", 0.0) or 0.0
+                    total_pnl           = pnl + partial_realised
 
                     open_trade["exit_price"]  = liq_price
                     open_trade["exit_reason"] = EXIT_LIQUIDATED
                     open_trade["exit_bar"]    = i
                     open_trade["exit_time"]   = current_time
-                    open_trade["pnl"]         = pnl
-                    open_trade["pnl_pct"]     = pnl / notional if notional > 0 else -1.0
+                    open_trade["pnl"]         = total_pnl
+                    open_trade["pnl_pct"]     = total_pnl / notional if notional > 0 else -1.0
 
                     trades.append(open_trade)
                     open_trade      = None
@@ -518,6 +546,51 @@ class BacktestEngine:
                     cooldown_bars   = self.config.post_close_cooldown_bars
                     equity_curve.append({"bar": i, "time": str(current_time), "balance": capital})
                 else:
+                    # ── 1a. Partial-TP check (opt-in via config.partial_tp_atr_mult) ──
+                    # Only fires when:
+                    #   - feature is configured for this trade
+                    #   - partial wasn't taken yet
+                    #   - the bar did NOT touch the original SL (else SL wins per same-bar rule)
+                    #   - the bar's price extended to partial_tp_price
+                    if (
+                        open_trade["partial_tp_price"] is not None
+                        and not open_trade["partial_taken"]
+                    ):
+                        bar_high = float(bar["high"])
+                        bar_low  = float(bar["low"])
+                        sl       = open_trade["stop_loss"]
+                        ptp      = open_trade["partial_tp_price"]
+                        side     = open_trade["side"]
+                        partial_hit = (
+                            (side == "BUY"  and bar_low  >  sl and bar_high >= ptp) or
+                            (side == "SELL" and bar_high <  sl and bar_low  <= ptp)
+                        )
+                        if partial_hit:
+                            partial_qty       = open_trade["partial_qty"]
+                            net_partial       = self._apply_exit_cost(side, ptp)
+                            entry_price       = open_trade["entry_price"]
+                            if side == "BUY":
+                                raw_partial_pnl = (net_partial - entry_price) * partial_qty
+                            else:
+                                raw_partial_pnl = (entry_price - net_partial) * partial_qty
+                            bars_held         = i - open_trade["entry_bar"]
+                            partial_pnl       = self._apply_leverage(raw_partial_pnl, open_trade, bars_held)
+
+                            capital            += partial_pnl
+                            peak_capital        = max(peak_capital, capital)
+                            open_trade["quantity"]    -= partial_qty
+                            open_trade["partial_pnl"]  = partial_pnl
+                            open_trade["partial_taken"] = True
+                            # Breakeven on remainder
+                            open_trade["stop_loss"]    = entry_price
+                            equity_curve.append({"bar": i, "time": str(current_time), "balance": capital})
+                            logger.debug(
+                                "Backtest: partial close %s @ %.2f  qty=%.5f  pnl=%.2f  remainder qty=%.5f  SL→%.2f",
+                                side, ptp, partial_qty, partial_pnl,
+                                open_trade["quantity"], open_trade["stop_loss"],
+                            )
+
+                    # ── 1b. Normal SL/TP/signal check on (possibly reduced) position ──
                     if has_1m:
                         next_time = (
                             df.iloc[i + 1]["open_time"]
@@ -546,13 +619,19 @@ class BacktestEngine:
                         pnl                    = self._apply_leverage(raw_pnl, open_trade, bars_held)
                         notional               = open_trade["entry_price"] * open_trade["quantity"]
                         capital               += pnl
+                        peak_capital           = max(peak_capital, capital)
+
+                        # Aggregate partial PnL into the trade's reported pnl so summary
+                        # metrics see the full ladder outcome on a single trade record.
+                        partial_realised = open_trade.get("partial_pnl", 0.0) or 0.0
+                        total_pnl        = pnl + partial_realised
 
                         open_trade["exit_price"]  = net_exit
                         open_trade["exit_reason"] = reason
                         open_trade["exit_bar"]    = i
                         open_trade["exit_time"]   = current_time
-                        open_trade["pnl"]         = pnl
-                        open_trade["pnl_pct"]     = pnl / notional if notional > 0 else 0.0
+                        open_trade["pnl"]         = total_pnl
+                        open_trade["pnl_pct"]     = total_pnl / notional if notional > 0 else 0.0
 
                         trades.append(open_trade)
                         open_trade      = None
@@ -573,6 +652,11 @@ class BacktestEngine:
                     news_pause_triggers += 1
 
             # ── 2. Entry check ────────────────────────────────────────────────
+            # Vol-regime filter — runs only when config.vol_regime is set (opt-in)
+            vol_state = self._vol_filter.get_state(window)
+            vol_allows = self._vol_filter.allows_signal(vol_state)
+            vol_size_factor = self._vol_filter.size_factor(vol_state)
+
             if (
                 not closed_this_bar
                 and open_trade is None
@@ -583,6 +667,7 @@ class BacktestEngine:
                 and signal.strength >= self.config.min_signal_strength
                 and signal.stop_loss is not None
                 and signal.stop_loss > 0
+                and vol_allows
             ):
                 raw_entry     = float(bar["close"])
                 net_entry     = self._apply_entry_cost(signal.action, raw_entry)
@@ -591,11 +676,30 @@ class BacktestEngine:
                     if momentum_state == "NEUTRAL"
                     else self.config.risk_per_trade
                 )
+                # Vol-regime size scaling (active only when action=reduce + LOW_VOL)
+                effective_risk = effective_risk * vol_size_factor
+                # Drawdown-aware risk scaling (active only when dd_risk config enabled)
+                effective_risk = effective_risk * drawdown_multiplier(
+                    capital, peak_capital, dd_cfg
+                )
                 quantity = self._compute_quantity_with_risk(
                     capital, net_entry, signal.stop_loss, effective_risk
                 )
 
                 if quantity > 0:
+                    # Compute partial-TP target if enabled
+                    p_tp_mult = self.config.partial_tp_atr_mult
+                    if p_tp_mult is not None and signal.atr and signal.atr > 0:
+                        partial_offset = float(signal.atr) * float(p_tp_mult)
+                        if signal.action == "BUY":
+                            partial_tp_price = net_entry + partial_offset
+                        else:
+                            partial_tp_price = net_entry - partial_offset
+                        partial_qty = quantity * float(self.config.partial_close_fraction)
+                    else:
+                        partial_tp_price = None
+                        partial_qty = 0.0
+
                     open_trade = {
                         "entry_bar":   i,
                         "entry_time":  current_time,
@@ -607,6 +711,11 @@ class BacktestEngine:
                         "atr":         signal.atr,
                         "strategy":    strategy_name,
                         "regime":      regime.value,
+                        # Partial-TP state (None when feature disabled)
+                        "partial_tp_price": partial_tp_price,
+                        "partial_qty":      partial_qty,
+                        "partial_taken":    False,
+                        "partial_pnl":      0.0,
                         # filled on close:
                         "exit_bar":    None,
                         "exit_time":   None,
@@ -631,12 +740,15 @@ class BacktestEngine:
             notional  = open_trade["entry_price"] * open_trade["quantity"]
             capital  += pnl
 
+            partial_realised = open_trade.get("partial_pnl", 0.0) or 0.0
+            total_pnl        = pnl + partial_realised
+
             open_trade["exit_price"]  = net_exit
             open_trade["exit_reason"] = EXIT_END_OF_PERIOD
             open_trade["exit_bar"]    = len(df) - 1
             open_trade["exit_time"]   = df.iloc[-1]["open_time"]
-            open_trade["pnl"]         = pnl
-            open_trade["pnl_pct"]     = pnl / notional if notional > 0 else 0.0
+            open_trade["pnl"]         = total_pnl
+            open_trade["pnl_pct"]     = total_pnl / notional if notional > 0 else 0.0
             trades.append(open_trade)
             equity_curve.append({"bar": len(df) - 1, "time": str(df.iloc[-1]["open_time"]), "balance": capital})
 

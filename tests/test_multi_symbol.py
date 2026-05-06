@@ -113,9 +113,9 @@ class TestRunCycleUsesOrchestratorSymbol:
             assert sym == "ETHUSDT", f"Expected ETHUSDT but got {sym}"
 
 
-class TestPositionManagerPerTradeTick:
-    def test_each_trade_uses_its_own_symbol_tick(self, db):
-        from unittest.mock import patch
+class TestPositionManagerPerTrade:
+    def test_each_trade_processed_with_its_own_symbol(self, db):
+        from unittest.mock import MagicMock, patch
         import main as main_module
         import datetime as _dt
 
@@ -127,16 +127,14 @@ class TestPositionManagerPerTradeTick:
         db.upsert_live_tick("ETHUSDT", 3000.0, 3000.0, 3010.0, 2990.0, 500.0,
                             _dt.datetime.utcnow().isoformat())
 
-        calls = []
-        original_get_tick = db.get_live_tick
+        seen_symbols: list[str] = []
 
-        def tracking_get_tick(symbol):
-            calls.append(symbol)
-            return original_get_tick(symbol)
+        def fake_manage(trade, db_arg, client, dry_run, risk_config, notifier):
+            seen_symbols.append(trade["symbol"])
 
-        with patch.object(db, "get_live_tick", side_effect=tracking_get_tick):
-            with patch.object(main_module, "_manage_single_position"):
+        with patch.object(main_module, "_build_client", return_value=MagicMock()):
+            with patch.object(main_module, "_manage_single_position", side_effect=fake_manage):
                 main_module.position_manager(db, dry_run=True)
 
-        assert "BTCUSDT" in calls
-        assert "ETHUSDT" in calls
+        assert "BTCUSDT" in seen_symbols
+        assert "ETHUSDT" in seen_symbols

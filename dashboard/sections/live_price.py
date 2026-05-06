@@ -8,6 +8,7 @@ from bot.config import settings
 from bot.database.db import Database
 from bot.exchange.binance_client import BinanceClient
 from dashboard.constants import RED, WHITE, GRAY, GREEN, ChartConfig, RefreshRates, CacheTTL
+from dashboard.range import current_range, klines_params_for_range
 from dashboard.themes import NothingOS
 from dashboard.utils import fmt
 
@@ -17,6 +18,8 @@ PLOTLY_CONFIG = NothingOS.PLOTLY_CONFIG
 
 @st.cache_data(ttl=CacheTTL.KLINES)
 def get_klines_cached(symbol: str, timeframe: str, limit: int = 50) -> list:
+    """Fetch klines via REST. Cached per (symbol, timeframe, limit) — switching
+    range flips between cache entries instantly without re-fetching the same combo."""
     try:
         client = BinanceClient()
         df = client.get_klines(symbol, timeframe, limit)
@@ -51,52 +54,60 @@ def _kline_timestamps(limit: int, timeframe: str) -> pd.DatetimeIndex:
 
 def _match_signal_to_bar(sig_ts_str: str, timestamps: pd.DatetimeIndex) -> int | None:
     """Return bar index for a signal timestamp, or None if outside the window."""
+    if len(timestamps) == 0:
+        return None
     sig_ts = pd.to_datetime(sig_ts_str)
     diffs = abs(timestamps - sig_ts)
     idx = int(diffs.argmin())
-    interval_secs = (timestamps[1] - timestamps[0]).total_seconds()
+    interval_secs = pd.Timedelta(timestamps.freq).total_seconds()
     if diffs[idx].total_seconds() > interval_secs * 0.5:
         return None
     return idx
 
 
-def _add_position_levels(fig: go.Figure, trades: list[dict]) -> None:
-    """Overlay Entry / SL / TP horizontal lines for each open position."""
-    for trade in trades:
-        entry = trade["entry_price"]
-        sl    = trade["stop_loss"]
-        tp    = trade["take_profit"]
+def _add_position_levels(
+    fig: go.Figure,
+    trades: list[dict],
+    chart_end: pd.Timestamp,
+) -> None:
+    """Overlay Entry / SL / TP segments for each open position.
 
-        fig.add_hline(
-            y=entry,
-            line_dash="dash",
-            line_color=WHITE,
-            line_width=ChartConfig.LINE_WIDTH,
-            annotation_text=f"ENTRY  ${fmt(entry, ',.0f')}",
-            annotation_position="left",
-            annotation_font_color=WHITE,
-            annotation_font_size=10,
-        )
-        fig.add_hline(
-            y=tp,
-            line_dash="dot",
-            line_color=GREEN,
-            line_width=ChartConfig.LINE_WIDTH,
-            annotation_text=f"TP  ${fmt(tp, ',.0f')}",
-            annotation_position="left",
-            annotation_font_color=GREEN,
-            annotation_font_size=10,
-        )
-        fig.add_hline(
-            y=sl,
-            line_dash="dot",
-            line_color=RED,
-            line_width=ChartConfig.LINE_WIDTH,
-            annotation_text=f"SL  ${fmt(sl, ',.0f')}",
-            annotation_position="left",
-            annotation_font_color=RED,
-            annotation_font_size=10,
-        )
+    Lines start at the trade's `entry_time` and extend to `chart_end` (the
+    rightmost timestamp on the kline x-axis). This makes it visually clear
+    when each level became active — a trade opened 6 hours ago doesn't get
+    its SL/TP painted across earlier candles where it didn't exist.
+    """
+    for trade in trades:
+        entry    = trade["entry_price"]
+        sl       = trade["stop_loss"]
+        tp       = trade["take_profit"]
+        entry_ts = pd.to_datetime(trade["entry_time"])
+        # Don't render anything if the trade opened after the visible window
+        if entry_ts > chart_end:
+            continue
+        # Clamp to the visible range so segments never start off-chart
+        x0 = entry_ts
+
+        for y, color, dash, label in (
+            (entry, WHITE, "dash", f"ENTRY  ${fmt(entry, ',.0f')}"),
+            (tp,    GREEN, "dot",  f"TP  ${fmt(tp, ',.0f')}"),
+            (sl,    RED,   "dot",  f"SL  ${fmt(sl, ',.0f')}"),
+        ):
+            fig.add_shape(
+                type="line",
+                x0=x0, x1=chart_end,
+                y0=y,  y1=y,
+                line=dict(color=color, dash=dash, width=ChartConfig.LINE_WIDTH),
+            )
+            fig.add_annotation(
+                x=x0, y=y,
+                text=label,
+                showarrow=False,
+                xanchor="left",
+                yanchor="bottom",
+                font=dict(color=color, size=10),
+                bgcolor="rgba(10,10,10,0.6)",
+            )
 
 
 @st.fragment(run_every=RefreshRates.LIVE_PRICE)
@@ -137,12 +148,14 @@ def live_price_section(db: Database, symbol: str) -> None:
                 st.caption(f"{len(open_trades)} open positions")
 
     with col_chart:
-        records = get_klines_cached(symbol, settings.timeframe)
+        # Derive kline timeframe + bar count from the unified MONITOR range
+        tf, n_bars = klines_params_for_range(current_range())
+        records = get_klines_cached(symbol, tf, n_bars)
         df_k = pd.DataFrame(records)
         if df_k.empty:
             st.caption("chart data unavailable")
             return
-        timestamps = _kline_timestamps(len(df_k), settings.timeframe)
+        timestamps = _kline_timestamps(len(df_k), tf)
         fig = go.Figure(data=go.Candlestick(
             x=timestamps,
             open=df_k["open"],
@@ -192,7 +205,7 @@ def live_price_section(db: Database, symbol: str) -> None:
         )
 
         if open_trades:
-            _add_position_levels(fig, open_trades)
+            _add_position_levels(fig, open_trades, chart_end=timestamps[-1])
 
         fig.update_layout(**PLOTLY_LAYOUT, height=ChartConfig.HEIGHT_LIVE, showlegend=False)
         st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)

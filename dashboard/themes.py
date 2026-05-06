@@ -180,7 +180,9 @@ h2 { font-size: 0.85rem !important; letter-spacing: 0.18em; text-transform: uppe
 </style>
 """
 
-    # Plotly base layout — applied to all charts
+    # Plotly base layout — applied to all charts.
+    # `dragmode="pan"` makes click-drag pan instead of rectangle-zoom — the
+    # user gets pure pan-only navigation across every dashboard chart.
     PLOTLY_LAYOUT = dict(
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="#0A0A0A",
@@ -188,7 +190,14 @@ h2 { font-size: 0.85rem !important; letter-spacing: 0.18em; text-transform: uppe
         margin=dict(l=0, r=0, t=4, b=0),
         xaxis=dict(gridcolor="#111", showline=False, zeroline=False),
         yaxis=dict(gridcolor="#111", showline=False, zeroline=False),
+        dragmode="pan",
     )
 
-    # Plotly chart config — passed to st.plotly_chart(config=...)
-    PLOTLY_CONFIG = {"displayModeBar": False}
+    # Plotly chart config — passed to st.plotly_chart(config=...).
+    # scrollZoom + doubleClick disabled so the only navigation is dragging.
+    PLOTLY_CONFIG = {
+        "displayModeBar": False,
+        "scrollZoom":     False,
+        "doubleClick":    False,
+        "displaylogo":    False,
+    }

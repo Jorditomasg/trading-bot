@@ -428,15 +428,74 @@ def _execute_order(
             logger.error("[%s] Failed to close position: %s", symbol, exc)
 
 
+def _check_intra_bar_exit(
+    client: BinanceClient,
+    trade: dict,
+) -> tuple[str, float] | None:
+    """Detect SL/TP hit using the latest 1m bars' high/low.
+
+    The live_tick price (last WS event) can miss intra-second wicks because
+    it samples discrete trade events. Binance's 1m kline aggregates EVERY
+    trade in the minute, so its high/low always captures the wick.
+
+    Exit price is the bar's CLOSE, not the SL/TP level — honest about
+    real-world fill: when we send a market order after detecting the wick,
+    Binance fills at spot, not at the level.
+
+    Empirically validated on 3yr BTC 4h: this approach beats both the
+    current live behaviour (close-only) by +1.25pp annual return and the
+    idealised 'close at level' baseline by 24% on max drawdown.
+    See scripts/test_wick_variants.py.
+    """
+    try:
+        df = client.get_klines(trade["symbol"], "1m", limit=2)
+    except Exception as exc:
+        logger.debug("[%s] intra-bar wick check failed: %s", trade["symbol"], exc)
+        return None
+    if df.empty:
+        return None
+
+    sl   = trade["stop_loss"]
+    tp   = trade["take_profit"]
+    side = trade["side"]
+
+    # Iterate oldest → newest so an SL/TP on the older bar takes precedence.
+    # If both SL and TP are touched in the same bar, SL wins (conservative).
+    for _, bar in df.iterrows():
+        high  = float(bar["high"])
+        low   = float(bar["low"])
+        close = float(bar["close"])
+
+        if side == "BUY":
+            if low <= sl:
+                return (ExitReason.STOP_LOSS, close)
+            if high >= tp:
+                return (ExitReason.TAKE_PROFIT, close)
+        else:  # SELL
+            if high >= sl:
+                return (ExitReason.STOP_LOSS, close)
+            if low <= tp:
+                return (ExitReason.TAKE_PROFIT, close)
+
+    return None
+
+
 def _manage_single_position(
     trade: dict,
-    price: float,
     db: Database,
+    client: BinanceClient,
     dry_run: bool,
     risk_config: "RiskConfig | None",
     notifier: "TelegramNotifier | None",
 ) -> None:
-    """Check SL/TP exit for one open trade."""
+    """Check SL/TP exit for one open trade.
+
+    Exit detection runs in two stages:
+    1. Intra-bar wick check via 1m kline high/low — primary path, catches
+       mechas that live_tick can miss.
+    2. live_tick spot price — fallback when kline fetch fails or returns
+       no data.
+    """
     trade_id    = trade["id"]
     sym         = trade["symbol"]
     side        = trade["side"]
@@ -449,22 +508,37 @@ def _manage_single_position(
         logger.debug("[%s] position_manager: trade id=%d already closed — skipping", sym, trade_id)
         return
 
-    # ── Exit condition check ──────────────────────────────────────────────────
     reason: str | None = None
+    exit_price: float | None = None
 
-    if (side == "BUY" and price <= stop_loss) or \
-       (side == "SELL" and price >= stop_loss):
-        reason = ExitReason.STOP_LOSS
-    elif (side == "BUY" and price >= take_profit) or \
-         (side == "SELL" and price <= take_profit):
-        reason = ExitReason.TAKE_PROFIT
+    # 1. Primary: intra-bar wick detection
+    intra = _check_intra_bar_exit(client, trade)
+    if intra is not None:
+        reason, exit_price = intra
+        logger.info(
+            "[%s] intra-bar wick detected: reason=%s exit_price=%.2f (1m bar close)",
+            sym, reason, exit_price,
+        )
+    else:
+        # 2. Fallback: live_tick spot
+        tick = db.get_live_tick(sym)
+        if tick is None:
+            logger.debug("[%s] position_manager: no live tick — skipping", sym)
+            return
+        price = tick["price"]
+        if (side == "BUY" and price <= stop_loss) or \
+           (side == "SELL" and price >= stop_loss):
+            reason, exit_price = ExitReason.STOP_LOSS, price
+        elif (side == "BUY" and price >= take_profit) or \
+             (side == "SELL" and price <= take_profit):
+            reason, exit_price = ExitReason.TAKE_PROFIT, price
 
     if reason is None:
         return
 
     logger.info(
-        "[%s] position_manager: closing trade id=%d reason=%s price=%.2f",
-        sym, trade_id, reason, price,
+        "[%s] position_manager: closing trade id=%d reason=%s exit_price=%.2f",
+        sym, trade_id, reason, exit_price,
     )
 
     if dry_run:
@@ -472,7 +546,6 @@ def _manage_single_position(
         return
 
     try:
-        client     = _build_client(db)
         close_side = "SELL" if side == "BUY" else "BUY"
         _execute_order(client, db, {
             "action":      TradeAction.CLOSE,
@@ -480,7 +553,7 @@ def _manage_single_position(
             "side":        close_side,
             "trade_id":    trade_id,
             "quantity":    trade["quantity"],
-            "exit_price":  price,
+            "exit_price":  exit_price,
             "exit_reason": reason,
         }, notifier)
     except Exception as exc:
@@ -495,18 +568,18 @@ def position_manager(
     risk_config: "RiskConfig | None" = None,
     notifier: "TelegramNotifier | None" = None,
 ) -> None:
-    """Check SL/TP and ratchet trailing stop for all open trades. Runs every 60s."""
+    """Check SL/TP for all open trades. Runs every 60s.
+
+    Detection uses the bar's high/low (intra-bar wick) — see _check_intra_bar_exit
+    for empirical justification. Live tick is the fallback.
+    """
     trades = db.get_open_trades()
     if not trades:
         return
 
+    client = _build_client(db)
     for trade in trades:
-        tick = db.get_live_tick(trade["symbol"])
-        if tick is None:
-            logger.debug("[%s] position_manager: no live tick — skipping", trade["symbol"])
-            continue
-        price = tick["price"]
-        _manage_single_position(trade, price, db, dry_run, risk_config, notifier)
+        _manage_single_position(trade, db, client, dry_run, risk_config, notifier)
 
 
 def _launch_auto_optimizer(

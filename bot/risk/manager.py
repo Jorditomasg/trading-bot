@@ -1,9 +1,12 @@
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from bot.strategy.base import Signal
+
+if TYPE_CHECKING:
+    from bot.database.db import Database
 
 logger = logging.getLogger(__name__)
 
@@ -26,14 +29,64 @@ class RiskManager:
         self,
         config: RiskConfig = RiskConfig(),
         symbol: str | None = None,
+        db: "Database | None" = None,
     ) -> None:
+        """Construct a RiskManager.
+
+        When `db` and `symbol` are both provided, the circuit-breaker timestamp
+        is persisted to `bot_config` and reloaded on construction. This is what
+        makes the cooldown survive `init 6` reboots — without it, every restart
+        silently clears the breaker.
+
+        When either is missing, the manager falls back to in-memory state
+        (backward compatible with tests and ad-hoc instances).
+        """
         self.config = config
         self.symbol = symbol
-        self._breaker_triggered_at: Optional[datetime] = None
+        self.db = db
+        self._breaker_triggered_at: Optional[datetime] = self._load_breaker_state()
 
     @property
     def _tag(self) -> str:
         return f"[{self.symbol}] " if self.symbol else ""
+
+    # ── Circuit breaker state persistence ────────────────────────────────────
+
+    def _state_key(self) -> str | None:
+        """Key for the breaker timestamp in `bot_config`. None disables persistence."""
+        if self.db is None or not self.symbol:
+            return None
+        return f"breaker_triggered_at_{self.symbol}"
+
+    def _load_breaker_state(self) -> Optional[datetime]:
+        """Restore breaker timestamp from DB, or None if absent/invalid."""
+        key = self._state_key()
+        if key is None:
+            return None
+        raw = self.db.get_config(key) if self.db else None
+        if not raw:
+            return None
+        try:
+            dt = datetime.fromisoformat(raw)
+        except ValueError:
+            logger.warning(
+                "%sIgnoring invalid breaker_triggered_at='%s' in bot_config",
+                self._tag, raw,
+            )
+            return None
+        elapsed_h = (datetime.now() - dt).total_seconds() / 3600
+        logger.info(
+            "%sRestored circuit breaker state: triggered=%s (%.1fh ago, cooldown=%dh)",
+            self._tag, raw, elapsed_h, self.config.cooldown_hours,
+        )
+        return dt
+
+    def _save_breaker_state(self, dt: Optional[datetime]) -> None:
+        """Persist breaker timestamp to DB. None clears the key (empty string)."""
+        key = self._state_key()
+        if key is None or self.db is None:
+            return
+        self.db.set_config(key, dt.isoformat() if dt is not None else "")
 
     def compute_position_size(
         self,
@@ -89,10 +142,12 @@ class RiskManager:
                     self._tag, drawdown * 100, self.config.max_drawdown * 100,
                 )
                 self._breaker_triggered_at = None
+                self._save_breaker_state(None)
             return False
 
         if self._breaker_triggered_at is None:
             self._breaker_triggered_at = datetime.now()
+            self._save_breaker_state(self._breaker_triggered_at)
             logger.warning(
                 "%sCIRCUIT BREAKER triggered: drawdown=%.2f%% peak=%.2f current=%.2f",
                 self._tag, drawdown * 100, peak_capital, current_capital,
@@ -106,6 +161,7 @@ class RiskManager:
                 self._tag, self.config.cooldown_hours,
             )
             self._breaker_triggered_at = None
+            self._save_breaker_state(None)
             return False
 
         logger.debug(

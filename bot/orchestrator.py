@@ -30,7 +30,7 @@ class StrategyOrchestrator:
         self.db = db
         self.symbol = symbol
         self.timeframe = timeframe
-        self.risk_manager = RiskManager(risk_config or RiskConfig(), symbol=symbol)
+        self.risk_manager = RiskManager(risk_config or RiskConfig(), symbol=symbol, db=db)
         self.regime_detector = RegimeDetector(config=get_regime_config(timeframe))
         self.bias_filter = bias_filter
 

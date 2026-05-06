@@ -18,6 +18,7 @@ from dashboard.sections.open_position import drawdown_section, open_position_sec
 from dashboard.sections.performance import adaptive_params_section, performance_section
 from dashboard.sections.signal_log import signal_log_section
 from dashboard.constants import RefreshRates
+from dashboard.range import render_selector as render_range_selector
 from dashboard.themes import NothingOS
 from dashboard.utils import _bias_badge, _regime_badge
 
@@ -105,6 +106,11 @@ def render() -> None:
             mini_cards_section(db)
 
         st.divider()
+
+        # Unified range selector — equity, drawdown and live chart all read this.
+        # Options are bounded by equity curve's age (longer ranges hidden until
+        # enough history exists).
+        render_range_selector(db)
 
         # Global charts
         col_eq, col_dd = st.columns([3, 2])

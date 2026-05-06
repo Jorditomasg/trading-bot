@@ -5,6 +5,7 @@ import streamlit as st
 
 from bot.database.db import Database
 from dashboard.constants import RED, REGIME_COLORS, ChartConfig, Thresholds, RefreshRates
+from dashboard.range import current_range, filter_curve_by_range
 from dashboard.themes import NothingOS
 from dashboard.utils import _bias_badge, _regime_badge, fmt
 
@@ -101,7 +102,7 @@ def _render_symbol_card(db: Database, symbol: str, trade: dict | None) -> None:
 @st.fragment(run_every=RefreshRates.DRAWDOWN)
 def drawdown_section(db: Database) -> None:
     """Drawdown chart — separate fragment so it can stand alone."""
-    equity_curve = db.get_equity_curve()
+    equity_curve = filter_curve_by_range(db.get_equity_curve(), current_range())
 
     if len(equity_curve) < 2:
         st.caption("waiting for data...")

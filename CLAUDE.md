@@ -151,11 +151,12 @@ before and after to compare: annual return, Sharpe ratio, profit factor, and max
 | `bot/backtest/scenario_runner.py` | 8 predefined profitability scenarios (1h/4h × momentum filter × leverage 1–10×); `ScenarioRunner.run_all()` returns `list[ScenarioResult]` with annual return, Sharpe, drawdown, liquidations |
 | `bot/optimizer/walk_forward.py` | Grid search over EMA SL/TP ATR multipliers; runs backtest engine on recent data; saves viable configs to `optimizer_runs` for dashboard review |
 | `scripts/compare_scenarios.py` | CLI entry point: `python scripts/compare_scenarios.py --days 1095 --risk 0.02` — fetches data, runs 8 scenarios, prints comparison table |
-| `dashboard/app.py` | Streamlit app; 3 tabs: MONITOR \| CONFIG \| BACKTEST; BACKTEST has subtabs BACKTEST and COMPARE; `_topbar()` fragment (5s refresh) |
-| `dashboard/sections/open_position.py` | Regime badge + CSS flex timeline strip + open position; `drawdown_section` as separate `@st.fragment(run_every=10)` |
+| `dashboard/app.py` | Streamlit app; 3 tabs: MONITOR \| CONFIG \| BACKTEST; BACKTEST has subtabs BACKTEST and COMPARE; `_topbar()` fragment (5s refresh); MONITOR renders the unified range selector before equity/drawdown charts |
+| `dashboard/range.py` | Unified MONITOR range selector (`1H \| 24H \| 7D \| 30D \| ALL`). `render_selector()` writes to `st.session_state["monitor_range"]`. `filter_curve_by_range()` and `klines_params_for_range()` consumed by chart sections. Available options bounded by equity_curve age — longer ranges hidden until enough history exists. |
+| `dashboard/sections/open_position.py` | Regime badge + CSS flex timeline strip + open position; `drawdown_section` as separate `@st.fragment(run_every=10)`; reads `current_range()` and filters equity_curve before computing drawdown |
 | `dashboard/sections/optimizer.py` | Optimizer UI: grid search form, progress bar, PF heatmap, top-10 table, pending proposal banner (approve/reject), history table |
 | `dashboard/sections/scenario_compare.py` | COMPARE subtab UI: form (symbol/days/risk), progress bar per scenario, results table, equity curve overlay chart (Plotly), best/safest callout metrics |
-| `dashboard/themes.py` | NothingOS palette + PLOTLY_LAYOUT definition |
+| `dashboard/themes.py` | NothingOS palette + PLOTLY_LAYOUT (drag-only via `dragmode="pan"`) + PLOTLY_CONFIG (scrollZoom/doubleClick disabled) — chart navigation is pan-only across the whole dashboard |
 
 ---
 
@@ -258,8 +259,6 @@ Legacy artifacts that remain (intentionally):
 - `trades.trailing_sl` column in the SQLite schema — preserved for legacy rows so old data
   still loads. Never written by the live bot.
 - `BacktestConfig.simulate_trailing` defaults to False. All optimizers use `simulate_trailing=False`.
-- The docstring at `main.py:498` still mentions "ratchet trailing stop" — this is stale text,
-  the function only checks SL/TP.
 
 To experiment with re-enabling trailing: you would need to re-introduce both the config flag
 AND the `position_manager` logic. Not recommended without re-running the full backtest first
@@ -282,7 +281,7 @@ def wilder_smooth(series: pd.Series, period: int) -> pd.Series:
 `_adx()` computes its own True Range internally using `wilder_smooth()`.
 These are NOT the same ATR. Strategies use the SMA-based `atr()`.
 
-### 4. Circuit breaker resets two ways
+### 4. Circuit breaker resets two ways — and SURVIVES restarts
 
 The circuit breaker is NOT permanent. It resets if EITHER condition is met:
 - `cooldown_hours` (default 4h) have elapsed since trigger, OR
@@ -294,6 +293,17 @@ if drawdown < self.config.max_drawdown:
     self._breaker_triggered_at = None  # immediate reset
     return False
 ```
+
+**Persistence**: `_breaker_triggered_at` is saved to `bot_config` under the
+key `breaker_triggered_at_{symbol}` on every state change. The orchestrator
+passes `db=db` when constructing `RiskManager`, which restores the timestamp
+on `__init__`. This means the cooldown **survives `init 6` reboots and
+`docker compose restart`** — a breaker triggered at 2am with a 4h cooldown
+will still be active at 3am after a 02:30 restart, instead of being silently
+wiped by the in-memory reset.
+
+If `db` or `symbol` are not provided (e.g. ad-hoc test instances), the
+manager falls back to in-memory state — backward compatible.
 
 ### 5. StrEnum — string comparison with DB works natively
 
@@ -526,6 +536,41 @@ When the cap activates, a WARNING log line fires:
 The cap is a safety net — seeing it consistently means your `risk_per_trade` and
 `stop_atr_mult` combination is too aggressive for spot. The fix is to widen the SL
 (higher `ema_stop_mult`) or lower the risk per trade, not to ignore the warning.
+
+### 24. `position_manager` uses intra-bar high/low (1m kline) — not just live_tick
+
+Live SL/TP detection runs in two stages inside `_manage_single_position`:
+
+1. **Primary** — `_check_intra_bar_exit()` fetches the last 2 1m klines via
+   `BinanceClient.get_klines(symbol, "1m", limit=2)` and compares each bar's
+   `high`/`low` against the trade's SL/TP. Captures intra-second wicks that
+   `live_tick` (sampled from WS trade events) can miss.
+2. **Fallback** — if the kline fetch fails or returns empty, falls back to
+   `db.get_live_tick().price` and the original spot comparison.
+
+When a wick is detected, the **exit price stored is the bar's `close`**, NOT
+the SL/TP level. This is intentional: when we send a market close after the
+detection, Binance fills at spot, not at the level. The bar close is the
+honest proxy for what we'll actually fill at.
+
+**Empirical justification** (`scripts/test_wick_variants.py`, 3yr BTC 4h,
+optimal config long_only/dist=1.0/TP=4.5/SL=1.5/risk=1%):
+
+| Variant | Trades | PF | Sharpe | Ann% | MaxDD% |
+|---|---|---|---|---|---|
+| live-like (close-only, the bug) | 78 | 1.497 | 9.89 | 12.38% | 8.63% |
+| **fix (high/low + close exit)** | **97** | **1.565** | **10.15** | **13.63%** | **7.28%** |
+| baseline (high/low + level exit) | 97 | 1.546 | 10.11 | 13.36% | 9.64% |
+
+The fix beats both the bug (+1.25pp annual) AND the idealised "close at level"
+backtest variant (-24% on max drawdown). Counter-intuitive but robust: closing
+at the bar's close lets losers recover within the bar, which dominates the
+giveback on winners.
+
+`position_manager` builds the BinanceClient once per cycle (only when there
+are open trades), passes it to all `_manage_single_position` calls. Adds 1
+unauthenticated REST call per open trade per 60s — trivial against Binance's
+1200-weight/min limit.
 
 ---
 
