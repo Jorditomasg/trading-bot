@@ -50,8 +50,7 @@ class CacheTTL:
     KLINES      = 300
     LIVE_PRICE  = 5
 
-# ─── Live chart bar buffer ────────────────────────────────────────────────────
-class LiveBars:
-    INITIAL = 200          # first load
-    STEP    = 200          # bars added per "Load more" click
-    MAX     = 1000         # Binance API hard limit per call
+# ─── Live chart settings ──────────────────────────────────────────────────────
+class LiveChart:
+    TIMEFRAME = "1h"       # always hourly — granular regardless of bot TF
+    BARS      = 500        # ≈ 3 weeks of 1h history; enough to pan back without refetch
