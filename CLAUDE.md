@@ -512,6 +512,15 @@ honest proxy for what we'll actually fill at. Empirically validated — closing
 at bar close beats "close at level" on max drawdown by ~24% on a 3-year run
 (see `scripts/test_wick_variants.py`).
 
+**Both-wicked tiebreaker**: when the same 1m bar wicks BOTH SL and TP
+(rare but real during flash crashes that recover), the exit reason is
+chosen by the close direction relative to entry — close on the winning
+side → `TAKE_PROFIT`, otherwise → `STOP_LOSS`. The exit price is still
+the bar close, so the reason now matches the financial outcome. The
+backtest engine in `bot/backtest/engine.py` keeps the legacy "SL wins"
+conservative rule — there is no real fill price to anchor to in
+simulation, so the pessimistic assumption stays statistically correct.
+
 `position_manager` builds the BinanceClient once per cycle (only when there
 are open trades), passes it to all `_manage_single_position` calls. Adds 1
 unauthenticated REST call per open trade per 60s — trivial against Binance's

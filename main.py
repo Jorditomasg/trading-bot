@@ -436,26 +436,42 @@ def _check_intra_bar_exit(
     if df.empty:
         return None
 
-    sl   = trade["stop_loss"]
-    tp   = trade["take_profit"]
-    side = trade["side"]
+    sl    = trade["stop_loss"]
+    tp    = trade["take_profit"]
+    side  = trade["side"]
+    entry = trade["entry_price"]
 
     # Iterate oldest → newest so an SL/TP on the older bar takes precedence.
-    # If both SL and TP are touched in the same bar, SL wins (conservative).
+    # When both SL and TP are wicked in the same bar, intra-bar order is
+    # unobservable — but the live bot reacts AFTER the wick and fills at the
+    # bar close (see docstring). Pick the reason that matches close direction:
+    # if close is on the winning side of entry, outcome is TP; else SL. The
+    # backtest engine keeps the "SL wins" conservative rule, which is the
+    # statistically-correct fallback when there's no real fill price to anchor.
     for _, bar in df.iterrows():
         high  = float(bar["high"])
         low   = float(bar["low"])
         close = float(bar["close"])
 
         if side == "BUY":
-            if low <= sl:
+            sl_hit = low  <= sl
+            tp_hit = high >= tp
+            if sl_hit and tp_hit:
+                reason = ExitReason.TAKE_PROFIT if close > entry else ExitReason.STOP_LOSS
+                return (reason, close)
+            if sl_hit:
                 return (ExitReason.STOP_LOSS, close)
-            if high >= tp:
+            if tp_hit:
                 return (ExitReason.TAKE_PROFIT, close)
         else:  # SELL
-            if high >= sl:
+            sl_hit = high >= sl
+            tp_hit = low  <= tp
+            if sl_hit and tp_hit:
+                reason = ExitReason.TAKE_PROFIT if close < entry else ExitReason.STOP_LOSS
+                return (reason, close)
+            if sl_hit:
                 return (ExitReason.STOP_LOSS, close)
-            if low <= tp:
+            if tp_hit:
                 return (ExitReason.TAKE_PROFIT, close)
 
     return None
