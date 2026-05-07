@@ -8,11 +8,7 @@ import os
 from bot.config import settings
 from bot.logging_setup import setup_logging
 
-setup_logging(
-    settings.log_level,
-    main_log="dashboard.log",
-    error_log="dashboard_errors.log",
-)
+setup_logging(settings.log_level, prefix="dashboard")
 
 from datetime import datetime
 

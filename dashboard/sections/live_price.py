@@ -22,7 +22,7 @@ import streamlit as st
 from bot.database.db import Database
 from bot.exchange.binance_client import BinanceClient
 from dashboard.constants import RED, WHITE, GREEN, ChartConfig, RefreshRates, CacheTTL
-from dashboard.range import current_spec, klines_params_for_range, visible_bars
+from dashboard.range import current_spec
 from dashboard.themes import NothingOS
 from dashboard.utils import fmt
 
@@ -144,9 +144,8 @@ def _live_chart_fragment(db: Database, symbol: str) -> None:
     spec        = current_spec()
     open_trades = db.get_open_trades(symbol=symbol)
 
-    tf, n_bars = klines_params_for_range(spec)
-    records    = get_klines_cached(symbol, tf, n_bars)
-    df_k       = pd.DataFrame(records)
+    records = get_klines_cached(symbol, spec.tf, spec.preload_bars)
+    df_k    = pd.DataFrame(records)
     if df_k.empty:
         st.caption("chart data unavailable")
         return
@@ -156,7 +155,7 @@ def _live_chart_fragment(db: Database, symbol: str) -> None:
     else:
         freq_map   = {"1m": "min", "5m": "5min", "15m": "15min", "30m": "30min",
                       "1h": "h", "2h": "2h", "4h": "4h", "1d": "D", "1w": "W"}
-        freq       = freq_map.get(tf, "h")
+        freq       = freq_map.get(spec.tf, "h")
         end        = pd.Timestamp.now().floor(freq)
         timestamps = pd.Series(pd.date_range(end=end, periods=len(df_k), freq=freq))
 
@@ -203,7 +202,7 @@ def _live_chart_fragment(db: Database, symbol: str) -> None:
     if open_trades:
         _add_position_levels(fig, open_trades, chart_end=timestamps.iloc[-1])
 
-    n_vis   = min(visible_bars(spec), len(timestamps))
+    n_vis   = min(spec.visible_bars, len(timestamps))
     x_start = timestamps.iloc[-n_vis]
     x_end   = timestamps.iloc[-1]
 

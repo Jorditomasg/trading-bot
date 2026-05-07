@@ -21,14 +21,13 @@ _configured = False
 
 def setup_logging(
     level: str,
+    prefix: str = "bot",
     log_dir: Path = Path("logs"),
-    main_log: str = "bot.log",
-    error_log: str = "errors.log",
 ) -> None:
-    """Wire stdout + main_log + error_log handlers plus uncaught-exception hooks.
+    """Wire stdout + `{prefix}.log` + `{prefix}_errors.log` plus uncaught-exception hooks.
 
-    - main_log captures everything at `level` and above.
-    - error_log is WARNING+ only, rotated at 5 MB × 5 files.
+    - `{prefix}.log` captures everything at `level` and above.
+    - `{prefix}_errors.log` is WARNING+ only, rotated at 5 MB × 5 files.
     - Uncaught exceptions in the main thread and daemon threads are logged.
 
     `force=True` replaces any pre-existing root handlers — Streamlit installs
@@ -41,7 +40,7 @@ def setup_logging(
     log_dir.mkdir(exist_ok=True)
 
     error_handler = logging.handlers.RotatingFileHandler(
-        log_dir / error_log,
+        log_dir / f"{prefix}_errors.log",
         maxBytes=5 * 1024 * 1024,
         backupCount=5,
         encoding="utf-8",
@@ -55,7 +54,7 @@ def setup_logging(
         datefmt=_DATEFMT,
         handlers=[
             logging.StreamHandler(sys.stdout),
-            logging.FileHandler(log_dir / main_log, encoding="utf-8"),
+            logging.FileHandler(log_dir / f"{prefix}.log", encoding="utf-8"),
             error_handler,
         ],
         force=True,

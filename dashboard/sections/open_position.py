@@ -1,19 +1,13 @@
 """Open position state + drawdown — refreshes every 10s."""
 
-import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
 from bot.database.db import Database
 from dashboard.constants import RED, REGIME_COLORS, ChartConfig, Thresholds, RefreshRates
-from dashboard.range import window_xaxis_range
+from dashboard.range import current_range, slice_by_window, window_xaxis_range
 from dashboard.themes import NothingOS
 from dashboard.utils import _bias_badge, _regime_badge, fmt
-
-
-def _to_naive(ts) -> pd.Timestamp:
-    t = pd.to_datetime(ts)
-    return t.tz_localize(None) if t.tzinfo is not None else t
 
 PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
 PLOTLY_CONFIG = NothingOS.PLOTLY_CONFIG
@@ -131,7 +125,11 @@ def drawdown_section(db: Database) -> None:
         showlegend=False,
     ))
     fig_dd.add_hline(y=Thresholds.CIRCUIT_BREAKER_PCT, line_dash="dot", line_color="#333", line_width=1)
-    fig_dd.update_layout(**PLOTLY_LAYOUT, height=ChartConfig.HEIGHT_DRAWDOWN)
+    fig_dd.update_layout(
+        **PLOTLY_LAYOUT,
+        height=ChartConfig.HEIGHT_DRAWDOWN,
+        uirevision=f"dd_{current_range()}",
+    )
 
     window = window_xaxis_range()
     if window is None:
@@ -143,8 +141,7 @@ def drawdown_section(db: Database) -> None:
             ticksuffix="%",
         )
     else:
-        visible = [v for r, v in zip(equity_curve, dd_val)
-                   if window[0] <= _to_naive(r["timestamp"]) <= window[1]]
+        visible = slice_by_window(equity_curve, dd_val, window)
         max_dd  = max(visible) if visible else Thresholds.CIRCUIT_BREAKER_PCT
         margin  = max(max_dd * 0.1, 1.0)
         fig_dd.update_xaxes(range=list(window))

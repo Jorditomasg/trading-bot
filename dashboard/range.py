@@ -11,11 +11,6 @@ All three charts (equity, drawdown, live price) read the same window from
 
 Equity / drawdown don't filter the local curve — the full series is
 loaded and `xaxis.range` clips the initial view, so pan-back is free.
-
-Direct widget binding (`key=SESSION_KEY`) makes selection apply on a
-single click instead of two — the old pattern (separate widget key +
-manual copy) wrote to session_state AFTER fragments had already
-rendered, requiring a second interaction.
 """
 
 from __future__ import annotations
@@ -27,6 +22,12 @@ import pandas as pd
 import streamlit as st
 
 from bot.database.db import Database
+
+
+def to_naive(ts) -> pd.Timestamp:
+    """Strip tz so naive timestamps from Binance compare cleanly with stored values."""
+    t = pd.to_datetime(ts)
+    return t.tz_localize(None) if t.tzinfo is not None else t
 
 
 @dataclass(frozen=True)
@@ -65,10 +66,7 @@ def available_options(db: Database) -> list[str]:
     curve = db.get_equity_curve()
     if len(curve) < 2:
         return ["ALL"]
-    oldest_ts = pd.to_datetime(curve[0]["timestamp"])
-    if oldest_ts.tzinfo is not None:
-        oldest_ts = oldest_ts.tz_localize(None)
-    age_h = (datetime.now() - oldest_ts).total_seconds() / 3600
+    age_h = (datetime.now() - to_naive(curve[0]["timestamp"])).total_seconds() / 3600
 
     out: list[str] = []
     for r in _RANGES:
@@ -85,8 +83,6 @@ def available_options(db: Database) -> list[str]:
 
 
 def render_selector(db: Database) -> str:
-    """Render the radio with `key=SESSION_KEY` so selecting an option
-    updates state on the same rerun (no two-click bug)."""
     options = available_options(db)
     # Clamp BEFORE the widget renders — Streamlit raises if the bound
     # state value isn't in `options`.
@@ -122,12 +118,10 @@ def window_xaxis_range(spec: RangeSpec | None = None) -> tuple[pd.Timestamp, pd.
     return start, end
 
 
-def klines_params_for_range(spec: RangeSpec | None = None) -> tuple[str, int]:
-    """(timeframe, preload_bars) for the live chart fetch."""
-    spec = spec or current_spec()
-    return spec.tf, spec.preload_bars
-
-
-def visible_bars(spec: RangeSpec | None = None) -> int:
-    spec = spec or current_spec()
-    return spec.visible_bars
+def slice_by_window(
+    curve: list[dict],
+    values: list,
+    window: tuple[pd.Timestamp, pd.Timestamp],
+) -> list:
+    """Return values from `values` whose corresponding `curve[i]["timestamp"]` is in window."""
+    return [v for r, v in zip(curve, values) if window[0] <= to_naive(r["timestamp"]) <= window[1]]
