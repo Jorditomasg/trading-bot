@@ -212,12 +212,10 @@ def _live_chart_fragment(db: Database, symbol: str) -> None:
         height=ChartConfig.HEIGHT_LIVE,
         showlegend=False,
         uirevision=f"live_{symbol}_{spec.key}",
-        xaxis=dict(
-            **PLOTLY_LAYOUT["xaxis"],
-            range=[x_start, x_end],
-            rangeslider=dict(visible=False),
-        ),
     )
+    # Set x-axis range AFTER update_layout so we don't collide with the
+    # xaxis dict already in PLOTLY_LAYOUT.
+    fig.update_xaxes(range=[x_start, x_end], rangeslider=dict(visible=False))
     st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 
 
