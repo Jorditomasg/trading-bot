@@ -25,6 +25,7 @@ class ChartConfig:
     HEIGHT_LIVE        = 300
     HEIGHT_PERFORMANCE = 200
     HEIGHT_REGIME      = 180
+    HEIGHT_HIST        = 200
     MARKER_SIZE        = 10
     MARKER_OPACITY     = 0.9
     LINE_WIDTH         = 1.5
@@ -50,8 +51,3 @@ class RefreshRates:
 class CacheTTL:
     KLINES      = 300
     LIVE_PRICE  = 5
-
-# ─── Live chart settings ──────────────────────────────────────────────────────
-class LiveChart:
-    TIMEFRAME = "1h"       # always hourly — granular regardless of bot TF
-    BARS      = 500        # ≈ 3 weeks of 1h history; enough to pan back without refetch
