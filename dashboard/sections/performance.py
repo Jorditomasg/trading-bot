@@ -40,11 +40,8 @@ def performance_section(db: Database, symbol: str) -> None:
                 textposition="inside",
             ))
             fig.add_vline(x=Thresholds.WIN_RATE_MID, line_dash="dot", line_color="#333", line_width=1)
-            fig.update_layout(
-                **PLOTLY_LAYOUT,
-                xaxis=dict(range=[0, 100], gridcolor="#111", showline=False, zeroline=False),
-                height=ChartConfig.HEIGHT_PERFORMANCE,
-            )
+            fig.update_layout(**PLOTLY_LAYOUT, height=ChartConfig.HEIGHT_PERFORMANCE)
+            fig.update_xaxes(range=[0, 100])
             st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
         else:
             st.caption("no closed trades yet")
@@ -107,11 +104,8 @@ def performance_section(db: Database, symbol: str) -> None:
                 textposition="inside",
             ))
             fig_reg.add_vline(x=Thresholds.WIN_RATE_MID, line_dash="dot", line_color="#333", line_width=1)
-            fig_reg.update_layout(
-                **PLOTLY_LAYOUT,
-                xaxis=dict(range=[0, 100], gridcolor="#111", showline=False, zeroline=False),
-                height=ChartConfig.HEIGHT_REGIME,
-            )
+            fig_reg.update_layout(**PLOTLY_LAYOUT, height=ChartConfig.HEIGHT_REGIME)
+            fig_reg.update_xaxes(range=[0, 100])
             st.plotly_chart(fig_reg, use_container_width=True, config=PLOTLY_CONFIG)
         else:
             st.caption("no regime data yet")

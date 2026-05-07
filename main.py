@@ -3,14 +3,12 @@
 
 import argparse
 import logging
-import logging.handlers
 import os
 import signal
 import sys
 import threading
 import time
 import datetime as dt
-from pathlib import Path
 
 import pandas as pd
 import schedule
@@ -21,6 +19,7 @@ from bot.config import settings
 from bot.constants import ExitReason, StrategyName, TradeAction
 from bot.database.db import Database
 from bot.exchange.binance_client import BinanceClient
+from bot.logging_setup import setup_logging
 from bot.optimizer.auto_optimizer import run_and_apply, should_run
 from bot.optimizer.auto_entry_quality_optimizer import (
     run_and_apply as eq_run_and_apply,
@@ -32,7 +31,6 @@ from bot.telegram_commands import TelegramCommandHandler
 from bot.telegram_notifier import TelegramNotifier
 
 KLINES_LIMIT = 200
-LOG_DIR = Path("logs")
 
 
 def _build_client(db: Database) -> BinanceClient:
@@ -51,59 +49,6 @@ def _build_client(db: Database) -> BinanceClient:
         else:
             logger.error("MAINNET mode set but no credentials found — falling back to TESTNET")
     return BinanceClient()
-
-
-def setup_logging(level: str) -> None:
-    LOG_DIR.mkdir(exist_ok=True)
-    fmt = "%(asctime)s  %(levelname)-8s  %(name)-30s  %(message)s"
-    datefmt = "%Y-%m-%d %H:%M:%S"
-
-    # Dedicated WARNING+ rotating handler — every error/warning lands here
-    # regardless of which module raised it. 5MB × 5 files ≈ 25MB cap.
-    error_handler = logging.handlers.RotatingFileHandler(
-        LOG_DIR / "errors.log",
-        maxBytes=5 * 1024 * 1024,
-        backupCount=5,
-        encoding="utf-8",
-    )
-    error_handler.setLevel(logging.WARNING)
-    error_handler.setFormatter(logging.Formatter(fmt, datefmt=datefmt))
-
-    logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO),
-        format=fmt,
-        datefmt=datefmt,
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler(LOG_DIR / "bot.log"),
-            error_handler,
-        ],
-    )
-    # Use local time (respects TZ env var) instead of UTC in log timestamps
-    logging.Formatter.converter = time.localtime
-
-    # Capture uncaught exceptions — main thread + daemon threads.
-    # Without these hooks a crash bypasses logging entirely and the trace
-    # only lands on stderr, which Docker may not retain.
-    def _log_uncaught(exc_type, exc_value, exc_tb):
-        if issubclass(exc_type, KeyboardInterrupt):
-            sys.__excepthook__(exc_type, exc_value, exc_tb)
-            return
-        logging.getLogger("uncaught").critical(
-            "Unhandled exception", exc_info=(exc_type, exc_value, exc_tb),
-        )
-
-    def _log_thread_uncaught(args: threading.ExceptHookArgs) -> None:
-        if issubclass(args.exc_type, SystemExit):
-            return
-        logging.getLogger("uncaught.thread").critical(
-            "Unhandled exception in thread %s",
-            args.thread.name if args.thread else "unknown",
-            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
-        )
-
-    sys.excepthook       = _log_uncaught
-    threading.excepthook = _log_thread_uncaught
 
 
 logger = logging.getLogger(__name__)

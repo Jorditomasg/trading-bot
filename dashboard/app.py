@@ -1,6 +1,19 @@
 """Streamlit dashboard — Nothing OS design language."""
 
 import os
+
+# Logging is wired BEFORE other dashboard imports so any module-level errors
+# during import (e.g. a misconfigured chart layout) land in logs/dashboard*.log
+# instead of disappearing into Streamlit's stderr.
+from bot.config import settings
+from bot.logging_setup import setup_logging
+
+setup_logging(
+    settings.log_level,
+    main_log="dashboard.log",
+    error_log="dashboard_errors.log",
+)
+
 from datetime import datetime
 
 import streamlit as st

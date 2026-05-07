@@ -39,6 +39,7 @@ class Thresholds:
 class RefreshRates:
     TOPBAR      = 5
     LIVE_PRICE  = 5
+    LIVE_CHART  = 180   # 3 min — chart re-renders are heavy; metric stays at 5s
     KPI         = 10
     POSITION    = 10
     DRAWDOWN    = 10
