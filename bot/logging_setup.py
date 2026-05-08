@@ -26,7 +26,7 @@ def setup_logging(
 ) -> None:
     """Wire stdout + `{prefix}.log` + `{prefix}_errors.log` plus uncaught-exception hooks.
 
-    - `{prefix}.log` captures everything at `level` and above.
+    - `{prefix}.log` captures everything at `level` and above, rotated at 10 MB × 5 files.
     - `{prefix}_errors.log` is WARNING+ only, rotated at 5 MB × 5 files.
     - Uncaught exceptions in the main thread and daemon threads are logged.
 
@@ -48,13 +48,20 @@ def setup_logging(
     error_handler.setLevel(logging.WARNING)
     error_handler.setFormatter(logging.Formatter(_FMT, datefmt=_DATEFMT))
 
+    main_handler = logging.handlers.RotatingFileHandler(
+        log_dir / f"{prefix}.log",
+        maxBytes=10 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
+    )
+
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
         format=_FMT,
         datefmt=_DATEFMT,
         handlers=[
             logging.StreamHandler(sys.stdout),
-            logging.FileHandler(log_dir / f"{prefix}.log", encoding="utf-8"),
+            main_handler,
             error_handler,
         ],
         force=True,

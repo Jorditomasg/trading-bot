@@ -65,7 +65,7 @@ class StrategyOrchestrator:
             logger.info("[%s] HWM updated: peak=%.2f", sym, self._peak_capital)
 
         if self.risk_manager.check_circuit_breaker(cb_balance, self._peak_capital):
-            logger.warning("[%s] circuit breaker active — no trading this cycle", sym)
+            logger.info("[%s] circuit breaker active — no trading this cycle", sym)
             return []
 
         current_price = float(df["close"].iloc[-1])

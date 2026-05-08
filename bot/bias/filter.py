@@ -47,10 +47,14 @@ class BiasFilter:
                     "BiasFilter: insufficient data (%s rows) — BLOCKED (block_on_data_failure=True)",
                     len(df_4h) if df_4h is not None else "None",
                 )
+            elif df_4h is None:
+                logger.debug(
+                    "BiasFilter: no data — NEUTRAL (warmup or upstream fetch failed)"
+                )
             else:
                 logger.warning(
-                    "BiasFilter: insufficient data (%s rows) — NEUTRAL (signals pass via neutral_passthrough)",
-                    len(df_4h) if df_4h is not None else "None",
+                    "BiasFilter: only %d rows (need %d) — NEUTRAL (signals pass via neutral_passthrough)",
+                    len(df_4h), required,
                 )
             return Bias.NEUTRAL
 

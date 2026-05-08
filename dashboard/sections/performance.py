@@ -22,29 +22,7 @@ def performance_section(db: Database, symbol: str) -> None:
     closed        = [t for t in trades if t.get("exit_price") is not None]
     wins          = sum(1 for t in closed if t.get("pnl") and t["pnl"] > 0)
 
-    col_strat, col_hist, col_risk = st.columns(3)
-
-    with col_strat:
-        st.markdown("## Strategy Performance")
-        if strategy_perf:
-            df_p       = pd.DataFrame(strategy_perf)
-            bar_colors = [WHITE if wr >= Thresholds.WIN_RATE_MID else RED for wr in df_p["win_rate"]]
-            fig = go.Figure(go.Bar(
-                x=df_p["win_rate"],
-                y=df_p["strategy"],
-                orientation="h",
-                marker_color=bar_colors,
-                marker_line_width=0,
-                text=[f"{wr:.0f}%  ({t}T)" for wr, t in zip(df_p["win_rate"], df_p["total_trades"])],
-                textfont=dict(family="Space Mono", size=10, color="#0A0A0A"),
-                textposition="inside",
-            ))
-            fig.add_vline(x=Thresholds.WIN_RATE_MID, line_dash="dot", line_color="#333", line_width=1)
-            fig.update_layout(**PLOTLY_LAYOUT, height=ChartConfig.HEIGHT_PERFORMANCE)
-            fig.update_xaxes(range=[0, 100])
-            st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
-        else:
-            st.caption("no closed trades yet")
+    col_hist, col_risk = st.columns(2)
 
     with col_hist:
         st.markdown("## P&L Distribution")
@@ -90,6 +68,31 @@ def performance_section(db: Database, symbol: str) -> None:
         r1.metric("Avg Win",         f"${fmt(avg_win, '+.2f')}")
         r2.metric("Avg Loss",        f"${fmt(avg_loss, '+.2f')}")
 
+    col_strat, col_regime = st.columns(2)
+
+    with col_strat:
+        st.markdown("## Strategy Performance")
+        if strategy_perf:
+            df_p       = pd.DataFrame(strategy_perf)
+            bar_colors = [WHITE if wr >= Thresholds.WIN_RATE_MID else RED for wr in df_p["win_rate"]]
+            fig = go.Figure(go.Bar(
+                x=df_p["win_rate"],
+                y=df_p["strategy"],
+                orientation="h",
+                marker_color=bar_colors,
+                marker_line_width=0,
+                text=[f"{wr:.0f}%  ({t}T)" for wr, t in zip(df_p["win_rate"], df_p["total_trades"])],
+                textfont=dict(family="Space Mono", size=10, color="#0A0A0A"),
+                textposition="inside",
+            ))
+            fig.add_vline(x=Thresholds.WIN_RATE_MID, line_dash="dot", line_color="#333", line_width=1)
+            fig.update_layout(**PLOTLY_LAYOUT, height=ChartConfig.HEIGHT_PERFORMANCE)
+            fig.update_xaxes(range=[0, 100])
+            st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+        else:
+            st.caption("no closed trades yet")
+
+    with col_regime:
         st.markdown("## Regime Performance")
         if regime_perf:
             df_reg  = pd.DataFrame(regime_perf)
