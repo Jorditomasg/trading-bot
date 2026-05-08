@@ -12,10 +12,11 @@ from bot.database.db import Database
 from bot.exchange.binance_client import BinanceClient
 from bot.optimizer.auto_optimizer import OPTIMIZER_INTERVAL_DAYS, LAST_RUN_KEY
 from bot.telegram_notifier import TelegramNotifier
-from dashboard.constants import RED
-
-_SYMBOLS    = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT"]
-_TIMEFRAMES = ["1h", "2h", "4h", "8h", "1d"]
+from dashboard.constants import (
+    RED,
+    SUPPORTED_SYMBOLS as _SYMBOLS,
+    SUPPORTED_TIMEFRAMES as _TIMEFRAMES,
+)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

@@ -31,8 +31,7 @@ MAX_DRAWDOWN_PCT = 20.0
 MIN_SHARPE       = 0.4
 MIN_PF           = 1.05
 
-# Bias timeframe per primary timeframe (mirrors trail_optimizer.py)
-_BIAS_TF = {"1h": "4h", "2h": "4h", "4h": "1d", "8h": "1d", "1d": "1w"}
+from bot.config_presets import BIAS_TIMEFRAME_MAP as _BIAS_TF
 
 _DEFAULT_STOP_MULT = 1.5
 _DEFAULT_TP_MULT   = 3.5

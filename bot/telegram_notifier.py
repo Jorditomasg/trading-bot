@@ -82,6 +82,19 @@ class TelegramNotifier:
         except Exception as exc:
             logger.warning("setMyCommands failed: %s", exc)
 
+    # ── Generic alert ─────────────────────────────────────────────────────────
+
+    def alert(self, message: str) -> None:
+        """Public alert channel for operational warnings (orphan positions, DB
+        failures, anything the human needs to see).
+
+        The message is prepended with an `⚠️ ALERT` header and sent via the
+        same `_post` machinery, so HTML formatting is supported and the call
+        silently no-ops when Telegram is unconfigured. Errors during the HTTP
+        send are swallowed by `_post` — callers do not need their own try/except.
+        """
+        self._post(f"⚠️ <b>ALERT</b>\n{message}")
+
     # ── Trade events ──────────────────────────────────────────────────────────
 
     def trade_opened(self, trade: dict, mode: str) -> None:

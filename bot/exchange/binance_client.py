@@ -4,6 +4,7 @@ import time
 from typing import Callable, Optional
 
 import pandas as pd
+import requests
 from binance.client import Client
 from binance.exceptions import BinanceAPIException, BinanceRequestException
 from binance import ThreadedWebsocketManager
@@ -16,6 +17,17 @@ TESTNET_BASE_URL = "https://testnet.binance.vision"
 MAX_RETRIES = 3
 BACKOFF_BASE = 2.0  # seconds
 
+# Retryable exceptions: only network and Binance API issues. Programming bugs
+# (TypeError, KeyError, AttributeError, ...) propagate immediately so they
+# surface in logs instead of burning ~14s on three pointless retries.
+_RETRYABLE = (
+    BinanceAPIException,
+    BinanceRequestException,
+    requests.exceptions.RequestException,
+    TimeoutError,
+    ConnectionError,
+)
+
 
 def _retry(func):
     """Decorator: retry up to MAX_RETRIES times with exponential backoff."""
@@ -24,7 +36,7 @@ def _retry(func):
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 return func(*args, **kwargs)
-            except (BinanceAPIException, BinanceRequestException, Exception) as exc:
+            except _RETRYABLE as exc:
                 last_exc = exc
                 wait = BACKOFF_BASE ** attempt
                 logger.warning(

@@ -178,18 +178,35 @@ class TelegramCommandHandler:
             logger.info("Report sent via Telegram command (symbol=%s)", symbol_arg or "ALL")
 
     def _poll_loop(self) -> None:
+        # Top-level try/except keeps the daemon alive if a single update
+        # raises (malformed payload, transient DB error, etc.). Without it,
+        # the thread dies silently and `/pause`, `/status`, `/report` stop
+        # responding with no user-visible signal.
         while not self._stop.is_set():
-            token, chat_id, enabled = self._cfg()
+            try:
+                token, chat_id, enabled = self._cfg()
 
-            if not enabled or not token or not chat_id:
-                # Config not ready — sleep and retry
-                self._stop.wait(timeout=30)
-                continue
+                if not enabled or not token or not chat_id:
+                    # Config not ready — sleep and retry
+                    self._stop.wait(timeout=30)
+                    continue
 
-            updates = self._get_updates(token)
-            for update in updates:
-                self._offset = update["update_id"] + 1
-                self._handle(update, chat_id)
+                updates = self._get_updates(token)
+                for update in updates:
+                    self._offset = update["update_id"] + 1
+                    try:
+                        self._handle(update, chat_id)
+                    except Exception as exc:
+                        # Skip the offending update but keep the loop alive.
+                        logger.exception(
+                            "Telegram update handler crashed (update_id=%s): %s",
+                            update.get("update_id"), exc,
+                        )
 
-            if not updates:
-                time.sleep(1)
+                if not updates:
+                    time.sleep(1)
+            except Exception as exc:
+                # Catastrophic failure (DB connection lost, etc.) — log loudly
+                # and back off briefly, but never let the thread die.
+                logger.exception("Telegram poll loop crashed: %s — restarting in 10s", exc)
+                self._stop.wait(timeout=10)

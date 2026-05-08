@@ -18,7 +18,11 @@ class Settings:
 
     # Capital & risk
     initial_capital: float = field(default_factory=lambda: float(os.getenv("INITIAL_CAPITAL", "10000")))
-    risk_per_trade: float = field(default_factory=lambda: float(os.getenv("RISK_PER_TRADE", "0.04")))
+    # Default mirrors `_seed_optimized_defaults` in main.py — what production
+    # actually trades. Live bot reads from DB after seeding; this fallback is
+    # only hit by tests/scripts that bypass main(). See `scripts/risk_scaler_matrix.py`
+    # for the empirical comparison that justified 1.5% over 4%.
+    risk_per_trade: float = field(default_factory=lambda: float(os.getenv("RISK_PER_TRADE", "0.015")))
 
     # Telegram
     telegram_token:   str  = field(default_factory=lambda: os.getenv("TELEGRAM_TOKEN",   ""))

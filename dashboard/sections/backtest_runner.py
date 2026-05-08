@@ -14,8 +14,14 @@ from bot.backtest.portfolio_engine import (
     PortfolioBacktestEngine,
     PortfolioBacktestResult,
 )
+from bot.config_presets import BIAS_TIMEFRAME_MAP as _BIAS_TF
 from bot.database.db import Database
-from dashboard.constants import GREEN, RED, ChartConfig
+from dashboard.constants import (
+    GREEN, RED,
+    SUPPORTED_SYMBOLS as _SYMBOLS,
+    SUPPORTED_TIMEFRAMES as _TIMEFRAMES,
+    ChartConfig,
+)
 from dashboard.themes import NothingOS
 from dashboard.utils import fmt
 
@@ -23,10 +29,6 @@ _logger = logging.getLogger(__name__)
 
 PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
 PLOTLY_CONFIG = NothingOS.PLOTLY_CONFIG
-
-_SYMBOLS    = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT"]
-_TIMEFRAMES = ["1h", "2h", "4h", "8h", "1d"]
-_BIAS_TF    = {"1h": "4h", "2h": "4h", "4h": "1d", "8h": "1d", "1d": "1w"}
 
 
 # ── Equity mini-chart ─────────────────────────────────────────────────────────

@@ -2,22 +2,61 @@
 
 Developer reference for this codebase. Read this before touching anything.
 
+> **Source of truth**: the **code**, not this document. If a parameter, field,
+> or behaviour in `bot/` disagrees with what's written here, the code wins —
+> docs lag refactors. **Before changing any sensitive parameter (risk, SL/TP,
+> thresholds, validation ranges) back the change with a fresh backtest.**
+> Templates: `scripts/risk_scaler_matrix.py`, `scripts/risk_sweep.py`,
+> `scripts/find_low_dd_v2.py`.
+
 ---
 
 ## Validated Baseline
 
-Spot BTC/USDT, 4h timeframe, long-only, no trailing stop, `max_distance_atr=1.0`, TP=4.5×ATR, SL=1.5×ATR.
+**Production seeded values** — written to the `bot_config` KV table on first run by
+`_seed_optimized_defaults()` in `main.py`, then applied to live config via `_apply_runtime_config`.
+The dataclass defaults in `bot/config.py` mirror these so test/script paths that bypass
+`main()` use the same values.
 
-Hard rules from systematic 3-year backtests — do not change without re-running `BacktestEngine`:
+| Param | Value | Notes |
+|---|---|---|
+| `symbol` | `BTCUSDT` | Multi-symbol supported via `PortfolioBacktestEngine` (BTC+ETH validated) |
+| `timeframe` | `4h` | 1h is unviable (legacy backtests: PF=0.75, Ann=-26%) |
+| `risk_per_trade` | `0.015` (1.5%) | Picked over 4% per `scripts/risk_scaler_matrix.py` (May 2026) |
+| `ema_stop_mult` | `1.5` | SL = 1.5 × ATR |
+| `ema_tp_mult` | `4.5` | TP = 4.5 × ATR |
+| `ema_max_dist_atr` | `1.0` | Max distance from EMA9 for trend-continuation entries |
+| `long_only` | `true` | Bidirectional destroys PF on BTC |
 
-- **Long-only on BTC**: bidirectional destroys PF (1.55 → 1.09). BTC's upward bias makes shorts net losers.
-- **No trailing stop**: trail cuts winners before TP (PF 1.55 → 0.76 with trail on). See gotcha #1.
-- **4h timeframe**: 1h is unviable (PF=0.75, Ann=-26%).
-- **No momentum filter**: reduces annual return without meaningful DD reduction.
+Hard rules — do not change without re-running `BacktestEngine` or `PortfolioBacktestEngine`:
+
+- **Long-only on BTC**: bidirectional destroys PF (1.55 → 1.09). BTC upward bias.
+- **No trailing stop in live**: gotcha #1 (still exists in `BacktestConfig` for research).
+- **4h timeframe**: validated. 1h is unviable.
 - **R:R ≥ 1.5**: optimizer skips any combo below this floor.
+- **Drawdown scaler stays DISABLED**: matrix backtest (`scripts/risk_scaler_matrix.py`, May 2026)
+  showed it destroys returns on EMA crossover. Enabling it cuts annual from +32.7% to +10.8% at
+  1.5% risk while only saving 1.3pp of DD. Mechanism: scaler quarter-sizes trades during DD,
+  but DD on trend-following is a pullback before continuation — you take losses at full size
+  and recovery winners at quarter size. Code is wired (`bot/risk/drawdown_scaler.py`,
+  `bot/orchestrator.py`, `bot/backtest/{engine,portfolio_engine}.py`) but `enabled=False`.
+  Can help mean-reverting strategies; never enable for trend-following.
 
-When working on profitability changes, always run a 3-year backtest before/after and compare:
-annual return, Sharpe, profit factor, max drawdown.
+### Risk × DD trade-off (BTC+ETH, 4h, bias_strict, 3y)
+
+Calmar (Annual/DD) is the primary metric for risk-policy decisions — it captures the
+survival-vs-return tradeoff better than Sharpe.
+
+| Risk | Annual | Max DD | PF | Sharpe | Calmar |
+|---|---|---|---|---|---|
+| 1.5% | +32.7% | -15.2% | 1.52 | 1.33 | 2.16 |
+| 2.0% | +44.0% | -19.9% | 1.51 | 1.33 | 2.21 |
+| 2.5% | +55.2% | -24.5% | 1.49 | 1.33 | 2.25 |
+| 3.0% | +66.4% | -29.0% | 1.47 | 1.34 | 2.29 |
+| 4.0% | +88.0% | -37.3% | 1.44 | 1.34 | 2.36 |
+
+Calmar improves marginally (+9% from 1.5% to 4%) while DD scales linearly with risk.
+PF actually peaks at 1.5%. The seeded 1.5% trades return for survivability.
 
 ---
 
@@ -96,24 +135,35 @@ annual return, Sharpe, profit factor, max drawdown.
 | `bot/orchestrator.py` | Coordinates regime → strategy → bias filter → risk → order dict |
 | `bot/bias/filter.py` | `BiasFilter` — EMA9/21 on 4h candles; returns BULLISH/BEARISH/NEUTRAL; injected into orchestrator as hard gate before signal execution |
 | `bot/regime/detector.py` | 3-level regime detection: ATR volatility → ADX → Hurst |
-| `bot/risk/manager.py` | Circuit breaker, position sizing (risk-based **with spot capital cap**), signal validation |
+| `bot/risk/manager.py` | `RiskManager`: circuit breaker (persisted across restarts), position sizing **with spot capital cap**, `validate_signal`. Kelly fields live in `RiskConfig` (`kelly_max_mult`, `kelly_min_mult`, `kelly_min_trades`, `kelly_half`). |
+| `bot/risk/kelly.py` | Pure functions: `compute_kelly_fraction()` (half-Kelly default), `kelly_risk_fraction()` (clamped multiplier). Wired in `orchestrator.step()`. |
+| `bot/risk/drawdown_scaler.py` | `DrawdownRiskConfig` + `drawdown_multiplier()` — disabled by default; applied in BacktestEngine + PortfolioBacktestEngine. NOT wired in live orchestrator (intentional — see Validated Baseline). |
+| `bot/risk/vol_regime.py` | `VolRegimeConfig` + `VolRegimeFilter` — opt-in volatility-regime gate that can block entries or scale size in LOW/HIGH vol windows. Disabled by default. |
+| `bot/risk/news_pause.py` | News-event pause window — gates entries around macro releases. Disabled by default; opt in via `BacktestConfig.news_pause`. |
+| `bot/risk/news_blackout.py` | Static news-event calendar lookup helpers (companion to `news_pause`). |
 | `bot/strategy/base.py` | Abstract BaseStrategy + Signal dataclass |
-| `bot/strategy/ema_crossover.py` | EMA 9/21 crossover strategy (TRENDING) |
-| `bot/strategy/mean_reversion.py` | Bollinger Bands + RSI strategy (RANGING) |
-| `bot/strategy/breakout.py` | Donchian channel + volume filter (VOLATILE) |
+| `bot/strategy/ema_crossover.py` | EMA 9/21 crossover strategy — the **only** strategy registered in the live orchestrator. |
+| `bot/strategy/donchian_breakout.py` | Donchian breakout strategy — research only, not registered in orchestrator. Used by `scripts/risk_sweep.py` and as a `BacktestEngine` override. |
 | `bot/strategy/levels.py` | Pure function: `calculate_levels(side, price, atr, sl_mult, tp_mult)` |
 | `bot/strategy/signal_factory.py` | Constructors: `buy_signal()`, `sell_signal()`, `hold_signal()` |
 | `bot/indicators/utils.py` | Pure functions: `atr()`, `rsi()`, `wilder_smooth()` |
-| `bot/config_presets.py` | Timeframe-aware config factory: `get_regime_config(tf)` and `get_strategy_configs(tf)` — presets for 1h, 4h, 15m; fallback to 1h |
-| `bot/database/db.py` | SQLite wrapper, DDL, migrations, all queries; `bot_config` KV store for Telegram config, pause state, and runtime params; `optimizer_runs` table |
+| `bot/config_presets.py` | Timeframe-aware config factory: `get_regime_config(tf)`, `get_strategy_configs(tf)`, plus `BIAS_TIMEFRAME_MAP` / `bias_timeframe_for(tf)` — single source of truth for primary→bias timeframe mapping. |
+| `bot/database/db.py` | SQLite wrapper, DDL, migrations, all queries; `bot_config` KV store; `optimizer_runs`, `entry_quality_runs` tables; `get_kelly_stats()` for Kelly sizing. |
 | `bot/metrics.py` | Pure functions: Sharpe, max drawdown, profit factor, max loss streak |
-| `bot/exchange/binance_client.py` | Binance API client (testnet-aware) |
-| `bot/telegram_notifier.py` | `TelegramNotifier` — sends trade/circuit-breaker/lifecycle events; `register_commands()` registers bot menu via `setMyCommands`; lazy DB config reads |
-| `bot/telegram_commands.py` | `TelegramCommandHandler` — daemon thread, long-polls Telegram, handles `/pause` `/resume` `/status` `/report` |
+| `bot/exchange/binance_client.py` | Binance API client (testnet-aware). `_retry` decorator narrowed to network/Binance exceptions only — programming bugs propagate immediately (gotcha #28). |
+| `bot/telegram_notifier.py` | `TelegramNotifier` — sends trade/circuit-breaker/lifecycle/orphan events; `register_commands()` registers bot menu via `setMyCommands`; lazy DB config reads |
+| `bot/telegram_commands.py` | `TelegramCommandHandler` — daemon thread, long-polls Telegram. Handles `/pause` `/resume` `/status` `/report`. Top-level `try/except` keeps the thread alive on transient errors (gotcha #29). |
 | `bot/backtest/cache.py` | Parquet cache for OHLCV klines (`data/klines/`): `fetch_and_cache()` (incremental update), `cache_info()`, `download_full_history()` |
-| `bot/backtest/scenario_runner.py` | 8 predefined profitability scenarios (1h/4h × momentum filter × leverage 1–10×); `ScenarioRunner.run_all()` returns `list[ScenarioResult]` with annual return, Sharpe, drawdown, liquidations |
+| `bot/backtest/engine.py` | `BacktestEngine` (single-symbol). Bar-by-bar simulation: regime → strategy → bias → momentum → vol_regime → drawdown_scaler → sizing. Supports leverage (perps), partial-TP ladder, news pause, vol regime, drawdown scaler. |
+| `bot/backtest/portfolio_engine.py` | `PortfolioBacktestEngine` (multi-symbol cash pool). Mirrors live multi-symbol bot — shared USDT pool, per-symbol engines for signals/exits. Applies `drawdown_multiplier` and vol-regime size factor (gotcha #26). |
+| `bot/backtest/scenario_runner.py` | 8 predefined profitability scenarios (1h/4h × momentum filter × leverage 1–10×); `ScenarioRunner.run_all()` returns `list[ScenarioResult]`. Imports `BIAS_TIMEFRAME_MAP` from `config_presets`. |
 | `bot/optimizer/walk_forward.py` | Grid search over EMA SL/TP ATR multipliers; runs backtest engine on recent data; saves viable configs to `optimizer_runs` for dashboard review |
-| `scripts/compare_scenarios.py` | CLI entry point: `python scripts/compare_scenarios.py --days 1095 --risk 0.02` — fetches data, runs 8 scenarios, prints comparison table |
+| `bot/optimizer/auto_optimizer.py` | Daemon thread runs walk-forward weekly, hot-reloads approved EMA config (gotcha #18). |
+| `bot/optimizer/entry_quality_optimizer.py` | Grid search over EMA entry-quality filters (volume, bar direction, momentum, ATR). Saves to `entry_quality_runs`. |
+| `bot/optimizer/auto_entry_quality_optimizer.py` | Daemon companion to `auto_optimizer.py` for entry-quality params. |
+| `scripts/compare_scenarios.py` | CLI entry point for the 8-scenario comparison via `ScenarioRunner`. |
+| `scripts/risk_scaler_matrix.py` | Risk × drawdown scaler matrix — drove the May 2026 decision to keep the scaler disabled. |
+| `scripts/risk_sweep.py` / `scripts/risk_scaling.py` / `scripts/find_low_dd_v2.py` | Research scripts for risk-policy comparisons. Use as templates when proposing a parameter change. |
 | `dashboard/app.py` | Streamlit app; 3 tabs: MONITOR \| CONFIG \| BACKTEST; BACKTEST has subtabs BACKTEST and COMPARE; `_topbar()` fragment (5s refresh); MONITOR renders the unified range selector before equity/drawdown charts |
 | `dashboard/range.py` | Unified MONITOR range selector (`1H \| 24H \| 7D \| 30D \| ALL`). `render_selector()` writes to `st.session_state["monitor_range"]`. `filter_curve_by_range()` and `klines_params_for_range()` consumed by chart sections. Available options bounded by equity_curve age — longer ranges hidden until enough history exists. |
 | `dashboard/sections/open_position.py` | Regime badge + CSS flex timeline strip + open position; `drawdown_section` as separate `@st.fragment(run_every=10)`; reads `current_range()` and filters equity_curve before computing drawdown |
@@ -154,55 +204,48 @@ Config class: `RegimeDetectorConfig` in `bot/regime/detector.py`.
 
 ---
 
-## Strategy → Regime Mapping
+## Strategy Architecture
 
-Default mapping (in `bot/orchestrator.py`):
+The orchestrator runs a **single strategy**: `EMA_CROSSOVER` for all regimes. The
+multi-strategy `REGIME_STRATEGY_MAP` and win-rate fallback described in older docs
+have been **removed**. Only `bot/strategy/ema_crossover.py` is registered in
+`bot/orchestrator.py`. Other strategy files in `bot/strategy/` (e.g.
+`donchian_breakout.py`) exist for research and `BacktestEngine` overrides only;
+they are not wired into the live flow.
 
-```python
-REGIME_STRATEGY_MAP = {
-    MarketRegime.TRENDING:  StrategyName.EMA_CROSSOVER,
-    MarketRegime.RANGING:   StrategyName.MEAN_REVERSION,
-    MarketRegime.VOLATILE:  StrategyName.BREAKOUT,
-}
-```
+The regime detector still classifies bars as TRENDING / RANGING / VOLATILE — this
+data is logged and stored on each trade for diagnostics, but it does **not**
+switch strategies anymore.
 
-### Fallback (win-rate override)
+### Sizing pipeline (in order, all in `orchestrator.step()`)
 
-`_select_strategy()` checks live performance before returning the default:
-
-1. Query `get_performance_by_strategy()` for all strategies with >= 20 closed trades.
-2. If the mapped strategy's win rate is below **40%**, search all tracked strategies for the highest win rate.
-3. If a better candidate exists, swap to it and log the switch.
-4. If fewer than 20 trades exist for any strategy, that strategy is ignored in the comparison — not enough data.
-
-The fallback can switch across regime boundaries (e.g., use EMA_CROSSOVER in a RANGING regime if mean reversion has been underperforming). This is intentional.
+1. **Regime detection** → `bot/regime/detector.py`
+2. **Signal generation** → `EMACrossoverStrategy.generate_signal(df)`
+3. **Bias filter** → `BiasFilter` on higher-timeframe candles (gotcha #14)
+4. **Risk validation** → `RiskManager.validate_signal()` (strength + action)
+5. **Kelly sizing** (cabled, gotcha #25) → half-Kelly clamped between
+   `kelly_min_mult=0.25` and `kelly_max_mult=2.0` of `RiskConfig.risk_per_trade`,
+   active after `kelly_min_trades=15` closed trades for that strategy. Falls back
+   to flat `risk_per_trade` when there's not enough history.
+6. **Momentum NEUTRAL** scales risk to 50% (live + backtest)
+7. **Drawdown scaler**: applied in BACKTEST only when `dd_risk` is enabled. NOT
+   wired into live orchestrator (intentional — see Validated Baseline section).
+8. **`compute_position_size`** with capital cap (gotcha #23)
 
 ---
 
-## Strategy Details
+## Strategy Details — EMA Crossover (live)
 
-### EMA Crossover (TRENDING)
-- Signal: EMA9/EMA21 crossover (single-bar) OR trend-continuation entry when price is within `max_distance_atr` of EMA9
+- Signal: EMA9/EMA21 crossover (single-bar) OR trend-continuation entry when price
+  is within `max_distance_atr` of EMA9
 - Crossover strength: `abs(fast_slope) / ATR × 5`, floor 0.6
 - Trend strength: `0.5 × (1 - dist_atr / max_distance_atr) + 0.4`, capped 0.4–0.8
 - Distance check uses `abs()` — filters overextension in both directions (above AND below EMA9)
 - SL: `stop_atr_mult × ATR` below/above entry (default 1.5; overridable via `ema_stop_mult` runtime config)
-- TP: `tp_atr_mult × ATR` above/below entry (default 3.5; overridable via `ema_tp_mult` runtime config)
-
-### Mean Reversion (RANGING)
-- Signal: price touches Bollinger Band (20, 2σ) AND RSI confirms oversold/overbought
-- BUY: price <= lower band AND RSI < 30
-- SELL: price >= upper band AND RSI > 70
-- Strength: combination of band penetration depth + RSI extremity
-- SL: `1.5 × ATR` from entry
-- TP: Bollinger midline (SMA20)
-
-### Breakout (VOLATILE)
-- Signal: close breaks Donchian channel (20-period) with volume > 1.5× average
-- Channel uses `.shift(1)` to avoid look-ahead bias
-- Strength: `(vol_ratio - 1.5) / 2 + 0.5`, capped at 1.0
-- SL: `2.0 × ATR` from entry
-- TP: `3.0 × ATR` from entry
+- TP: `tp_atr_mult × ATR` above/below entry (default 4.5; overridable via `ema_tp_mult` runtime config)
+- Optional entry-quality filters (per `EMACrossoverConfig`): `volume_multiplier`,
+  `require_bar_direction`, `require_ema_momentum`, `min_atr_pct`. Tuned by the
+  Entry Quality auto-optimizer (`bot/optimizer/entry_quality_optimizer.py`).
 
 ---
 
@@ -210,22 +253,30 @@ The fallback can switch across regime boundaries (e.g., use EMA_CROSSOVER in a R
 
 These WILL bite you if you don't know them.
 
-### 1. Trailing stop has been REMOVED from the production code
+### 1. Trailing stop is OFF in the live bot — but `BacktestConfig` still has the fields
 
-**The trailing stop was destroying performance.** 3-year backtest with trail ON: PF=0.764, Ann=-5%.
-Only 1 of 131 trades hit TP (trail cut every winner before it reached target). The ratcheting
-block, the `TRAILING_STOP` exit reason, and any `trailing_stop_enabled` config flag have been
-removed from `RiskConfig`, `position_manager()`, and `bot/constants.py`. Positions now exit
-ONLY via SL or TP.
+**Live**: trailing stop is removed from the live position manager. The
+ratcheting block, `TRAILING_STOP` exit reason, and `trailing_stop_enabled`
+config flag have been removed from `RiskConfig`, `position_manager()`, and
+`bot/constants.py`. Live positions exit ONLY via SL or TP.
 
-Legacy artifacts that remain (intentionally):
-- `trades.trailing_sl` column in the SQLite schema — preserved for legacy rows so old data
-  still loads. Never written by the live bot.
-- `BacktestConfig.simulate_trailing` defaults to False. All optimizers use `simulate_trailing=False`.
+**Backtest**: `BacktestConfig` still has `trail_atr_mult` and
+`trail_activation_mult` fields, plus a legacy `simulate_trailing` flag.
+These exist so research scripts (`scripts/risk_scaling.py` and similar) can
+still measure trailing-stop variants. **All production-relevant backtests
+keep `simulate_trailing=False`.**
 
-To experiment with re-enabling trailing: you would need to re-introduce both the config flag
-AND the `position_manager` logic. Not recommended without re-running the full backtest first
-(the original removal was data-driven).
+3-year legacy backtest with trail ON: PF=0.764, Ann=-5%. Only 1 of 131 trades
+hit TP — trail cut every winner before target. Hence the live removal.
+
+Legacy artifacts:
+- `trades.trailing_sl` column in the SQLite schema — preserved for old rows.
+  Never written by the live bot.
+- `BacktestConfig.simulate_trailing` defaults to False.
+
+Re-enabling in live would require re-introducing both the config flag AND the
+`position_manager` logic, plus a fresh backtest demonstrating it adds value
+(unlikely on EMA crossover BTC; the removal was data-driven).
 
 ### 2. ADX uses Wilder smoothing, NOT simple rolling mean
 
@@ -303,16 +354,22 @@ The `Database` class opens and closes a connection per operation (`_conn()` cont
 but the `Database` instance itself is shared. Do not pass separate Database instances to
 dashboard helpers — use `get_db()` everywhere inside Streamlit.
 
-### 9. Opposite signal closes position only if `strength >= 0.75`
+### 9. Opposite-signal exit is REMOVED — positions exit only via SL / TP / regime_change
 
-```python
-opposite = (
-    (side == "BUY"  and signal.action == "SELL") or
-    (side == "SELL" and signal.action == "BUY")
-) and signal.strength >= 0.75
-```
-A weak opposite signal (strength < 0.75) is ignored. The position stays open.
-This threshold is configurable via `RiskConfig.min_exit_signal_strength` (default 0.75).
+Older versions of this codebase closed an open position when the strategy
+emitted a strong opposite signal (`strength >= 0.75`, configurable via a
+`RiskConfig.min_exit_signal_strength` field). Both the `min_exit_signal_strength`
+field and the opposite-signal exit branch have been **removed**. Live positions
+exit through:
+
+1. **SL / TP** — the natural exit (gotcha #24 covers intra-bar wick detection).
+2. **Liquidation** — only relevant when leverage > 1 (spot doesn't liquidate).
+3. **Regime change** — opt-in via `RiskConfig.enable_regime_exit=True` (gotcha #15).
+4. **End of period** — backtest-only.
+
+If you want to re-introduce opposite-signal closing, it'll need a fresh backtest:
+empirically, exiting on opposite signals shortens winning trades on
+trend-following EMA strategies — same failure mode as the trailing stop.
 
 ### 10. `--dry-run` skips `place_order()` but DOES write to DB
 
@@ -525,6 +582,72 @@ simulation, so the pessimistic assumption stays statistically correct.
 are open trades), passes it to all `_manage_single_position` calls. Adds 1
 unauthenticated REST call per open trade per 60s — trivial against Binance's
 1200-weight/min limit.
+
+### 25. Kelly sizing is wired in `orchestrator.step()` — half-Kelly with clamps
+
+The orchestrator computes a per-strategy Kelly fraction from closed-trade history
+before sizing each entry. Lives in `bot/risk/kelly.py` (`compute_kelly_fraction`,
+`kelly_risk_fraction`) and is invoked at `bot/orchestrator.py:141-184`.
+
+Mechanism:
+1. Pull stats with `db.get_kelly_stats(strategy.name, kelly_min_trades=15)`. Returns
+   `None` when fewer than 15 closed trades exist for that strategy — sizing then
+   falls back to flat `RiskConfig.risk_per_trade`.
+2. `compute_kelly_fraction(win_rate, avg_win_pct, avg_loss_pct, half=True)` —
+   half-Kelly by default, floored at 0 for negative-edge strategies.
+3. `kelly_risk_fraction(...)` clamps the dynamic risk between `kelly_min_mult=0.25`
+   and `kelly_max_mult=2.0` of the base `risk_per_trade`. Signal strength scales
+   the Kelly multiplier: `mult = (kelly_f / base_risk) * signal_strength`.
+
+`RiskConfig` fields controlling this: `kelly_max_mult`, `kelly_min_mult`,
+`kelly_min_trades`, `kelly_half`. Defaults are conservative (half-Kelly,
+0.25×–2× clamp). Don't crank `kelly_max_mult` past 2.0 without a fresh backtest:
+full Kelly is brutal under estimation error and tends to blow up on drawdowns
+that exceed the historical sample.
+
+### 26. `dd_risk` (drawdown scaler) and `vol_regime` apply in BOTH backtest engines
+
+`BacktestEngine` (single-symbol) and `PortfolioBacktestEngine` (multi-symbol cash
+pool) both apply `drawdown_multiplier()` and the `vol_regime` size factor to
+`effective_risk` at entry time. The portfolio engine had a bug (May 2026) where
+both filters were silently bypassed in its duplicated sizing path — a 15-config
+risk × scaler matrix produced identical metrics across OFF/Conservative/Moderate
+columns, surfacing the bypass. Fix: tracked `peak_capital` HWM and propagated
+both factors into the entry block. Test `test_drawdown_scaler_invoked_in_portfolio_sizing`
+in `tests/test_portfolio_engine.py` is a regression guard.
+
+When duplicating a sizing path between engines, ALL filters that affect
+`effective_risk` must be re-applied — `momentum_state` halving, `vol_size_factor`,
+and `drawdown_multiplier`. Identical-metrics-across-configs is the telltale of a
+bypass.
+
+### 27. `_execute_order` retries DB writes after exchange fills — orphan alerts on persistent failure
+
+`main._execute_order` is not transactional across Binance + SQLite. To prevent
+orphans (filled on exchange but missing from DB), DB writes after a successful
+order go through `_retry_db_write` (3 attempts, exponential backoff starting at
+0.5s). On final failure `_alert_orphan_position` logs CRITICAL and sends a
+Telegram alert with the exchange `orderId` and trade details — the bot does NOT
+attempt to undo the order (compounding risk). Manual reconciliation required.
+
+This means the bot can leave inconsistent state if SQLite is broken for
+extended periods. The alert is the safety net, not a fix.
+
+### 28. `_retry` decorator only retries network/Binance exceptions
+
+`bot/exchange/binance_client.py:_retry` previously caught `Exception` (everything),
+which meant a programming bug like a `KeyError` would burn ~14s on three retries
+before propagating. Now narrowed to `(BinanceAPIException, BinanceRequestException,
+requests.exceptions.RequestException, TimeoutError, ConnectionError)`. Programming
+bugs surface immediately.
+
+### 29. Telegram poll loop survives transient errors
+
+`TelegramCommandHandler._poll_loop` wraps both the per-update handler and the
+top-level loop body in `try/except`. Per-update errors log and skip; loop-level
+errors back off 10s and continue. Without this, a malformed update or a brief
+DB hiccup would kill the daemon thread silently and `/pause`, `/status`,
+`/report` would stop responding with no signal to the user.
 
 ---
 
@@ -771,15 +894,17 @@ The dashboard reads strategy names from the DB as strings — no changes needed 
 | `BINANCE_API_SECRET` | — | required in live mode | Binance Testnet API secret |
 | `BINANCE_TESTNET` | `true` | `true` / `false` | Route to testnet endpoint |
 | `SYMBOL` | `BTCUSDT` | any valid Binance pair | Trading pair |
-| `TIMEFRAME` | `1h` | Binance kline intervals | Candle interval |
+| `TIMEFRAME` | `4h` | Binance kline intervals | Candle interval |
 | `INITIAL_CAPITAL` | `10000` | > 0 | Fallback balance when Binance API is unreachable |
-| `RISK_PER_TRADE` | `0.01` | 0.001 – 0.05 | Fraction of capital risked per trade (validated on startup) |
+| `RISK_PER_TRADE` | `0.015` | (0, 0.10] per `settings.validate()` | Fraction of capital risked per trade. Production normally reads from DB seed (`_seed_optimized_defaults`); this env value is the dataclass fallback used by tests/scripts that bypass `main()`. |
 | `DB_PATH` | `trading_bot.db` | any writable path | SQLite database file location |
 | `LOG_LEVEL` | `INFO` | DEBUG / INFO / WARNING / ERROR | Python logging level |
 | `TZ` | `UTC` | any IANA timezone | Timezone for log timestamps (e.g. `Europe/Madrid`) |
 | `DECIMAL_SEPARATOR` | `dot` | `dot` / `comma` | Dashboard number format — `dot`: 1,234.56 · `comma`: 1.234,56 |
 
-`RISK_PER_TRADE` validation: `settings.validate()` raises `ValueError` if outside (0, 0.05].
+`RISK_PER_TRADE` validation: `settings.validate()` raises `ValueError` if outside (0, 0.10].
+Anything above 4% pushes max drawdown above 37% on the validated 3-year matrix — see
+`scripts/risk_scaler_matrix.py`. Don't crank it without re-running the matrix.
 Validation is skipped in `--dry-run` mode — the bot starts even with missing API keys.
 
 ---

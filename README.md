@@ -186,16 +186,18 @@ All configuration is read from environment variables (`.env` file or Docker env)
 | `BINANCE_API_SECRET` | — | required (live) | Binance API secret |
 | `BINANCE_TESTNET` | `true` | `true` / `false` | Route requests to testnet endpoint |
 | `SYMBOL` | `BTCUSDT` | any Binance pair | Trading pair |
-| `TIMEFRAME` | `1h` | Binance intervals | Candle interval for strategy. **Set to `4h` for the validated baseline** — `1h` is unviable in backtest (PF=0.75). |
+| `TIMEFRAME` | `4h` | Binance intervals | Candle interval for strategy. **`4h` is the validated baseline** — `1h` is unviable in backtest (PF=0.75). |
 | `INITIAL_CAPITAL` | `10000` | > 0 | Fallback balance when Binance API is unreachable |
-| `RISK_PER_TRADE` | `0.01` | 0.001 – 0.05 | Fraction of capital risked per trade |
+| `RISK_PER_TRADE` | `0.015` | (0, 0.10] | Fraction of capital risked per trade. Production reads from DB seed; this is the dataclass fallback. |
 | `DB_PATH` | `trading_bot.db` | writable path | SQLite database file location |
 | `LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` | Python log level |
 | `TZ` | `UTC` | any IANA timezone | Timezone for log timestamps (e.g. `Europe/Madrid`) |
 | `DECIMAL_SEPARATOR` | `dot` | `dot` / `comma` | Dashboard number format — `dot`: 1,234.56 · `comma`: 1.234,56 |
 
-`RISK_PER_TRADE` must be between 0 and 0.05 (5%). The bot exits on startup if this is violated
-(except in `--dry-run` mode, where validation is skipped).
+`RISK_PER_TRADE` must be between 0 and 0.10 (10%). 4% pushes max drawdown to ~37% on
+the 3-year BTC+ETH portfolio matrix; 1.5% (the seeded production value) gives ~15% DD.
+See `scripts/risk_scaler_matrix.py` for the full risk × scaler comparison. The bot exits
+on startup if validation fails (except in `--dry-run` mode, where validation is skipped).
 
 **Risk manager defaults** (configurable via `RiskConfig` in code):
 

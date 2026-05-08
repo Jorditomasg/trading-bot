@@ -14,7 +14,12 @@ from bot.optimizer.entry_quality_optimizer import (
     run_entry_quality_grid_search,
 )
 _EQ_TOTAL = len(VOL_GRID) * len(BAR_DIR_GRID) * len(MOMENTUM_GRID) * len(ATR_PCT_GRID)
-from dashboard.constants import GREEN, RED, WHITE, MUTED, SURFACE, ChartConfig
+from dashboard.constants import (
+    GREEN, RED, WHITE, MUTED, SURFACE,
+    SUPPORTED_SYMBOLS as _SYMBOLS,
+    SUPPORTED_TIMEFRAMES as _TIMEFRAMES,
+    ChartConfig,
+)
 from dashboard.themes import NothingOS
 from dashboard.utils import fmt
 
@@ -22,8 +27,6 @@ _logger = logging.getLogger(__name__)
 PLOTLY_LAYOUT = NothingOS.PLOTLY_LAYOUT
 PLOTLY_CONFIG = NothingOS.PLOTLY_CONFIG
 
-_SYMBOLS    = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT"]
-_TIMEFRAMES = ["1h", "2h", "4h", "8h", "1d"]
 _PERIODS    = [90, 180, 270, 365]
 
 

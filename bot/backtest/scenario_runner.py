@@ -13,17 +13,9 @@ from dataclasses import dataclass
 import pandas as pd
 
 from bot.backtest.engine import EXIT_LIQUIDATED, BacktestConfig, BacktestEngine
+from bot.config_presets import BIAS_TIMEFRAME_MAP as _BIAS_TF
 
 logger = logging.getLogger(__name__)
-
-# Bias timeframe mapping — mirrors live bot and backtest_runner.py
-_BIAS_TF: dict[str, str] = {
-    "1h": "4h",
-    "2h": "4h",
-    "4h": "1d",
-    "8h": "1d",
-    "1d": "1w",
-}
 
 
 @dataclass

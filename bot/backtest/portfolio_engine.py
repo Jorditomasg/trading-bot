@@ -42,6 +42,7 @@ from bot.metrics import (
     profit_factor,
     sharpe_ratio,
 )
+from bot.risk.drawdown_scaler import DrawdownRiskConfig, drawdown_multiplier
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +159,8 @@ class PortfolioBacktestEngine:
         union_times = list(all_times.sort_values())
 
         capital      = self.config.initial_capital
+        peak_capital = capital  # HWM for drawdown-aware risk scaling
+        dd_cfg       = self.config.dd_risk if self.config.dd_risk is not None else DrawdownRiskConfig(enabled=False)
         equity_curve: list[dict] = []
 
         for current_time in union_times:
@@ -191,6 +194,7 @@ class PortfolioBacktestEngine:
                     notional            = state.open_trade["entry_price"] * state.open_trade["quantity"]
                     pnl                 = -margin
                     capital            += pnl
+                    peak_capital        = max(peak_capital, capital)
 
                     state.open_trade["exit_price"]  = liq_price
                     state.open_trade["exit_reason"] = EXIT_LIQUIDATED
@@ -213,6 +217,7 @@ class PortfolioBacktestEngine:
                     pnl                    = engine._apply_leverage(raw_pnl, state.open_trade, bars_held)
                     notional               = state.open_trade["entry_price"] * state.open_trade["quantity"]
                     capital               += pnl
+                    peak_capital           = max(peak_capital, capital)
 
                     state.open_trade["exit_price"]  = net_exit
                     state.open_trade["exit_reason"] = reason
@@ -247,12 +252,18 @@ class PortfolioBacktestEngine:
 
                 regime, signal = engine._generate_signal(window, window_4h)
 
+                # Vol-regime filter — opt-in per engine config (mirrors engine.py:655-658)
+                vol_state       = engine._vol_filter.get_state(window)
+                vol_allows      = engine._vol_filter.allows_signal(vol_state)
+                vol_size_factor = engine._vol_filter.size_factor(vol_state)
+
                 if (
                     signal.action == "HOLD"
                     or signal.strength < self.config.min_signal_strength
                     or signal.stop_loss is None
                     or signal.stop_loss <= 0
                     or momentum_state == "BEARISH"
+                    or not vol_allows
                 ):
                     continue
 
@@ -262,6 +273,12 @@ class PortfolioBacktestEngine:
                     self.config.risk_per_trade * 0.5
                     if momentum_state == "NEUTRAL"
                     else self.config.risk_per_trade
+                )
+                # Vol-regime size scaling (active only when action=reduce + LOW_VOL)
+                effective_risk = effective_risk * vol_size_factor
+                # Drawdown-aware risk scaling (active only when dd_risk config enabled)
+                effective_risk = effective_risk * drawdown_multiplier(
+                    capital, peak_capital, dd_cfg
                 )
                 # NOTE: sizing uses CASH (capital), not total equity — mirrors the
                 # live bot's `BinanceClient.get_balance("USDT")` semantics.
@@ -316,6 +333,7 @@ class PortfolioBacktestEngine:
             pnl       = engine._apply_leverage(raw_pnl, state.open_trade, bars_held)
             notional  = state.open_trade["entry_price"] * state.open_trade["quantity"]
             capital  += pnl
+            peak_capital = max(peak_capital, capital)
 
             state.open_trade["exit_price"]  = net_exit
             state.open_trade["exit_reason"] = EXIT_END_OF_PERIOD

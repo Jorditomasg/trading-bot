@@ -5,6 +5,7 @@ import argparse
 import logging
 import os
 import signal
+import sqlite3
 import sys
 import threading
 import time
@@ -343,6 +344,73 @@ def _avg_fill_price(order_result: dict) -> float | None:
     return None
 
 
+_DB_RETRY_ATTEMPTS = 3
+_DB_RETRY_BACKOFF  = 0.5  # seconds; doubles each attempt
+
+# Only retry SQLite errors that can plausibly be transient (locked DB, brief
+# I/O contention, busy timeouts). Programming bugs (TypeError, KeyError,
+# AttributeError, ValueError on bad args) propagate immediately so they
+# surface in logs instead of burning ~3.5s on three pointless retries.
+_DB_RETRYABLE = (sqlite3.OperationalError, sqlite3.DatabaseError)
+
+
+def _retry_db_write(op_name: str, fn, *args, **kwargs):
+    """Retry a DB write with exponential backoff. Raises on final failure.
+
+    Used to harden the post-exchange DB writes in `_execute_order`. The
+    Binance order has already been placed when this is called — retrying
+    transient SQLite errors protects against orphaned positions where the
+    exchange filled but the DB didn't record.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(1, _DB_RETRY_ATTEMPTS + 1):
+        try:
+            return fn(*args, **kwargs)
+        except _DB_RETRYABLE as exc:
+            last_exc = exc
+            wait = _DB_RETRY_BACKOFF * (2 ** (attempt - 1))
+            logger.warning(
+                "DB write '%s' attempt %d/%d failed: %s — retrying in %.1fs",
+                op_name, attempt, _DB_RETRY_ATTEMPTS, exc, wait,
+            )
+            time.sleep(wait)
+    assert last_exc is not None
+    raise last_exc
+
+
+def _alert_orphan_position(
+    notifier: TelegramNotifier | None,
+    op: str,
+    symbol: str,
+    order: dict,
+    exchange_result: dict,
+    exc: Exception,
+) -> None:
+    """Last-resort alert when an exchange order succeeds but DB write fails.
+
+    The position physically exists (or was closed) on Binance, but the DB no
+    longer reflects reality. The bot will misbehave on the next cycle until a
+    human reconciles. Surfacing the discrepancy via logs + Telegram is the
+    minimum viable safety net — auto-undoing the order risks compounding the
+    problem (price moved, balance, fees), so we do not attempt it.
+    """
+    order_id = exchange_result.get("orderId", "N/A") if isinstance(exchange_result, dict) else "N/A"
+    logger.critical(
+        "[%s] ORPHANED %s — exchange filled (orderId=%s) but DB write failed after %d retries: %s. "
+        "Trade details: %s. Manual reconciliation required.",
+        symbol, op, order_id, _DB_RETRY_ATTEMPTS, exc, order,
+    )
+    if notifier is not None:
+        notifier.alert(
+            f"<b>ORPHANED {op}</b> on <code>{symbol}</code>\n"
+            f"Exchange orderId: <code>{order_id}</code>\n"
+            f"Side: <code>{order.get('side', '?')}</code>  "
+            f"Qty: <code>{order.get('quantity', 0):.5f}</code>\n"
+            f"DB write failed: <code>{exc}</code>\n"
+            f"Manual reconciliation required."
+        )
+
+
 def _execute_order(
     client: BinanceClient,
     db: Database,
@@ -362,9 +430,17 @@ def _execute_order(
                 entry_price=order["entry_price"],
                 price_precision=_price_precision,
             )
-            # Use the actual fill price from the exchange; fall back to signal price
-            actual_entry = _avg_fill_price(result) or order["entry_price"]
-            trade_id = db.insert_trade(
+        except Exception as exc:
+            logger.error("[%s] Failed to place open order: %s", symbol, exc)
+            return
+
+        # Order is filled. From here on, any exception risks an orphan — the
+        # position exists on the exchange but not in the DB. Retry DB writes
+        # before giving up; on final failure raise an explicit orphan alert.
+        actual_entry = _avg_fill_price(result) or order["entry_price"]
+        try:
+            trade_id = _retry_db_write(
+                "insert_trade", db.insert_trade,
                 symbol=symbol,
                 side=order["side"],
                 strategy=order["strategy"],
@@ -376,14 +452,16 @@ def _execute_order(
                 atr=order.get("atr"),
                 timeframe=order.get("timeframe", "1h"),
             )
-            logger.info(
-                "[%s] Opened trade id=%d orderId=%s",
-                symbol, trade_id, result.get("orderId"),
-            )
-            if notifier:
-                notifier.trade_opened({**order, "symbol": symbol}, mode)
         except Exception as exc:
-            logger.error("[%s] Failed to open position: %s", symbol, exc)
+            _alert_orphan_position(notifier, "OPEN", symbol, order, result, exc)
+            return
+
+        logger.info(
+            "[%s] Opened trade id=%d orderId=%s",
+            symbol, trade_id, result.get("orderId"),
+        )
+        if notifier:
+            notifier.trade_opened({**order, "symbol": symbol}, mode)
 
     elif action == "CLOSE":
         try:
@@ -392,21 +470,30 @@ def _execute_order(
                 side=order["side"],
                 quantity=order["quantity"],
             )
-            db.close_trade(
+        except Exception as exc:
+            logger.error("[%s] Failed to place close order: %s", symbol, exc)
+            return
+
+        # Order is filled on the exchange. Retry the DB close before alerting.
+        try:
+            _retry_db_write(
+                "close_trade", db.close_trade,
                 trade_id=order["trade_id"],
                 exit_price=order["exit_price"],
                 exit_reason=order["exit_reason"],
             )
-            logger.info(
-                "[%s] Closed trade id=%d orderId=%s reason=%s",
-                symbol, order["trade_id"], result.get("orderId"), order["exit_reason"],
-            )
-            if notifier:
-                trade = db.get_trade(order["trade_id"])
-                pnl   = trade["pnl"] if trade else 0.0
-                notifier.trade_closed(trade or order, pnl, order["exit_reason"], mode)
         except Exception as exc:
-            logger.error("[%s] Failed to close position: %s", symbol, exc)
+            _alert_orphan_position(notifier, "CLOSE", symbol, order, result, exc)
+            return
+
+        logger.info(
+            "[%s] Closed trade id=%d orderId=%s reason=%s",
+            symbol, order["trade_id"], result.get("orderId"), order["exit_reason"],
+        )
+        if notifier:
+            trade = db.get_trade(order["trade_id"])
+            pnl   = trade["pnl"] if trade else 0.0
+            notifier.trade_closed(trade or order, pnl, order["exit_reason"], mode)
 
 
 def _check_intra_bar_exit(

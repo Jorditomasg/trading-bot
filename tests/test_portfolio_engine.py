@@ -15,6 +15,7 @@ from bot.backtest.portfolio_engine import (
     PortfolioBacktestEngine,
     PortfolioBacktestResult,
 )
+from bot.risk.drawdown_scaler import DrawdownRiskConfig
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -159,3 +160,90 @@ def test_time_alignment_skips_missing_bars():
         assert trade["entry_time"] in eth_valid_times, (
             f"ETH trade entry_time {trade['entry_time']} is not in the original ETH bars"
         )
+
+
+# ── 6. Drawdown scaler propagates into portfolio sizing ──────────────────────
+
+def test_drawdown_scaler_invoked_in_portfolio_sizing(monkeypatch):
+    """Regression guard: PortfolioBacktestEngine MUST call `drawdown_multiplier`
+    when `dd_risk` is enabled. Earlier the engine had a duplicated sizing path
+    that silently bypassed the scaler, so a 15-config matrix produced identical
+    metrics across OFF / Conservative / Moderate. This test patches the function
+    and asserts it was called at least once with a non-disabled config.
+    """
+    df = _synthetic_ohlcv("2024-01-01", periods=500, freq="1h", trend=20.0, base=40_000.0)
+
+    captured: list[dict] = []
+
+    import bot.backtest.portfolio_engine as pe
+    real_fn = pe.drawdown_multiplier
+
+    def spy(current: float, peak: float, cfg) -> float:
+        captured.append({"current": current, "peak": peak, "enabled": cfg.enabled})
+        return real_fn(current, peak, cfg)
+
+    monkeypatch.setattr(pe, "drawdown_multiplier", spy)
+
+    cfg = BacktestConfig(
+        initial_capital   = 10_000.0,
+        risk_per_trade    = 0.04,
+        timeframe         = "1h",
+        cost_per_side_pct = 0.0,
+        dd_risk           = DrawdownRiskConfig(
+            enabled     = True,
+            thresholds  = [0.05, 0.10],
+            multipliers = [0.50, 0.25],
+        ),
+    )
+    PortfolioBacktestEngine(cfg).run_portfolio({"BTCUSDT": df.copy()})
+
+    assert captured, "drawdown_multiplier was never called — sizing path bypasses scaler"
+    assert all(c["enabled"] for c in captured), "scaler was called with disabled config"
+
+
+# ── 7. Vol-regime filter propagates into portfolio sizing ────────────────────
+
+def test_vol_regime_filter_invoked_in_portfolio_sizing(monkeypatch):
+    """Regression guard: PortfolioBacktestEngine MUST consult `_vol_filter` on
+    every entry attempt, mirroring engine.py:655-658. Earlier the duplicated
+    sizing path bypassed both `vol_size_factor` AND `drawdown_multiplier` —
+    same bug pattern. This test patches one of the filter methods on each
+    per-symbol engine and asserts it was called at least once.
+    """
+    df = _synthetic_ohlcv("2024-01-01", periods=500, freq="1h", trend=20.0, base=40_000.0)
+
+    engine = PortfolioBacktestEngine(
+        BacktestConfig(
+            initial_capital   = 10_000.0,
+            risk_per_trade    = 0.04,
+            timeframe         = "1h",
+            cost_per_side_pct = 0.0,
+        )
+    )
+    # Build per-symbol engines once via a probing run, then wrap their
+    # `_vol_filter.size_factor` to record each call.
+    captured: list[float] = []
+
+    original_run = engine.run_portfolio
+
+    def wrapped_run(*args, **kwargs):
+        # Patch _vol_filter on each symbol's engine before the loop runs.
+        # We rely on the engine constructing per-symbol BacktestEngine
+        # instances inside run_portfolio — patch via monkeypatch on the
+        # BacktestEngine class so every instance uses the spy.
+        return original_run(*args, **kwargs)
+
+    import bot.risk.vol_regime as vr_mod
+    real_size_factor = vr_mod.VolRegimeFilter.size_factor
+
+    def spy(self, state):
+        result = real_size_factor(self, state)
+        captured.append(result)
+        return result
+
+    monkeypatch.setattr(vr_mod.VolRegimeFilter, "size_factor", spy)
+    wrapped_run({"BTCUSDT": df.copy()})
+
+    assert captured, (
+        "_vol_filter.size_factor was never called — sizing path bypasses vol-regime filter"
+    )

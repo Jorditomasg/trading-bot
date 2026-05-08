@@ -150,3 +150,23 @@ def get_strategy_configs(timeframe: str) -> dict[StrategyName, dict]:
         )
         return _STRATEGY_PRESETS[_FALLBACK]
     return _STRATEGY_PRESETS[timeframe]
+
+
+# ── Bias timeframe map — single source of truth ───────────────────────────────
+# Primary timeframe → higher timeframe used for the bias filter.
+BIAS_TIMEFRAME_MAP: dict[str, str] = {
+    "1h": "4h",
+    "2h": "4h",
+    "4h": "1d",
+    "8h": "1d",
+    "1d": "1w",
+}
+
+
+def bias_timeframe_for(timeframe: str) -> str:
+    """Return the bias filter's higher timeframe for *timeframe*.
+
+    Falls back to "1d" when the primary timeframe is unmapped — matches the
+    existing `_BIAS_TF.get(timeframe, "1d")` pattern used by callers.
+    """
+    return BIAS_TIMEFRAME_MAP.get(timeframe, "1d")

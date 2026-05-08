@@ -1,5 +1,14 @@
 """Dashboard UI constants — single source of truth for all hardcoded values."""
 
+# ─── Symbols offered in dashboard forms ───────────────────────────────────────
+SUPPORTED_SYMBOLS: list[str] = [
+    "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT",
+]
+
+# ─── Timeframes offered in dashboard forms ────────────────────────────────────
+SUPPORTED_TIMEFRAMES: list[str] = ["1h", "2h", "4h", "8h", "1d"]
+
+
 # ─── Colors ───────────────────────────────────────────────────────────────────
 RED     = "#FF0000"   # losses, VOLATILE, SELL, negative
 WHITE   = "#F5F5F5"   # gains, TRENDING, BUY, positive, primary text
