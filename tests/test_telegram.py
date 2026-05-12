@@ -123,7 +123,10 @@ class TestStatusIntegration:
 # ── register_commands() ───────────────────────────────────────────────────────
 
 class TestRegisterCommands:
-    def test_calls_setMyCommands_with_all_four_commands(self):
+    def test_menu_only_lists_status_report_help(self):
+        # The chat-UI menu deliberately hides /pause and /resume; they live
+        # behind the /help inline keyboard. Anything else would clutter the
+        # autocomplete and re-introduce the accidental-pause footgun.
         n = _notifier()
         with patch("requests.post") as mock_post:
             mock_post.return_value.raise_for_status = MagicMock()
@@ -131,7 +134,7 @@ class TestRegisterCommands:
         assert mock_post.called
         payload = mock_post.call_args[1]["json"]
         commands = {c["command"] for c in payload["commands"]}
-        assert commands == {"status", "report", "pause", "resume"}
+        assert commands == {"status", "report", "help"}
 
     def test_no_call_when_token_missing(self):
         n = _notifier(token="")
@@ -287,3 +290,82 @@ class TestCommandHandler:
         notifier.status.assert_called_once()
         _, kwargs = notifier.status.call_args
         assert kwargs.get("paused") is True
+
+    def test_help_command_invokes_notifier_help(self):
+        h, _, notifier = _handler()
+        h._handle(_update("/help"), "123")
+        notifier.help.assert_called_once()
+
+    def test_start_command_also_shows_help(self):
+        # /start is the conventional first message in any Telegram bot.
+        # Routing it to the help menu gives new chats an obvious entry point.
+        h, _, notifier = _handler()
+        h._handle(_update("/start"), "123")
+        notifier.help.assert_called_once()
+
+
+class TestCallbackRouting:
+    def _callback_update(self, data: str, chat_id: str = "123", cb_id: str = "cb1") -> dict:
+        return {
+            "update_id": 2,
+            "callback_query": {
+                "id": cb_id,
+                "data": data,
+                "message": {"chat": {"id": chat_id}},
+            },
+        }
+
+    def test_pause_button_press_pauses_bot(self):
+        h, db, notifier = _handler()
+        with patch("requests.post"):  # swallow answerCallbackQuery
+            h._handle_callback(
+                self._callback_update("/pause")["callback_query"], "123", "tok",
+            )
+        db.set_bot_paused.assert_called_once_with(True)
+        notifier.paused.assert_called_once()
+
+    def test_resume_button_press_resumes_bot(self):
+        h, db, notifier = _handler()
+        with patch("requests.post"):
+            h._handle_callback(
+                self._callback_update("/resume")["callback_query"], "123", "tok",
+            )
+        db.set_bot_paused.assert_called_once_with(False)
+        notifier.resumed.assert_called_once()
+
+    def test_status_button_press_routes_through_handle(self):
+        h, db, notifier = _handler()
+        db.get_equity_curve.return_value = [{"balance": 10000.0}]
+        db.get_open_trades.return_value  = []
+        db.get_bot_paused.return_value   = False
+        db.get_active_mode.return_value  = "TESTNET"
+        with patch("requests.post"):
+            h._handle_callback(
+                self._callback_update("/status")["callback_query"], "123", "tok",
+            )
+        notifier.status.assert_called_once()
+
+    def test_callback_from_unknown_chat_ignored(self):
+        h, db, notifier = _handler()
+        with patch("requests.post"):
+            h._handle_callback(
+                self._callback_update("/pause", chat_id="999")["callback_query"],
+                "123", "tok",
+            )
+        db.set_bot_paused.assert_not_called()
+        notifier.paused.assert_not_called()
+
+    def test_callback_always_answered_even_on_handler_error(self):
+        # answerCallbackQuery MUST fire even when the inner command raises,
+        # otherwise the button stays spinning forever in the user's chat.
+        h, db, notifier = _handler()
+        notifier.paused.side_effect = RuntimeError("boom")
+        with patch("requests.post") as mock_post:
+            with pytest.raises(RuntimeError):
+                h._handle_callback(
+                    self._callback_update("/pause", cb_id="abc")["callback_query"],
+                    "123", "tok",
+                )
+        # Find the answerCallbackQuery call among any other requests.post calls
+        urls = [c.args[0] for c in mock_post.call_args_list]
+        assert any("answerCallbackQuery" in u for u in urls)

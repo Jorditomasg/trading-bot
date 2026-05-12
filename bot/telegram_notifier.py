@@ -40,14 +40,17 @@ class TelegramNotifier:
         cfg = self._db.get_telegram_config()
         return cfg["token"], cfg["chat_id"], cfg["enabled"]
 
-    def _post(self, text: str) -> None:
+    def _post(self, text: str, reply_markup: dict | None = None) -> None:
         token, chat_id, enabled = self._cfg()
         if not enabled or not token or not chat_id:
             return
         try:
+            payload: dict = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+            if reply_markup is not None:
+                payload["reply_markup"] = reply_markup
             resp = requests.post(
                 _API.format(token=token, method="sendMessage"),
-                json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
+                json=payload,
                 timeout=5,
             )
             resp.raise_for_status()
@@ -68,8 +71,7 @@ class TelegramNotifier:
         commands = [
             {"command": "status", "description": "Balance y posiciones abiertas (todos los símbolos)"},
             {"command": "report", "description": "Resumen histórico — opcional: /report SYMBOL"},
-            {"command": "pause",  "description": "Pausar el bot (no nuevas entradas)"},
-            {"command": "resume", "description": "Reanudar el bot"},
+            {"command": "help",   "description": "Mostrar todos los comandos disponibles"},
         ]
         try:
             resp = requests.post(
@@ -162,6 +164,37 @@ class TelegramNotifier:
 
     def resumed(self) -> None:
         self._post("▶️ <b>BOT RESUMED</b>  (via Telegram)")
+
+    def help(self) -> None:
+        """Send a help message with inline buttons for every command.
+
+        The chat-UI menu (`setMyCommands`) only advertises `/status`, `/report`,
+        `/help` to keep it clean. `/pause` and `/resume` live behind this help
+        message as inline buttons — pressing one sends the corresponding command
+        via Telegram's callback_query mechanism, which the command handler
+        treats as if the user had typed it.
+        """
+        keyboard = {
+            "inline_keyboard": [
+                [
+                    {"text": "📊 Status", "callback_data": "/status"},
+                    {"text": "📈 Report", "callback_data": "/report"},
+                ],
+                [
+                    {"text": "⏸ Pause",  "callback_data": "/pause"},
+                    {"text": "▶️ Resume", "callback_data": "/resume"},
+                ],
+            ]
+        }
+        self._post(
+            "🤖 <b>COMANDOS DISPONIBLES</b>\n\n"
+            "<b>/status</b> — Balance y posiciones abiertas\n"
+            "<b>/report</b> — Resumen histórico (opcional: <code>/report SYMBOL</code>)\n"
+            "<b>/pause</b> — Pausar el bot (no nuevas entradas)\n"
+            "<b>/resume</b> — Reanudar el bot\n"
+            "<b>/help</b> — Mostrar este menú",
+            reply_markup=keyboard,
+        )
 
     def status(
         self,

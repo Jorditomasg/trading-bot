@@ -1,4 +1,4 @@
-"""Telegram command handler — long-polls for /pause, /resume, /status in a daemon thread."""
+"""Telegram command handler — long-polls for commands + inline-button callbacks in a daemon thread."""
 from __future__ import annotations
 
 import logging
@@ -20,10 +20,16 @@ class TelegramCommandHandler:
     """Background thread that receives bot commands via Telegram long-polling.
 
     Supported commands:
-      /pause   — set bot_paused=True in DB (run_cycle will skip execution)
-      /resume  — set bot_paused=False
-      /status  — reply with current balance, pause state, and open position
+      /status  — reply with current balance, pause state, and open positions
       /report  — reply with full historical performance summary
+      /help    — show menu with all commands as inline buttons
+      /pause   — set bot_paused=True in DB (reachable via /help button or typing it)
+      /resume  — set bot_paused=False (reachable via /help button or typing it)
+
+    The chat-UI menu (`setMyCommands`) only lists `/status`, `/report`, `/help`.
+    `/pause` and `/resume` are still typeable but mainly invoked via the inline
+    keyboard rendered by `/help`. Button presses arrive as `callback_query`
+    updates and are routed through the same `_handle` dispatcher.
     """
 
     def __init__(
@@ -63,7 +69,7 @@ class TelegramCommandHandler:
                 params={
                     "offset":          self._offset,
                     "timeout":         30,
-                    "allowed_updates": ["message"],
+                    "allowed_updates": ["message", "callback_query"],
                 },
                 timeout=35,
             )
@@ -71,6 +77,43 @@ class TelegramCommandHandler:
         except Exception as exc:
             logger.warning("Telegram getUpdates failed: %s", exc)
             return []
+
+    def _answer_callback(self, token: str, cb_id: str) -> None:
+        # Telegram shows a loading spinner on the pressed button until the
+        # client receives an answerCallbackQuery — even an empty answer is
+        # enough to dismiss it. Failures are swallowed so a flaky network
+        # never breaks the command dispatch above.
+        if not cb_id:
+            return
+        try:
+            requests.post(
+                _API.format(token=token, method="answerCallbackQuery"),
+                json={"callback_query_id": cb_id},
+                timeout=5,
+            )
+        except Exception as exc:
+            logger.debug("answerCallbackQuery failed: %s", exc)
+
+    def _handle_callback(self, cb: dict, allowed_chat_id: str, token: str) -> None:
+        chat_id = str(cb.get("message", {}).get("chat", {}).get("id", ""))
+        cb_id   = cb.get("id", "")
+        if chat_id != allowed_chat_id:
+            logger.debug("Ignoring callback from unknown chat %s", chat_id)
+            self._answer_callback(token, cb_id)
+            return
+
+        data = (cb.get("data") or "").strip()
+
+        # Reuse the regular message handler by building a synthetic update
+        # that mirrors the shape `_handle` expects. This keeps a single
+        # dispatch path for typed commands and button presses.
+        synthetic = {
+            "message": {"chat": {"id": chat_id}, "text": data},
+        }
+        try:
+            self._handle(synthetic, allowed_chat_id)
+        finally:
+            self._answer_callback(token, cb_id)
 
     def _handle(self, update: dict, allowed_chat_id: str) -> None:
         msg     = update.get("message", {})
@@ -91,6 +134,10 @@ class TelegramCommandHandler:
             self._db.set_bot_paused(False)
             self._notifier.resumed()
             logger.info("Bot resumed via Telegram command")
+
+        elif command == "/help" or command == "/start":
+            self._notifier.help()
+            logger.info("Help sent via Telegram command")
 
         elif command == "/status":
             curve       = self._db.get_equity_curve()
@@ -195,7 +242,10 @@ class TelegramCommandHandler:
                 for update in updates:
                     self._offset = update["update_id"] + 1
                     try:
-                        self._handle(update, chat_id)
+                        if "callback_query" in update:
+                            self._handle_callback(update["callback_query"], chat_id, token)
+                        else:
+                            self._handle(update, chat_id)
                     except Exception as exc:
                         # Skip the offending update but keep the loop alive.
                         logger.exception(
