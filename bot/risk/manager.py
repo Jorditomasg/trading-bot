@@ -131,6 +131,20 @@ class RiskManager:
         return quantity
 
     def check_circuit_breaker(self, current_capital: float, peak_capital: float) -> bool:
+        """Decide whether to halt trading this cycle.
+
+        BOTH inputs now represent TRADING EQUITY (account_baseline + cumulative
+        realized PnL), not raw exchange balance. The caller (orchestrator.step())
+        is responsible for computing trading_equity before passing it here.
+        Pre-May 2026 this method consumed raw exchange balance — see gotcha #31.
+
+        Returns True if (peak - current) / peak >= max_drawdown (default 15%) AND
+        the cooldown window has not yet elapsed. Side-effect: persists the triggered
+        timestamp to bot_config['breaker_triggered_at_{symbol}'] via _save_breaker_state.
+
+        See gotcha #4 for reset paths (drawdown recovery, cooldown, /reset_hwm).
+        """
+        # (values are TRADING EQUITY, not exchange balance — gotcha #31)
         if peak_capital <= 0:
             return False
         drawdown = (peak_capital - current_capital) / peak_capital

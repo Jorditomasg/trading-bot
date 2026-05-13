@@ -224,11 +224,68 @@ def _init_price_precision(db: Database) -> None:
         )
 
 
-def compute_drawdown(db: Database, current_balance: float) -> float:
-    peak = db.get_peak_capital() or current_balance
+def compute_drawdown(db: Database) -> float:
+    """Compute drawdown from TRADING EQUITY (baseline + realized PnL), not raw balance.
+
+    Uses the same trading_equity formula as orchestrator.step() so the displayed
+    drawdown matches the circuit breaker's input (Risk A from design Decision 4).
+
+    Returns 0.0 when no peak has been established yet (safe default).
+    See gotcha #31 for the semantic shift (May 2026).
+    """
+    baseline = db.get_account_baseline() or 0.0
+    closed_pnl = db.get_closed_pnl_sum()
+    trading_equity = baseline + closed_pnl
+    peak = db.get_peak_capital() or trading_equity
     if peak <= 0:
         return 0.0
-    return (peak - current_balance) / peak
+    return max(0.0, (peak - trading_equity) / peak)
+
+
+def _init_account_baseline(db: Database, client: BinanceClient) -> None:
+    """One-shot lazy seed of account_baseline. Called once at startup, idempotent.
+
+    Algorithm: account_baseline = current_USDT_balance - SUM(pnl_all_closed_trades).
+    Negative result → falls back to current_balance (logs WARNING). On balance-fetch
+    failure → skips seeding; retried on next bot restart.
+
+    Also resets peak_capital so the new HWM ratchets from the new semantic (trading
+    equity, not raw balance). See design Decision 6 and gotcha #31.
+    """
+    if db.get_account_baseline() is not None:
+        return  # already seeded — idempotent no-op
+
+    try:
+        current_balance = client.get_balance("USDT")
+    except Exception as exc:
+        logger.error(
+            "Could not seed account_baseline: balance fetch failed (%s). "
+            "Will retry on next bot restart.",
+            exc,
+        )
+        return  # do NOT seed with a wrong value
+
+    historical_pnl = db.get_closed_pnl_sum()  # cross-symbol
+    baseline = current_balance - historical_pnl
+
+    if baseline < 0:
+        logger.warning(
+            "Back-computed baseline=%.2f is negative (current=%.2f − pnl=%.2f). "
+            "External deposits or historical data mismatch likely. "
+            "Falling back to current_balance as account_baseline.",
+            baseline, current_balance, historical_pnl,
+        )
+        baseline = current_balance
+
+    db.set_account_baseline(baseline)
+    # Reset peak_capital so it ratchets from trading equity on the first live cycle.
+    db.reset_peak_capital(value=None, clear_breaker=True)
+
+    logger.info(
+        "Seeded account_baseline=%.2f (current=%.2f, historical_pnl=%.2f). "
+        "peak_capital reset to current trading equity; use /reset_hwm if this looks wrong.",
+        baseline, current_balance, historical_pnl,
+    )
 
 
 def run_cycle(
@@ -302,7 +359,7 @@ def run_cycle(
     # Notify if circuit breaker just fired this cycle
     if notifier and not breaker_was_active:
         if orchestrator.risk_manager._breaker_triggered_at is not None:
-            drawdown = compute_drawdown(db, total_balance)
+            drawdown = compute_drawdown(db)
             notifier.circuit_breaker(drawdown, db.get_active_mode())
 
     if orders:
@@ -315,7 +372,7 @@ def run_cycle(
     else:
         logger.info("[%s] No orders this cycle", sym)
 
-    drawdown = compute_drawdown(db, total_balance)
+    drawdown = compute_drawdown(db)
     db.insert_equity_snapshot(balance=total_balance, drawdown=drawdown)
     logger.info("[%s] Equity snapshot total_balance=%.2f drawdown=%.4f", sym, total_balance, drawdown)
 
@@ -812,6 +869,11 @@ def main() -> None:
     notifier    = TelegramNotifier(db=db)
     # Build the exchange client early so the command handler can fetch live prices
     stream_client = _build_client(db)
+
+    # Lazy seed of account_baseline — deposit-immune HWM (idempotent; no-op after first run).
+    # Must run AFTER the client is built so we can fetch the current USDT balance.
+    # See design Decision 6 and gotcha #31.
+    _init_account_baseline(db, stream_client)
     cmd_handler = TelegramCommandHandler(
         db=db,
         notifier=notifier,

@@ -135,6 +135,20 @@ class TelegramNotifier:
             f"Trading paused — cooldown active."
         )
 
+    def hwm_reset(self, old_peak: float, new_peak: float, mode: str) -> None:
+        """Confirmation message sent in response to /reset_hwm.
+
+        Format includes old and new HWM values in USDT, the mode tag
+        (🧪 DEMO / 🔴 MAINNET), and a note that circuit-breaker timers are cleared.
+        See gotcha #31 for the peak_capital semantic shift (May 2026).
+        """
+        self._post(
+            f"🔄 <b>HWM Reset</b>  [{self._mode_tag(mode)}]\n"
+            f"Old peak: <code>{_fmt(old_peak)} USDT</code>\n"
+            f"New peak: <code>{_fmt(new_peak)} USDT</code>\n"
+            f"Circuit-breaker timers cleared. Trading will resume on next cycle."
+        )
+
     def optimizer_applied(self, old_params: dict, new_params: dict, mode: str) -> None:
         """Notify when the auto-optimizer applies new EMA parameters."""
         self._post(
@@ -184,6 +198,11 @@ class TelegramNotifier:
                     {"text": "⏸ Pause",  "callback_data": "/pause"},
                     {"text": "▶️ Resume", "callback_data": "/resume"},
                 ],
+                [
+                    # Destructive command — placed behind /help so it's discoverable
+                    # but not in setMyCommands top-3. See design Decision 5.
+                    {"text": "🔄 Reset HWM", "callback_data": "/reset_hwm"},
+                ],
             ]
         }
         self._post(
@@ -192,6 +211,7 @@ class TelegramNotifier:
             "<b>/report</b> — Resumen histórico (opcional: <code>/report SYMBOL</code>)\n"
             "<b>/pause</b> — Pausar el bot (no nuevas entradas)\n"
             "<b>/resume</b> — Reanudar el bot\n"
+            "<b>/reset_hwm [valor]</b> — Resetear HWM al equity actual (o valor explícito)\n"
             "<b>/help</b> — Mostrar este menú",
             reply_markup=keyboard,
         )

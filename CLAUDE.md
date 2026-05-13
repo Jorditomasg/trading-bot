@@ -132,10 +132,10 @@ PF actually peaks at 1.5%. The seeded 1.5% trades return for survivability.
 | `main.py` | Entry point, CLI flags, scheduler, run_cycle loop; **`run_cycle` divides total USDT balance by `n_symbols` so each symbol gets an equitable allocation** |
 | `bot/config.py` | Settings dataclass, reads `.env` via python-dotenv |
 | `bot/constants.py` | All enums: ExitReason, TradeAction, OrderSide, StrategyName |
-| `bot/orchestrator.py` | Coordinates regime → strategy → bias filter → risk → order dict |
+| `bot/orchestrator.py` | Coordinates regime → strategy → bias filter → risk → order dict. HWM lives in DB only — no in-memory `_peak_capital` cache; re-read each `step()` to avoid cross-symbol race (gotcha #30, #31). |
 | `bot/bias/filter.py` | `BiasFilter` — EMA9/21 on 4h candles; returns BULLISH/BEARISH/NEUTRAL; injected into orchestrator as hard gate before signal execution |
 | `bot/regime/detector.py` | 3-level regime detection: ATR volatility → ADX → Hurst |
-| `bot/risk/manager.py` | `RiskManager`: circuit breaker (persisted across restarts), position sizing **with spot capital cap**, `validate_signal`. Kelly fields live in `RiskConfig` (`kelly_max_mult`, `kelly_min_mult`, `kelly_min_trades`, `kelly_half`). |
+| `bot/risk/manager.py` | `RiskManager`: circuit breaker (persisted across restarts), position sizing **with spot capital cap**, `validate_signal`. Kelly fields live in `RiskConfig` (`kelly_max_mult`, `kelly_min_mult`, `kelly_min_trades`, `kelly_half`). Circuit breaker now consumes TRADING-EQUITY values (baseline + cumulative realized PnL), not raw exchange balance (see gotcha #4, #30, #31). |
 | `bot/risk/kelly.py` | Pure functions: `compute_kelly_fraction()` (half-Kelly default), `kelly_risk_fraction()` (clamped multiplier). Wired in `orchestrator.step()`. |
 | `bot/risk/drawdown_scaler.py` | `DrawdownRiskConfig` + `drawdown_multiplier()` — disabled by default; applied in BacktestEngine + PortfolioBacktestEngine. NOT wired in live orchestrator (intentional — see Validated Baseline). |
 | `bot/risk/vol_regime.py` | `VolRegimeConfig` + `VolRegimeFilter` — opt-in volatility-regime gate that can block entries or scale size in LOW/HIGH vol windows. Disabled by default. |
@@ -295,11 +295,12 @@ def wilder_smooth(series: pd.Series, period: int) -> pd.Series:
 `_adx()` computes its own True Range internally using `wilder_smooth()`.
 These are NOT the same ATR. Strategies use the SMA-based `atr()`.
 
-### 4. Circuit breaker resets two ways — and SURVIVES restarts
+### 4. Circuit breaker resets THREE ways — and SURVIVES restarts
 
-The circuit breaker is NOT permanent. It resets if EITHER condition is met:
+The circuit breaker is NOT permanent. It resets if ANY condition is met:
 - `cooldown_hours` (default 4h) have elapsed since trigger, OR
-- drawdown recovers below `max_drawdown` threshold (15% default)
+- drawdown recovers below `max_drawdown` threshold (15% default), OR
+- Manual `/reset_hwm` Telegram command (clears all `breaker_triggered_at_*` rows atomically)
 
 ```python
 # If drawdown recovers before cooldown expires:
@@ -308,6 +309,10 @@ if drawdown < self.config.max_drawdown:
     return False
 ```
 
+**Breaker input is TRADING EQUITY (post-May 2026)**: `check_circuit_breaker` now receives
+`trading_equity = account_baseline + SUM(closed_pnl)`, NOT raw exchange balance. This means
+faucet deposits and withdrawals do NOT affect the breaker threshold. See gotcha #31.
+
 **Persistence**: `_breaker_triggered_at` is saved to `bot_config` under the
 key `breaker_triggered_at_{symbol}` on every state change. The orchestrator
 passes `db=db` when constructing `RiskManager`, which restores the timestamp
@@ -315,6 +320,10 @@ on `__init__`. This means the cooldown **survives `init 6` reboots and
 `docker compose restart`** — a breaker triggered at 2am with a 4h cooldown
 will still be active at 3am after a 02:30 restart, instead of being silently
 wiped by the in-memory reset.
+
+**New `bot_config` keys added in May 2026**:
+- `account_baseline` — USDT trading-start balance; back-computed once at first Phase-2 start; never auto-mutated
+- `peak_capital` — now stores peak TRADING EQUITY (not raw balance); ratcheted by orchestrator each cycle
 
 If `db` or `symbol` are not provided (e.g. ad-hoc test instances), the
 manager falls back to in-memory state — backward compatible.
@@ -649,6 +658,45 @@ errors back off 10s and continue. Without this, a malformed update or a brief
 DB hiccup would kill the daemon thread silently and `/pause`, `/status`,
 `/report` would stop responding with no signal to the user.
 
+### 30. HWM is account-level (cross-symbol) — BTC losses pause ETH trading
+
+There is ONE shared `peak_capital` value for the entire account (all symbols). A single
+`trading_equity = account_baseline + db.get_closed_pnl_sum()` aggregates PnL across ALL
+symbols with no filter. This means:
+- If BTC closes a losing trade that crosses 15% drawdown, ETH's `step()` also sees that
+  drawdown and returns `[]` (no trades) — even if ETH itself was profitable.
+- If ETH recovers the drawdown, the breaker clears for BTC too on next cycle.
+
+This is **intentional** — capital is fungible. The breaker protects the ACCOUNT, not
+individual symbol performance. Per-symbol HWM was rejected as unnecessarily complex.
+
+Implementation: `db.get_closed_pnl_sum()` has no symbol filter by default. Both orchestrators
+(BTCUSDT and ETHUSDT) call it and get the same cross-symbol total. See `test_cross_symbol_hwm_shared`
+in `tests/test_orchestrator_hwm.py`.
+
+### 31. `peak_capital` key semantic changed in May 2026
+
+**Pre-May 2026**: `peak_capital` in `bot_config` stored the peak of the **raw USDT exchange balance**.
+This was deposit-prone — a testnet faucet drop of +30k USDT would ratchet the peak to 39277+,
+making the circuit breaker permanently stuck (no real trading loss could ever recover from that HWM).
+
+**Post-May 2026**: `peak_capital` stores the peak of **TRADING EQUITY** = `account_baseline + SUM(closed_pnl)`.
+The raw balance is no longer the breaker's input. The KEY NAME was kept (`peak_capital`) for API
+stability across `get_peak_capital()`, `set_peak_capital()`, and every test that passes a plain
+float — callers don't need to change.
+
+**Migration**: at first Phase-2 startup, `_init_account_baseline(db, client)` in `main.py` detects
+`account_baseline IS NULL` and runs a one-shot seed:
+1. Fetches current USDT balance from Binance
+2. Computes `baseline = balance - SUM(pnl_all_closed_trades)`
+3. Sets `account_baseline` and resets `peak_capital` to current trading equity
+
+After that, every `orchestrator.step()` re-computes `trading_equity` from DB (no in-memory cache)
+and ratchets `peak_capital` if it's higher. Faucet drops have zero effect.
+
+If the back-computed baseline is wrong (e.g. testnet faucet history polluted), use `/reset_hwm`
+to clear the peak, then manually DB-poke `account_baseline` to the correct value.
+
 ---
 
 ## Walk-Forward Optimizer
@@ -715,6 +763,9 @@ mode). Keys:
 | `bot_paused` | `"true"` / `"false"` | Pause flag checked at `run_cycle()` start |
 | `ema_stop_mult` | str (float) | EMA SL ATR multiplier; applied at startup from optimizer approval |
 | `ema_tp_mult` | str (float) | EMA TP ATR multiplier; applied at startup from optimizer approval |
+| `account_baseline` | str (4-dp float) | USDT trading-start balance; back-computed once at first Phase-2 start (`_init_account_baseline`); never auto-mutated. Constant in `trading_equity = baseline + SUM(pnl)`. |
+| `peak_capital` | str (4-dp float) | Peak TRADING EQUITY (not raw balance — see gotcha #31). Ratcheted by `orchestrator.step()` each cycle; cleared/overridden by `/reset_hwm`. |
+| `breaker_triggered_at_{symbol}` | ISO datetime or `""` | Per-symbol circuit breaker timestamp; cleared by `/reset_hwm` (all symbols atomically). |
 
 Relevant `Database` methods:
 - `save_telegram_config(token, chat_id, enabled)` — writes all three config keys
@@ -734,6 +785,7 @@ Relevant `Database` methods:
 | `trade_opened(trade, mode)` | After `_execute_order()` writes an OPEN trade to DB |
 | `trade_closed(trade, pnl, exit_reason, mode)` | After `_execute_order()` writes a CLOSE trade to DB |
 | `circuit_breaker(drawdown, mode)` | On the cycle the breaker first triggers |
+| `hwm_reset(old_peak, new_peak, mode)` | In response to `/reset_hwm` command; shows before/after HWM values and confirms breaker timers cleared |
 | `status(balance, open_trade, mode, paused)` | In response to `/status` command; includes bot state (Running/Paused) |
 | `report(closed_trades, equity_curve, perf_by_strategy, balance, mode, initial_capital)` | In response to `/report` command; sends full performance summary (win rate, PnL, Sharpe, drawdown, profit factor, best strategy) |
 | `register_commands()` | Called once on bot startup; registers the 4 commands in the Telegram chat menu via `setMyCommands` |
@@ -751,6 +803,7 @@ and `🔴 MAINNET` for live trading. Mode is read from `db.get_active_mode()`.
 | `/resume` | Sets `bot_paused=False` in DB; sends `resumed()` notification |
 | `/status` | Sends current balance, bot state (Running/Paused), and open position summary |
 | `/report` | Sends full historical performance: win rate, total PnL, profit factor, Sharpe, max drawdown, max loss streak, best strategy |
+| `/reset_hwm [value]` | Resets `peak_capital` to current trading equity (or explicit USDT value) and clears ALL `breaker_triggered_at_*` timestamps atomically. Confirms with `hwm_reset()` notification showing old/new peak. Destructive — accessible via the `/help` inline keyboard "Reset HWM" button. |
 
 The command handler reads token and chat_id from DB on every poll cycle — config changes
 take effect without restarting the bot.

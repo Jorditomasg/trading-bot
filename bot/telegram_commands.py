@@ -135,6 +135,25 @@ class TelegramCommandHandler:
             self._notifier.resumed()
             logger.info("Bot resumed via Telegram command")
 
+        elif command == "/reset_hwm":
+            # Parse optional numeric argument: /reset_hwm or /reset_hwm 18625
+            parts = raw.split()
+            explicit: float | None = None
+            if len(parts) > 1:
+                try:
+                    explicit = float(parts[1])
+                except ValueError:
+                    self._notifier._post(
+                        f"<code>/reset_hwm {parts[1]}</code> — invalid number. "
+                        f"Usage: <code>/reset_hwm</code> or <code>/reset_hwm 18625</code>"
+                    )
+                    return
+
+            old_peak, new_peak = self._db.reset_peak_capital(value=explicit, clear_breaker=True)
+            mode = self._db.get_active_mode()
+            self._notifier.hwm_reset(old_peak, new_peak, mode)
+            logger.info("HWM reset via Telegram: old=%.2f new=%.2f", old_peak, new_peak)
+
         elif command == "/help" or command == "/start":
             self._notifier.help()
             logger.info("Help sent via Telegram command")

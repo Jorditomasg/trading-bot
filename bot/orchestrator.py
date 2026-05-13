@@ -40,7 +40,9 @@ class StrategyOrchestrator:
                 EMACrossoverConfig(**strategy_cfgs[StrategyName.EMA_CROSSOVER])
             ),
         }
-        self._peak_capital: float = db.get_peak_capital() or 0.0
+        # NOTE: self._peak_capital is intentionally NOT cached here.
+        # The HWM is re-read from DB at the top of each step() to prevent
+        # cross-symbol race conditions (gotcha #4, #30, #31).
         self._last_momentum_state: MomentumState = MomentumState.BULLISH
 
     def get_strategy(self, name: StrategyName) -> BaseStrategy:
@@ -56,17 +58,28 @@ class StrategyOrchestrator:
         total_balance: Optional[float] = None,
     ) -> list[dict]:
         sym = self.symbol
-        cb_balance = total_balance if total_balance is not None else current_balance
 
-        # Update High Water Mark (HWM)
-        if cb_balance > self._peak_capital:
-            self._peak_capital = cb_balance
-            self.db.set_peak_capital(self._peak_capital)
-            logger.info("[%s] HWM updated: peak=%.2f", sym, self._peak_capital)
+        # ── HWM block: trading equity, not raw balance (gotcha #31) ──────────
+        # Pull account-level state fresh each step (no in-memory cache).
+        # This prevents cross-symbol race conditions when two orchestrators
+        # share the same DB (gotcha #30).
+        baseline = self.db.get_account_baseline() or 0.0
+        closed_pnl = self.db.get_closed_pnl_sum()          # cross-symbol; no symbol filter
+        trading_equity = baseline + closed_pnl
 
-        if self.risk_manager.check_circuit_breaker(cb_balance, self._peak_capital):
+        peak = self.db.get_peak_capital() or 0.0
+        if trading_equity > peak:
+            self.db.set_peak_capital(trading_equity)
+            peak = trading_equity
+            logger.info(
+                "[%s] HWM updated: trading_equity=%.2f (baseline=%.2f closed_pnl=%.2f)",
+                sym, trading_equity, baseline, closed_pnl,
+            )
+
+        if self.risk_manager.check_circuit_breaker(trading_equity, peak):
             logger.info("[%s] circuit breaker active — no trading this cycle", sym)
             return []
+        # ─────────────────────────────────────────────────────────────────────
 
         current_price = float(df["close"].iloc[-1])
         momentum_state = MomentumFilter.get_state(df_weekly, current_price)

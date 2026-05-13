@@ -369,3 +369,121 @@ class TestCallbackRouting:
         # Find the answerCallbackQuery call among any other requests.post calls
         urls = [c.args[0] for c in mock_post.call_args_list]
         assert any("answerCallbackQuery" in u for u in urls)
+
+
+# ── /reset_hwm command (Task 10 — RED scaffold) ───────────────────────────────
+
+class TestResetHWMCommand:
+    """/reset_hwm command handler tests.
+
+    Written RED-first (Task 10). GREEN pass when Tasks 11-12 implementations land.
+    Uses mocked DB and notifier (consistent with the rest of this test file).
+    """
+
+    def test_reset_hwm_no_args_resets_to_current_equity(self):
+        """/reset_hwm with no args calls reset_peak_capital(value=None, clear_breaker=True)."""
+        h, db, notifier = _handler()
+        db.reset_peak_capital.return_value = (39277.0, 18625.0)
+        db.get_active_mode.return_value = "TESTNET"
+
+        h._handle(_update("/reset_hwm"), "123")
+
+        db.reset_peak_capital.assert_called_once_with(value=None, clear_breaker=True)
+        notifier.hwm_reset.assert_called_once_with(39277.0, 18625.0, "TESTNET")
+
+    def test_reset_hwm_with_value_sets_explicit_peak(self):
+        """/reset_hwm 18625 calls reset_peak_capital(value=18625.0, clear_breaker=True)."""
+        h, db, notifier = _handler()
+        db.reset_peak_capital.return_value = (39277.0, 18625.0)
+        db.get_active_mode.return_value = "TESTNET"
+
+        h._handle(_update("/reset_hwm 18625"), "123")
+
+        db.reset_peak_capital.assert_called_once_with(value=18625.0, clear_breaker=True)
+        notifier.hwm_reset.assert_called_once_with(39277.0, 18625.0, "TESTNET")
+
+    def test_reset_hwm_invalid_arg_returns_error_message(self):
+        """/reset_hwm abc posts an error message; no reset called."""
+        h, db, notifier = _handler()
+
+        h._handle(_update("/reset_hwm abc"), "123")
+
+        db.reset_peak_capital.assert_not_called()
+        notifier.hwm_reset.assert_not_called()
+        # _post should have been called with an error message
+        notifier._post.assert_called_once()
+        err_msg = notifier._post.call_args[0][0]
+        assert "abc" in err_msg or "invalid" in err_msg.lower() or "usage" in err_msg.lower()
+
+    def test_reset_hwm_clears_breaker_timestamps(self):
+        """/reset_hwm with clear_breaker=True removes breaker rows.
+
+        Uses a real Database(tmp_path) to verify the DB-level DELETE works end-to-end.
+        """
+        import tempfile
+        import os
+        from bot.database.db import Database as RealDatabase
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            real_db = RealDatabase(os.path.join(tmpdir, "test.db"))
+            real_db.set_peak_capital(39277.0)
+            real_db.set_account_baseline(18625.0)
+            real_db.set_config("breaker_triggered_at_BTCUSDT", "2026-05-13T10:00:00")
+            real_db.set_config("breaker_triggered_at_ETHUSDT", "2026-05-13T10:00:00")
+
+            mock_notifier = MagicMock()
+            mock_notifier._post = MagicMock()
+            mock_notifier.hwm_reset = MagicMock()
+
+            handler = TelegramCommandHandler(real_db, mock_notifier)
+            handler._handle(_update("/reset_hwm"), "123")
+
+            # Breaker keys must be gone after /reset_hwm
+            assert real_db.get_config("breaker_triggered_at_BTCUSDT") in (None, "")
+            assert real_db.get_config("breaker_triggered_at_ETHUSDT") in (None, "")
+
+    def test_reset_hwm_unauthorized_chat_id_ignored(self):
+        """/reset_hwm from unauthorized chat_id is silently ignored."""
+        h, db, notifier = _handler()
+
+        # Send from chat_id "999" — allowed_chat_id is "123"
+        h._handle(_update("/reset_hwm", chat_id="999"), "123")
+
+        db.reset_peak_capital.assert_not_called()
+        notifier.hwm_reset.assert_not_called()
+
+
+# ── hwm_reset() notifier method (Task 10 — RED scaffold) ──────────────────────
+
+class TestHwmResetNotifier:
+    """Tests for TelegramNotifier.hwm_reset().
+
+    Written RED-first (Task 10). GREEN pass when Task 11 implementation lands.
+    """
+
+    def test_hwm_reset_sends_message_with_old_and_new_peak(self):
+        """hwm_reset() must send a message containing both old and new peak values."""
+        n = _notifier()
+        with patch.object(n, "_post") as mock_post:
+            n.hwm_reset(39277.0, 18625.0, "TESTNET")
+        assert mock_post.called
+        text = mock_post.call_args[0][0]
+        # Allow for locale-aware formatting: 39,277.00 (dot) or 39.277,00 (comma)
+        assert "39" in text and "277" in text
+        assert "18" in text and "625" in text
+
+    def test_hwm_reset_includes_mode_tag(self):
+        """hwm_reset() message must include the mode tag (DEMO or MAINNET)."""
+        n = _notifier()
+        with patch.object(n, "_post") as mock_post:
+            n.hwm_reset(39277.0, 18625.0, "TESTNET")
+        text = mock_post.call_args[0][0]
+        assert "DEMO" in text or "TESTNET" in text
+
+    def test_hwm_reset_mentions_breaker_cleared(self):
+        """hwm_reset() message must mention that breaker timers are cleared."""
+        n = _notifier()
+        with patch.object(n, "_post") as mock_post:
+            n.hwm_reset(39277.0, 18625.0, "TESTNET")
+        text = mock_post.call_args[0][0]
+        assert "breaker" in text.lower() or "timer" in text.lower() or "resume" in text.lower()

@@ -546,6 +546,86 @@ class Database:
     def set_peak_capital(self, value: float) -> None:
         self.set_config("peak_capital", f"{value:.4f}")
 
+    def get_account_baseline(self) -> float | None:
+        """Return the persisted account baseline (USDT trading-start balance) or None if unset.
+
+        None signals 'needs lazy seed'. Float parsing matches get_peak_capital().
+        """
+        val = self.get_config("account_baseline")
+        return float(val) if val else None
+
+    def set_account_baseline(self, value: float) -> None:
+        """Persist the account baseline. Idempotent; overwrites any prior value.
+
+        Used by the lazy seeder on first Phase 2 run and by future manual overrides.
+        """
+        self.set_config("account_baseline", f"{value:.4f}")
+
+    def get_closed_pnl_sum(self, symbol: str | None = None) -> float:
+        """Sum of ``pnl`` for closed trades (exit_price IS NOT NULL).
+
+        symbol=None  → cross-symbol total (used by trading_equity computation).
+        symbol=<str> → single-symbol total (for per-symbol analytics).
+
+        Returns float; never None.
+        """
+        with self._conn() as conn:
+            if symbol is None:
+                row = conn.execute(
+                    "SELECT COALESCE(SUM(pnl), 0) AS total FROM trades WHERE exit_price IS NOT NULL"
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT COALESCE(SUM(pnl), 0) AS total FROM trades"
+                    " WHERE exit_price IS NOT NULL AND symbol = ?",
+                    (symbol,),
+                ).fetchone()
+        return float(row["total"])
+
+    def reset_peak_capital(
+        self,
+        value: float | None = None,
+        clear_breaker: bool = True,
+    ) -> tuple[float, float]:
+        """Reset HWM and optionally clear all per-symbol breaker-cooldown rows.
+
+        Returns ``(old_peak, new_peak)`` so the Telegram handler can surface a diff.
+
+        Behaviour:
+          - value=None      → new_peak = account_baseline + closed_pnl_sum
+                              Falls back to 0.0 if baseline is unset.
+          - value=<float>   → new_peak = value (explicit override).
+          - clear_breaker=True → DELETE every bot_config row matching
+                                 'breaker_triggered_at_%'.
+
+        All writes occur in ONE ``_conn()`` transaction for consistency.
+        See gotcha #31 for the semantic shift of peak_capital (May 2026).
+        """
+        old_peak: float = self.get_peak_capital() or 0.0
+
+        if value is None:
+            baseline = self.get_account_baseline() or 0.0
+            closed_pnl = self.get_closed_pnl_sum()
+            new_peak: float = baseline + closed_pnl
+        else:
+            new_peak = float(value)
+
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO bot_config (key, value) VALUES (?, ?)",
+                ("peak_capital", f"{new_peak:.4f}"),
+            )
+            if clear_breaker:
+                conn.execute(
+                    "DELETE FROM bot_config WHERE key LIKE 'breaker_triggered_at_%'"
+                )
+
+        logger.info(
+            "peak_capital reset: old=%.4f new=%.4f (clear_breaker=%s)",
+            old_peak, new_peak, clear_breaker,
+        )
+        return old_peak, new_peak
+
     def get_bot_paused(self) -> bool:
         return self.get_config("bot_paused") == "1"
 
