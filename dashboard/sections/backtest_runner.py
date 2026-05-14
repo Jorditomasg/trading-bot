@@ -161,6 +161,7 @@ def backtest_runner_section(db: Database) -> None:
                     symbols, timeframe, start_dt, end_dt,
                     capital, risk_pct / 100, cost_pct / 100,
                     use_bias, use_momentum, use_1m,
+                    cfg,
                 )
 
     # ── Right: results (persist across re-runs via session_state) ─────────────
@@ -189,6 +190,7 @@ def _run_portfolio_backtest(
     use_bias:     bool,
     use_momentum: bool,
     use_1m:       bool,
+    cfg_rt:       dict,
 ) -> None:
     bias_tf  = _BIAS_TF.get(timeframe, "1d")
     progress = st.empty()
@@ -246,6 +248,10 @@ def _run_portfolio_backtest(
         return
 
     # ── Run engine ────────────────────────────────────────────────────────────
+    # Pull live-bot strategy parameters from runtime config so the backtest
+    # measures the SAME strategy the live bot trades. Without this, the engine
+    # uses BacktestConfig dataclass defaults — most notably long_only=False,
+    # which bidirectionalises EMA on BTC and destroys PF per Validated Baseline.
     cfg = BacktestConfig(
         initial_capital         = capital,
         risk_per_trade          = risk,
@@ -254,6 +260,14 @@ def _run_portfolio_backtest(
         momentum_filter_enabled = use_momentum,
         momentum_sma_period     = 20,
         momentum_neutral_band   = 0.08,
+        long_only            = cfg_rt.get("long_only", "true") == "true",
+        ema_stop_mult        = float(cfg_rt.get("ema_stop_mult", 1.5)),
+        ema_tp_mult          = float(cfg_rt.get("ema_tp_mult", 4.5)),
+        ema_max_distance_atr = float(cfg_rt.get("ema_max_dist_atr", 1.0)),
+        ema_volume_mult      = float(cfg_rt.get("ema_vol_mult", 2.0)),
+        ema_require_momentum = cfg_rt.get("ema_momentum", "true") == "true",
+        ema_require_bar_dir  = cfg_rt.get("ema_bar_dir", "false") == "true",
+        ema_min_atr_pct      = float(cfg_rt.get("ema_min_atr", 0.0)),
     )
     engine = PortfolioBacktestEngine(cfg)
 
