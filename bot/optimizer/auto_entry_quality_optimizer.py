@@ -24,14 +24,21 @@ logger = logging.getLogger(__name__)
 
 OPTIMIZER_INTERVAL_DAYS = 7
 LAST_RUN_KEY            = "last_auto_entry_quality_run"
+ENABLED_KEY             = "auto_entry_quality_enabled"
 _lock                   = threading.Lock()
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def should_run(db: Database, interval_days: int = OPTIMIZER_INTERVAL_DAYS) -> bool:
-    """Return True if the optimizer has not run within *interval_days*."""
+    """Return True if the optimizer has not run within *interval_days*.
+
+    Gated by the ``auto_entry_quality_enabled`` runtime flag — defaults to OFF
+    pending audit (sibling of the walk-forward optimizer killed in May 2026).
+    """
     cfg    = db.get_runtime_config()
+    if cfg.get(ENABLED_KEY, "false").lower() != "true":
+        return False
     ts_str = cfg.get(LAST_RUN_KEY)
     if not ts_str:
         return True

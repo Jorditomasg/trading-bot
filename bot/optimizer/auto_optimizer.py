@@ -24,14 +24,22 @@ logger = logging.getLogger(__name__)
 
 OPTIMIZER_INTERVAL_DAYS = 7          # run once per week
 LAST_RUN_KEY            = "last_auto_optimizer_run"
+ENABLED_KEY             = "auto_optimizer_enabled"
 _lock                   = threading.Lock()  # prevents concurrent runs
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def should_run(db: Database, interval_days: int = OPTIMIZER_INTERVAL_DAYS) -> bool:
-    """Return True if the auto-optimizer has not run within *interval_days*."""
+    """Return True if the auto-optimizer has not run within *interval_days*.
+
+    Gated by the ``auto_optimizer_enabled`` runtime flag — defaults to OFF
+    because the May 2026 walk-forward audit proved this methodology overfits.
+    See: docs/audits/A_walk_forward_2026-05-14.md.
+    """
     cfg    = db.get_runtime_config()
+    if cfg.get(ENABLED_KEY, "false").lower() != "true":
+        return False
     ts_str = cfg.get(LAST_RUN_KEY)
     if not ts_str:
         return True

@@ -7,12 +7,21 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from bot.optimizer.auto_optimizer import LAST_RUN_KEY, OPTIMIZER_INTERVAL_DAYS, run_and_apply, should_run
+from bot.optimizer.auto_optimizer import (
+    ENABLED_KEY,
+    LAST_RUN_KEY,
+    OPTIMIZER_INTERVAL_DAYS,
+    run_and_apply,
+    should_run,
+)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _mock_db(runtime_cfg: dict | None = None) -> MagicMock:
+    """Mock DB. Tests that exercise the time-based gate must set ENABLED_KEY='true'
+    to bypass the audit-driven kill switch (default OFF since May 2026).
+    """
     db = MagicMock()
     db.get_runtime_config.return_value = runtime_cfg or {}
     db.get_best_pending_optimizer_run.return_value = None
@@ -26,42 +35,42 @@ def _iso(dt: datetime) -> str:
 # ── should_run ────────────────────────────────────────────────────────────────
 
 def test_should_run_no_last_run():
-    """Returns True when no previous run timestamp is stored."""
-    db = _mock_db({})
+    """Returns True when no previous run timestamp AND flag is explicitly true."""
+    db = _mock_db({ENABLED_KEY: "true"})
     assert should_run(db) is True
 
 
 def test_should_run_recent():
     """Returns False when last run was less than interval_days ago."""
     recent = datetime.now(tz=timezone.utc) - timedelta(days=3)
-    db = _mock_db({LAST_RUN_KEY: _iso(recent)})
+    db = _mock_db({ENABLED_KEY: "true", LAST_RUN_KEY: _iso(recent)})
     assert should_run(db, interval_days=7) is False
 
 
 def test_should_run_overdue():
-    """Returns True when last run was more than interval_days ago."""
+    """Returns True when last run was more than interval_days ago (flag enabled)."""
     old = datetime.now(tz=timezone.utc) - timedelta(days=8)
-    db = _mock_db({LAST_RUN_KEY: _iso(old)})
+    db = _mock_db({ENABLED_KEY: "true", LAST_RUN_KEY: _iso(old)})
     assert should_run(db, interval_days=7) is True
 
 
 def test_should_run_exactly_on_boundary():
-    """Returns True when elapsed time equals exactly interval_days."""
+    """Returns True when elapsed time equals exactly interval_days (flag enabled)."""
     exact = datetime.now(tz=timezone.utc) - timedelta(days=OPTIMIZER_INTERVAL_DAYS)
-    db = _mock_db({LAST_RUN_KEY: _iso(exact)})
+    db = _mock_db({ENABLED_KEY: "true", LAST_RUN_KEY: _iso(exact)})
     assert should_run(db) is True
 
 
 def test_should_run_invalid_timestamp():
-    """Returns True when stored timestamp is not parseable."""
-    db = _mock_db({LAST_RUN_KEY: "not-a-date"})
+    """Returns True when stored timestamp is not parseable (flag enabled)."""
+    db = _mock_db({ENABLED_KEY: "true", LAST_RUN_KEY: "not-a-date"})
     assert should_run(db) is True
 
 
 def test_should_run_naive_timestamp():
     """Treats naive (no tz) timestamps as UTC."""
     recent_naive = (datetime.now(tz=timezone.utc) - timedelta(days=1)).replace(tzinfo=None)
-    db = _mock_db({LAST_RUN_KEY: recent_naive.isoformat()})
+    db = _mock_db({ENABLED_KEY: "true", LAST_RUN_KEY: recent_naive.isoformat()})
     assert should_run(db, interval_days=7) is False
 
 

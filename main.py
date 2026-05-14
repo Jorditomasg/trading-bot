@@ -128,15 +128,26 @@ def _seed_optimized_defaults(db: Database) -> None:
     """
     cfg = db.get_runtime_config()
 
+    # ema_tp_mult bumped from 4.5 → 5.0 after the May 2026 optimizer bake-off
+    # (data/audits/B_vs_C1_apples_to_apples.json): SL=1.5,TP=5.0 wins 10/10
+    # walk-forward windows over C1's 4.5 (mean PF 1.38 vs 1.27, Calmar 13.5 vs
+    # 8.7, paired t p<0.001). Audit: docs/audits/A_walk_forward_2026-05-14.md.
+    #
+    # Both auto-optimizers default OFF: the May 2026 audit proved the existing
+    # methodology (single 180d window, sort by PF) overfits recent noise.
+    # Sub-project D will deliver a walk-forward + Calmar methodology before
+    # they can be safely re-enabled.
     defaults = {
         "symbol":          "BTCUSDT",
         "timeframe":       "4h",
         "risk_per_trade":  "0.015",   # 1.5% = Quarter-Kelly; safe, ~17% annual
         "ema_stop_mult":   "1.5",
-        "ema_tp_mult":     "4.5",
+        "ema_tp_mult":     "5.0",     # B-pick (audit-validated, May 2026)
         "ema_max_dist_atr":"1.0",
         "long_only":       "true",
-        "backtest_cost_per_side": "0.001",   # 0.10% per side (Binance VIP-0 spot, no BNB discount)
+        "backtest_cost_per_side":     "0.001",   # 0.10% per side (Binance VIP-0 spot, no BNB discount)
+        "auto_optimizer_enabled":     "false",   # audited NO-GO methodology — see CLAUDE.md gotcha #33
+        "auto_entry_quality_enabled": "false",   # sibling optimizer, unaudited
     }
 
     to_seed = {k: v for k, v in defaults.items() if k not in cfg}
