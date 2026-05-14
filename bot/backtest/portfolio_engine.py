@@ -43,6 +43,7 @@ from bot.metrics import (
     sharpe_ratio,
 )
 from bot.risk.drawdown_scaler import DrawdownRiskConfig, drawdown_multiplier
+from bot.risk.kelly import compute_kelly_fraction, kelly_risk_fraction
 
 logger = logging.getLogger(__name__)
 
@@ -237,6 +238,12 @@ class PortfolioBacktestEngine:
                     state.cooldown_bars -= 1
 
             # ── PASS 2: entries ───────────────────────────────────────────────
+            # Aggregate closed-trade history across all symbols — used for Kelly
+            # sizing. Mirrors `db.get_kelly_stats(strategy)` in live, which is
+            # cross-symbol (per strategy, not per symbol). Recomputed each bar
+            # because cardinality changes when any symbol closes.
+            all_closed_trades = [t for s in states.values() for t in s.trades]
+
             for symbol, idx in participating.items():
                 state = states[symbol]
                 if state.open_trade is not None or state.cooldown_bars != 0:
@@ -280,6 +287,26 @@ class PortfolioBacktestEngine:
                 effective_risk = effective_risk * drawdown_multiplier(
                     capital, peak_capital, dd_cfg
                 )
+                # Kelly sizing across the AGGREGATED portfolio trade history
+                # (mirrors `db.get_kelly_stats(strategy)` in live which is also
+                # cross-symbol — one Kelly per strategy, not per symbol).
+                if (
+                    self.config.kelly_enabled
+                    and len(all_closed_trades) >= self.config.kelly_min_trades
+                ):
+                    win_rate, avg_win, avg_loss = engine._compute_kelly_stats(
+                        all_closed_trades
+                    )
+                    kelly_f = compute_kelly_fraction(
+                        win_rate, avg_win, avg_loss, half=self.config.kelly_half,
+                    )
+                    effective_risk = kelly_risk_fraction(
+                        kelly_f=kelly_f,
+                        signal_strength=signal.strength,
+                        base_risk=effective_risk,
+                        max_mult=self.config.kelly_max_mult,
+                        min_mult=self.config.kelly_min_mult,
+                    )
                 # NOTE: sizing uses CASH (capital), not total equity — mirrors the
                 # live bot's `BinanceClient.get_balance("USDT")` semantics.
                 quantity = engine._compute_quantity_with_risk(

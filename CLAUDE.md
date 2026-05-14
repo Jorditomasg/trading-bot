@@ -138,6 +138,7 @@ PF actually peaks at 1.5%. The seeded 1.5% trades return for survivability.
 | `bot/risk/manager.py` | `RiskManager`: circuit breaker (persisted across restarts), position sizing **with spot capital cap**, `validate_signal`. Kelly fields live in `RiskConfig` (`kelly_max_mult`, `kelly_min_mult`, `kelly_min_trades`, `kelly_half`). Circuit breaker now consumes TRADING-EQUITY values (baseline + cumulative realized PnL), not raw exchange balance (see gotcha #4, #30, #31). |
 | `bot/risk/kelly.py` | Pure functions: `compute_kelly_fraction()` (half-Kelly default), `kelly_risk_fraction()` (clamped multiplier). Wired in `orchestrator.step()`. |
 | `bot/risk/drawdown_scaler.py` | `DrawdownRiskConfig` + `drawdown_multiplier()` — disabled by default; applied in BacktestEngine + PortfolioBacktestEngine. NOT wired in live orchestrator (intentional — see Validated Baseline). |
+| `bot/audit/` | Walk-forward validation framework (sub-project A). Reuses `PortfolioBacktestEngine`. CLI in `scripts/audit/run_walk_forward.py`. Spec: `docs/superpowers/specs/2026-05-14-walk-forward-audit-design.md`. Reports under `docs/audits/`. See gotcha #32. |
 | `bot/risk/vol_regime.py` | `VolRegimeConfig` + `VolRegimeFilter` — opt-in volatility-regime gate that can block entries or scale size in LOW/HIGH vol windows. Disabled by default. |
 | `bot/risk/news_pause.py` | News-event pause window — gates entries around macro releases. Disabled by default; opt in via `BacktestConfig.news_pause`. |
 | `bot/risk/news_blackout.py` | Static news-event calendar lookup helpers (companion to `news_pause`). |
@@ -696,6 +697,23 @@ and ratchets `peak_capital` if it's higher. Faucet drops have zero effect.
 
 If the back-computed baseline is wrong (e.g. testnet faucet history polluted), use `/reset_hwm`
 to clear the peak, then manually DB-poke `account_baseline` to the correct value.
+
+### 32. Audit configs are SPEC-LOCKED — never tweak mid-run
+
+`scripts/audit/run_walk_forward.py` hardcodes `CONFIG_C1_BASELINE` and `CONFIG_C2_PROD`. These
+mirror the audit spec (`docs/superpowers/specs/2026-05-14-walk-forward-audit-design.md`
+section 5) and MUST NOT drift from production silently — that would invalidate prior reports.
+If you need to test a different config, add a new constant and a new CLI flag, never mutate
+C1/C2 in place. The verdict thresholds in `bot/audit/verdict.py` follow the same lock.
+
+The walk-forward audit (May 2026, `docs/audits/A_walk_forward_2026-05-14.md`) revealed that
+C2 (production: 3% risk, SL=1.25×ATR, TP=3.5×ATR) yields **NO-GO** verdict — max DD of 45%
+across all 10 quarterly windows, 29.6% above the 35% safety ceiling — while C1 (baseline:
+1.5% risk, SL=1.5×ATR, TP=4.5×ATR) is rock-solid **GO** with DD=14% in every window,
+PF=1.46 mean, Calmar=16.4. Paired t-test confirms C1 dominates with p < 0.0001, Cohen's
+d = 3.62 (huge effect). The auto-optimizer's evolution (1.5/4.5 → 1.25/3.5 + 3% risk) is
+degrading risk-adjusted return. Reverting production to C1 is recommended (sub-project B/D
+will quantify the rollback). The audit framework is reusable for future configs.
 
 ---
 

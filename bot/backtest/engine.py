@@ -33,6 +33,7 @@ from bot.metrics import (
 )
 from bot.regime.detector import MarketRegime, RegimeDetector
 from bot.risk.drawdown_scaler import DrawdownRiskConfig, drawdown_multiplier
+from bot.risk.kelly import compute_kelly_fraction, kelly_risk_fraction
 from bot.risk.news_pause import NewsPauseConfig, is_pause_triggered
 from bot.risk.vol_regime import VolRegime, VolRegimeConfig, VolRegimeFilter
 from bot.strategy.base import Signal
@@ -91,6 +92,13 @@ class BacktestConfig:
     # and moves the SL to breakeven on the remaining position. Original TP unchanged.
     partial_tp_atr_mult: float | None = None
     partial_close_fraction: float = 0.5
+    # Kelly sizing (mirrors live orchestrator; enabled=True matches live behaviour).
+    # Set kelly_enabled=False for flat-risk research runs.
+    kelly_enabled:    bool  = True
+    kelly_min_trades: int   = 15
+    kelly_max_mult:   float = 2.0
+    kelly_min_mult:   float = 0.25
+    kelly_half:       bool  = True
 
 
 @dataclass
@@ -171,6 +179,23 @@ class BacktestEngine:
             self._vol_filter = VolRegimeFilter(cfg)
 
     # ── Private helpers ───────────────────────────────────────────────────────
+
+    def _compute_kelly_stats(self, trades: list[dict]) -> tuple[float, float, float]:
+        """Compute (win_rate, avg_win_pct, avg_loss_pct) from a list of closed trades.
+
+        Mirrors `Database.get_kelly_stats()` so the backtest engine can apply Kelly
+        sizing parity with the live orchestrator. Each trade dict must contain
+        `pnl_pct` (decimal, e.g. 0.02 = +2%).
+        """
+        if not trades:
+            return 0.0, 0.0, 0.0
+        wins   = [float(t["pnl_pct"]) for t in trades if float(t["pnl_pct"]) > 0]
+        losses = [-float(t["pnl_pct"]) for t in trades if float(t["pnl_pct"]) < 0]
+        n      = len(trades)
+        win_rate     = len(wins) / n
+        avg_win_pct  = sum(wins) / len(wins) if wins else 0.0
+        avg_loss_pct = sum(losses) / len(losses) if losses else 0.0
+        return win_rate, avg_win_pct, avg_loss_pct
 
     def _min_lookback(self) -> int:
         """Minimum bars needed before the regime detector can produce a valid result."""
@@ -282,22 +307,47 @@ class BacktestEngine:
         """Return (exit_reason, raw_exit_price) if SL or TP was hit this bar.
 
         Uses the bar's high and low to detect intra-bar hits.
-        If both SL and TP are breached in the same bar, SL wins (conservative).
+
+        Both-wicked tiebreaker (mirrors live bot behavior from main.py):
+        When the same bar wicks both SL and TP, we use the close direction
+        relative to entry to determine the outcome, and exit price = bar close
+        (market-order fill approximation, consistent with how the live bot
+        sends a market close after detecting the exit).
+
+        Single-wick exits use the SL/TP level as the exit price (unchanged).
         """
-        high = float(bar["high"])
-        low  = float(bar["low"])
-        sl   = trade["stop_loss"]
-        tp   = trade["take_profit"]
+        high  = float(bar["high"])
+        low   = float(bar["low"])
+        close = float(bar["close"])
+        sl    = trade["stop_loss"]
+        tp    = trade["take_profit"]
+        entry = trade["entry_price"]
 
         if trade["side"] == "BUY":
-            if low <= sl:
+            sl_hit = low <= sl
+            tp_hit = high >= tp
+            if sl_hit and tp_hit:
+                # Both wicked — use close direction to pick the winner
+                if close > entry:
+                    return EXIT_TAKE_PROFIT, close
+                else:
+                    return EXIT_STOP_LOSS, close
+            if sl_hit:
                 return EXIT_STOP_LOSS, sl
-            if high >= tp:
+            if tp_hit:
                 return EXIT_TAKE_PROFIT, tp
         else:  # SELL
-            if high >= sl:
+            sl_hit = high >= sl
+            tp_hit = low <= tp
+            if sl_hit and tp_hit:
+                # Both wicked — use close direction to pick the winner
+                if close < entry:
+                    return EXIT_TAKE_PROFIT, close
+                else:
+                    return EXIT_STOP_LOSS, close
+            if sl_hit:
                 return EXIT_STOP_LOSS, sl
-            if low <= tp:
+            if tp_hit:
                 return EXIT_TAKE_PROFIT, tp
 
         return None
@@ -346,12 +396,28 @@ class BacktestEngine:
     def _compute_quantity_with_risk(
         self, capital: float, net_entry: float, stop_loss: float, risk_per_trade: float
     ) -> float:
-        """Risk-based sizing with an explicit risk_per_trade override."""
+        """Risk-based sizing with an explicit risk_per_trade override.
+
+        Applies the same spot capital cap as the live RiskManager:
+            qty = min(qty_by_risk, qty_by_capital)
+        where qty_by_capital = (capital * 0.99) / entry.
+        This prevents notional from exceeding available cash on spot.
+        """
         risk_amount   = capital * risk_per_trade
         risk_per_unit = abs(net_entry - stop_loss)
         if risk_per_unit <= 0:
             return 0.0
-        return round(risk_amount / risk_per_unit, 5)
+        qty_by_risk    = risk_amount / risk_per_unit
+        qty_by_capital = (capital * 0.99) / net_entry if net_entry > 0 else qty_by_risk
+        quantity = min(qty_by_risk, qty_by_capital)
+        if quantity < qty_by_risk:
+            logger.debug(
+                "Backtest: qty capped by capital: risk-based=%.5f → %.5f "
+                "(risk %.2f%% × SL_dist %.2f%% would exceed capital)",
+                qty_by_risk, quantity,
+                risk_per_trade * 100, (risk_per_unit / net_entry) * 100,
+            )
+        return round(quantity, 5)
 
     def _check_liquidation(self, trade: dict, bar: pd.Series) -> tuple[str, float] | None:
         """Return (EXIT_LIQUIDATED, liq_price) if the bar breaches the liquidation price.
@@ -682,6 +748,24 @@ class BacktestEngine:
                 effective_risk = effective_risk * drawdown_multiplier(
                     capital, peak_capital, dd_cfg
                 )
+                # Kelly sizing (mirrors live orchestrator). Once enough closed trades
+                # exist, override effective_risk with the Kelly-derived value modulated
+                # by signal strength. Falls back to flat sizing otherwise.
+                if (
+                    self.config.kelly_enabled
+                    and len(trades) >= self.config.kelly_min_trades
+                ):
+                    win_rate, avg_win, avg_loss = self._compute_kelly_stats(trades)
+                    kelly_f = compute_kelly_fraction(
+                        win_rate, avg_win, avg_loss, half=self.config.kelly_half,
+                    )
+                    effective_risk = kelly_risk_fraction(
+                        kelly_f=kelly_f,
+                        signal_strength=signal.strength,
+                        base_risk=effective_risk,
+                        max_mult=self.config.kelly_max_mult,
+                        min_mult=self.config.kelly_min_mult,
+                    )
                 quantity = self._compute_quantity_with_risk(
                     capital, net_entry, signal.stop_loss, effective_risk
                 )
