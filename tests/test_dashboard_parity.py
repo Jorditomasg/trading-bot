@@ -106,3 +106,56 @@ class TestDashboardParityWithSeed:
         assert "0.08" in source, "momentum_neutral_band literal 0.08 not found in backtest_runner.py"
 
         assert not mismatches, "Fallback/seed mismatches:\n" + "\n".join(mismatches)
+
+
+class TestDashboardFilterWarmup:
+    """Phase 1 follow-up #2 (warmup parity): BiasFilter and MomentumFilter need
+    enough historical bars at backtest_start to produce live-equivalent results.
+    Without warmup, BiasFilter falls into passthrough and MomentumFilter into
+    fail-open BULLISH for the first weeks → 5 extra low-quality trades on the
+    user's BTC 6mo case (16/PF=0.90 vs the correct 11/PF=1.79).
+
+    These AST checks guard against accidental regression of the warmup fix.
+    """
+
+    def test_warmup_constants_defined(self) -> None:
+        """BIAS_WARMUP and MOMENTUM_WARMUP must be defined with sensible values."""
+        source = RUNNER_PATH.read_text()
+        assert "BIAS_WARMUP" in source, (
+            "BIAS_WARMUP constant missing from backtest_runner.py — "
+            "BiasFilter needs ≥22 daily bars at backtest_start (live-parity)"
+        )
+        assert "MOMENTUM_WARMUP" in source, (
+            "MOMENTUM_WARMUP constant missing from backtest_runner.py — "
+            "MomentumFilter needs ≥21 weekly bars at backtest_start (live-parity)"
+        )
+        # Sanity-check the values: bias ≥22 days (need 22 daily bars); momentum
+        # ≥147 days (21 weekly bars = 147d). Allow some safety margin.
+        assert "timedelta(days=30)" in source or "timedelta(days=29)" in source, (
+            "BIAS_WARMUP should be ≥22 days (recommended: 30 for safety)"
+        )
+        assert "timedelta(days=154)" in source or "timedelta(days=147)" in source, (
+            "MOMENTUM_WARMUP should be ≥147 days (21 weeks; recommended: 154 for safety)"
+        )
+
+    def test_bias_fetch_uses_warmup(self) -> None:
+        """fetch_and_cache for bias_tf must NOT use raw start_dt."""
+        source = RUNNER_PATH.read_text()
+        bad_pattern = "fetch_and_cache(sym, bias_tf, start_dt, end_dt"
+        assert bad_pattern not in source, (
+            f"REGRESSION: {bad_pattern!r} found in backtest_runner.py. "
+            "BiasFilter fetch must use start_dt - BIAS_WARMUP (or equivalent), "
+            "otherwise BiasFilter falls into passthrough for first ~3 weeks of "
+            "the backtest period and produces ≠live results."
+        )
+
+    def test_weekly_fetch_uses_warmup(self) -> None:
+        """fetch_and_cache for 1w must NOT use raw start_dt."""
+        source = RUNNER_PATH.read_text()
+        bad_pattern = 'fetch_and_cache(sym, "1w", start_dt, end_dt'
+        assert bad_pattern not in source, (
+            f"REGRESSION: {bad_pattern!r} found in backtest_runner.py. "
+            "MomentumFilter fetch must use start_dt - MOMENTUM_WARMUP (or "
+            "equivalent), otherwise MomentumFilter falls into fail-open BULLISH "
+            "for first ~5 months of the backtest period and produces ≠live results."
+        )

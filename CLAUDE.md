@@ -844,6 +844,44 @@ PnL=+5.93%) instead of the pre-fix dashboard (PF=0.90 / WR=25% / 16 trades / DD=
 PnL=-1.5%). Verifier: `scripts/audit/verify_dashboard_fix.py`. Live behaviour did not
 change — the live preset always had `min_atr_pct=0.005` and `require_ema_momentum=True`.
 
+### 37. Phase 1 parity follow-up #2 — dashboard fetches must include filter warmup
+
+`dashboard/sections/backtest_runner.py:_run_portfolio_backtest` previously called
+`fetch_and_cache(sym, bias_tf, start_dt, end_dt)` and `fetch_and_cache(sym, "1w", start_dt, end_dt)`
+with no warmup buffer. Since `bot/backtest/cache.py:176-177` strictly filters the
+returned dataframe to `[start_ts, end_ts]`, the higher-timeframe filters arrived
+at backtest_start with insufficient history:
+
+- **BiasFilter** needs `slow_period+1 = 22` daily bars → fell into the
+  `passthrough` branch (NEUTRAL doesn't block) for the first ~3 weeks of the
+  backtest period (gotcha #14).
+- **MomentumFilter** needs `sma_period+1 = 21` weekly bars → fell into the
+  fail-open `BULLISH` branch (`bot/momentum/filter.py:49-50`) for the first
+  ~5 months (a 6mo backtest has only ~26 weekly bars).
+
+Net effect: both filters were effectively disabled for a large portion of the
+backtest period, letting in low-quality entries the live bot rejects. This was
+distinct from gotcha #36 but produced the **same external symptom** (~45% extra
+trades on BTC 6mo, PF=0.90), which is why fixing #36 alone didn't resolve the
+user-reported divergence.
+
+**Measurement (BTC 6mo, identical config):**
+- WITH warmup (live-parity): PF=1.79, WR=36.4%, 11 trades, PnL=+5.93%
+- WITHOUT warmup (dashboard pre-fix): PF=0.90, WR=25.0%, 16 trades, PnL=-1.48%
+
+**Fix (2026-05-17)**: added `BIAS_WARMUP = timedelta(days=30)` and
+`MOMENTUM_WARMUP = timedelta(days=154)` (21 weeks + 1 week safety) in
+`_run_portfolio_backtest`. Both filter fetches now pass `start_dt - <warmup>`
+instead of raw `start_dt`. Primary timeframe fetch is unchanged — `BacktestEngine`
+handles its own ATR/EMA warmup internally. Regression guards in
+`tests/test_dashboard_parity.py::TestDashboardFilterWarmup` (3 AST checks).
+
+**Live behaviour did NOT change**: `main.run_cycle()` fetches the last N bars
+fresh each cycle (e.g. `get_klines(symbol, "4h", limit=200)`), so the live bot
+always has 200 bars of warmup baked in. Only the dashboard backtest path was
+affected — it requested a precise `[start_dt, end_dt]` window without thinking
+about filter warmup.
+
 ---
 
 ## Walk-Forward Optimizer

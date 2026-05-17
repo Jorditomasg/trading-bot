@@ -196,6 +196,17 @@ def _run_portfolio_backtest(
     bias_tf  = _BIAS_TF.get(timeframe, "1d")
     progress = st.empty()
 
+    # Warmup buffers so the higher-timeframe filters have valid indicators at
+    # backtest start. Without these, BiasFilter falls into NEUTRAL/passthrough
+    # and MomentumFilter falls into BULLISH (fail-open) during the first weeks
+    # of the period — both effectively disabled, which lets in low-quality
+    # entries the live bot rejects. Verified divergence: 16 trades / PF=0.90
+    # without warmup vs 11 trades / PF=1.79 with warmup (BTC 6mo).
+    #   - BiasFilter needs slow_period+1 = 22 daily bars (safety: 30 days)
+    #   - MomentumFilter needs sma_period+1 = 21 weekly bars = 147d (safety: 154d)
+    BIAS_WARMUP     = timedelta(days=30)
+    MOMENTUM_WARMUP = timedelta(days=154)
+
     def on_progress(msg: str) -> None:
         progress.caption(msg)
 
@@ -207,6 +218,8 @@ def _run_portfolio_backtest(
     # ── Per-symbol fetch ──────────────────────────────────────────────────────
     for sym in symbols:
         # Primary bars — hard requirement; skip the symbol if this fails.
+        # No warmup added: BacktestEngine handles its own indicator warmup
+        # internally (ATR/EMA on the primary timeframe).
         with st.spinner(f"Fetching {sym} {timeframe} data…"):
             try:
                 dfs[sym] = fetch_and_cache(sym, timeframe, start_dt, end_dt, on_progress=on_progress)
@@ -214,20 +227,25 @@ def _run_portfolio_backtest(
                 st.error(f"Failed to fetch {sym} {timeframe} data: {exc} — skipping {sym}.")
                 continue
 
-        # Bias bars — fail-soft per symbol.
+        # Bias bars — fail-soft per symbol. Fetched with warmup so BiasFilter
+        # has ≥22 daily bars at backtest_start (live-parity).
         if use_bias:
+            bias_start = start_dt - BIAS_WARMUP
             with st.spinner(f"Fetching {sym} {bias_tf} klines for BiasFilter…"):
                 try:
-                    dfs_4h[sym] = fetch_and_cache(sym, bias_tf, start_dt, end_dt, on_progress=on_progress)
+                    dfs_4h[sym] = fetch_and_cache(sym, bias_tf, bias_start, end_dt, on_progress=on_progress)
                 except Exception as exc:
                     dfs_4h[sym] = None
                     st.warning(f"Could not fetch {sym} {bias_tf} data ({exc}) — running {sym} without BiasFilter.")
 
-        # Weekly bars for momentum filter — fail-soft per symbol.
+        # Weekly bars for momentum filter — fail-soft per symbol. Fetched with
+        # warmup so MomentumFilter has ≥21 weekly bars at backtest_start
+        # (live-parity).
         if use_momentum:
+            momentum_start = start_dt - MOMENTUM_WARMUP
             with st.spinner(f"Fetching {sym} weekly klines for momentum filter…"):
                 try:
-                    dfs_weekly[sym] = fetch_and_cache(sym, "1w", start_dt, end_dt, on_progress=on_progress)
+                    dfs_weekly[sym] = fetch_and_cache(sym, "1w", momentum_start, end_dt, on_progress=on_progress)
                 except Exception as exc:
                     dfs_weekly[sym] = None
                     st.warning(f"Could not fetch {sym} weekly data ({exc}) — momentum filter pass-through for {sym}.")
