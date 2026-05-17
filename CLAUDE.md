@@ -816,6 +816,34 @@ with different thresholds or longer evaluation windows. EMA200 alone may be wort
 revisiting after accumulating more post-2025 data (the EMA200 signal tends to become
 more relevant in extended bear regimes not well-represented in the 2022-2026 training set).
 
+### 36. Phase 1 parity follow-up — `ema_min_atr` was missing, `ema_momentum` key typo
+
+The original Phase 1 of `win-rate-uplift-2026-05` shipped with two parity holes that
+caused the dashboard to diverge from live by **~45% more trades**:
+
+1. **`ema_min_atr` not seeded**. Live 4h preset has `min_atr_pct=0.005` (filter dead
+   markets) but the dashboard fallback in `backtest_runner.py` was `0.0`. Effect: the
+   dashboard accepted entries in low-volatility chop that live rejected.
+2. **`ema_momentum_req` seed key vs `ema_momentum` consumer key**. Seed wrote
+   `ema_momentum_req`, but `_apply_ema_config()` (live hot-patch) and
+   `backtest_runner.py` (dashboard) both read `ema_momentum`. The live hot-patch
+   for `require_ema_momentum` never fired since Phase 1 (fallback default kept it
+   correct by accident). The dashboard was also reading the wrong key but with the
+   right fallback.
+
+**Fix (2026-05-17)**:
+- `_seed_optimized_defaults()` now seeds `ema_min_atr="0.005"`.
+- `_apply_ema_config()` and `backtest_runner.py` now read `ema_momentum_req` (matching seed).
+- Dashboard `ema_min_atr` fallback is `0.005` (matching preset).
+- `tests/test_dashboard_parity.py::KEYS_TO_CHECK` extended with both keys to guard
+  against future drift via AST inspection.
+
+**Impact on user-reported PF=0.90**: was a measurement artifact of bug #1.
+Post-fix dashboard reproduces live (BTC 6mo: PF=1.79 / WR=36% / 11 trades / DD=2.3% /
+PnL=+5.93%) instead of the pre-fix dashboard (PF=0.90 / WR=25% / 16 trades / DD=6.5% /
+PnL=-1.5%). Verifier: `scripts/audit/verify_dashboard_fix.py`. Live behaviour did not
+change — the live preset always had `min_atr_pct=0.005` and `require_ema_momentum=True`.
+
 ---
 
 ## Walk-Forward Optimizer

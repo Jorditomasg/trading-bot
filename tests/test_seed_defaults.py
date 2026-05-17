@@ -33,6 +33,10 @@ EXPECTED_SEED = {
     "ema_bar_dir":               "true",
     "ema_momentum_req":          "true",
     "momentum_neutral_band":     "0.08",
+    # Phase 1 follow-up parity fix (2026-05-17): ema_min_atr was missing —
+    # dashboard fallback was 0.0 while the 4h preset uses 0.005, producing
+    # ~45% more trades in dashboard backtests vs live.
+    "ema_min_atr":               "0.005",
 }
 
 

@@ -152,6 +152,9 @@ def _seed_optimized_defaults(db: Database) -> None:
         "ema_vol_mult":         "1.5",    # 4h preset: volume_multiplier=1.5
         "ema_bar_dir":          "true",   # 4h preset: require_bar_direction=True
         "ema_momentum_req":     "true",   # 4h preset: require_ema_momentum=True
+        "ema_min_atr":          "0.005",  # 4h preset: min_atr_pct=0.005 (skip dead markets;
+                                          # fixed 2026-05-17 — dashboard was running with 0.0
+                                          # fallback, producing ~45% more trades than live).
         "momentum_neutral_band":"0.08",   # live MomentumFilter.NEUTRAL_BAND (OOS-validated)
         # Phase 2 — ADX gate + EMA200 alignment (default OFF — no live-behaviour change
         # until user explicitly toggles via dashboard or migration script).
@@ -236,10 +239,10 @@ def _apply_ema_config(db: Database, orchestrator: "StrategyOrchestrator") -> Non
         val = cfg["ema_bar_dir"] == "true"
         ema_strategy.config.require_bar_direction = val
         logger.info("Runtime config: ema_bar_dir=%s", val)
-    if "ema_momentum" in cfg:
-        val = cfg["ema_momentum"] == "true"
+    if "ema_momentum_req" in cfg:
+        val = cfg["ema_momentum_req"] == "true"
         ema_strategy.config.require_ema_momentum = val
-        logger.info("Runtime config: ema_momentum=%s", val)
+        logger.info("Runtime config: ema_momentum_req=%s", val)
     if "ema_min_atr" in cfg:
         ema_strategy.config.min_atr_pct = float(cfg["ema_min_atr"])
         logger.info("Runtime config: ema_min_atr=%.4f", float(cfg["ema_min_atr"]))

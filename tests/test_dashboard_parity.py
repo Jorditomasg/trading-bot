@@ -60,16 +60,22 @@ class TestDashboardParityWithSeed:
     def test_backtest_runner_fallbacks_match_seed_defaults(self, tmp_path) -> None:
         """All cfg_rt.get() fallbacks in backtest_runner.py must match seed values.
 
-        Specifically checks: ema_tp_mult, ema_vol_mult, ema_bar_dir.
-        momentum_neutral_band is a direct literal in BacktestConfig, not a cfg_rt.get call,
-        so we verify its presence in the source instead.
+        Specifically checks: ema_tp_mult, ema_vol_mult, ema_bar_dir, ema_min_atr,
+        ema_momentum_req. momentum_neutral_band is a direct literal in BacktestConfig,
+        not a cfg_rt.get call, so we verify its presence in the source instead.
         """
         source = RUNNER_PATH.read_text()
         seed_cfg = _get_seed_values(tmp_path)
         runner_defaults = _find_cfg_rt_defaults(source)
 
         mismatches = []
-        check_keys = ["ema_tp_mult", "ema_vol_mult", "ema_bar_dir"]
+        check_keys = [
+            "ema_tp_mult",
+            "ema_vol_mult",
+            "ema_bar_dir",
+            "ema_min_atr",       # Phase 1 follow-up: was missing (fallback 0.0 vs seed 0.005)
+            "ema_momentum_req",  # Phase 1 follow-up: dashboard read "ema_momentum" (typo)
+        ]
         for key in check_keys:
             if key not in runner_defaults:
                 mismatches.append(f"Key {key!r} not found in backtest_runner.py cfg_rt.get() calls")

@@ -266,9 +266,9 @@ def _run_portfolio_backtest(
         ema_tp_mult          = float(cfg_rt.get("ema_tp_mult", 5.0)),
         ema_max_distance_atr = float(cfg_rt.get("ema_max_dist_atr", 1.0)),
         ema_volume_mult      = float(cfg_rt.get("ema_vol_mult", 1.5)),
-        ema_require_momentum = cfg_rt.get("ema_momentum", "true") == "true",
+        ema_require_momentum = cfg_rt.get("ema_momentum_req", "true") == "true",
         ema_require_bar_dir  = cfg_rt.get("ema_bar_dir", "true") == "true",
-        ema_min_atr_pct      = float(cfg_rt.get("ema_min_atr", 0.0)),
+        ema_min_atr_pct      = float(cfg_rt.get("ema_min_atr", 0.005)),
     )
     engine = PortfolioBacktestEngine(cfg)
 
