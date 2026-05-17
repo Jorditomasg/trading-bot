@@ -148,12 +148,57 @@ def _seed_optimized_defaults(db: Database) -> None:
         "backtest_cost_per_side":     "0.001",   # 0.10% per side (Binance VIP-0 spot, no BNB discount)
         "auto_optimizer_enabled":     "false",   # audited NO-GO methodology — see CLAUDE.md gotcha #33
         "auto_entry_quality_enabled": "false",   # sibling optimizer, unaudited
+        # Phase 1 — entry-quality parity keys (win-rate-uplift-2026-05)
+        "ema_vol_mult":         "1.5",    # 4h preset: volume_multiplier=1.5
+        "ema_bar_dir":          "true",   # 4h preset: require_bar_direction=True
+        "ema_momentum_req":     "true",   # 4h preset: require_ema_momentum=True
+        "momentum_neutral_band":"0.08",   # live MomentumFilter.NEUTRAL_BAND (OOS-validated)
+        # Phase 2 — ADX gate + EMA200 alignment (default OFF — no live-behaviour change
+        # until user explicitly toggles via dashboard or migration script).
+        # Champion-challenger acceptance audit (T39) determines whether these flip ON.
+        "ema_min_entry_adx":  "0.0",     # ADX threshold for continuation entries; 0 = off
+        "ema_require_ema200": "false",   # EMA200 alignment gate; "true" to enable
     }
 
     to_seed = {k: v for k, v in defaults.items() if k not in cfg}
     if to_seed:
         db.set_runtime_config(**to_seed)
         logger.info("Seeded optimized defaults into DB: %s", list(to_seed.keys()))
+
+    _resolve_legacy_keys(db)
+
+
+# Legacy C2 values that should have been updated to B-pick / Phase-1 defaults.
+# Format: key → (legacy_value_to_detect, recommended_value)
+# Detection is WARN-only — no auto-correct (design D11).
+_LEGACY_OVERRIDES: dict[str, tuple[str, str]] = {
+    "risk_per_trade": ("0.03",  "0.015"),
+    "ema_stop_mult":  ("1.25",  "1.5"),
+    "ema_tp_mult":    ("4.5",   "5.0"),    # old C1 value — B-pick uses 5.0
+    "ema_vol_mult":   ("2.0",   "1.5"),
+    "ema_bar_dir":    ("false", "true"),
+    "momentum_neutral_band": ("0.05", "0.08"),
+}
+
+
+def _resolve_legacy_keys(db: Database) -> None:
+    """Detect legacy C2 values in DB and emit WARN per key found.
+
+    Does NOT auto-correct — see design D11. The user should run
+    scripts/migrate_to_b_pick.py to apply the recommended values.
+    Called from _seed_optimized_defaults() after the seed loop.
+    """
+    cfg = db.get_runtime_config()
+    warnings = []
+    for key, (legacy_val, recommended) in _LEGACY_OVERRIDES.items():
+        current = cfg.get(key)
+        if current == legacy_val:
+            warnings.append(f"  {key}={current!r}  (legacy C2/old value; recommended={recommended!r})")
+    if warnings:
+        logger.warning(
+            "Legacy runtime config detected — run scripts/migrate_to_b_pick.py to correct:\n%s",
+            "\n".join(warnings),
+        )
 
 
 def _build_bias_filter(db: Database) -> BiasFilter:
@@ -201,6 +246,14 @@ def _apply_ema_config(db: Database, orchestrator: "StrategyOrchestrator") -> Non
     if "ema_max_dist_atr" in cfg:
         ema_strategy.config.max_distance_atr = float(cfg["ema_max_dist_atr"])
         logger.info("Runtime config: ema_max_dist_atr=%.3f", float(cfg["ema_max_dist_atr"]))
+    # Phase 2 entry filters — default OFF until toggled via DB
+    if "ema_min_entry_adx" in cfg:
+        ema_strategy.config.min_entry_adx = float(cfg["ema_min_entry_adx"])
+        logger.info("Runtime config: ema_min_entry_adx=%.2f", float(cfg["ema_min_entry_adx"]))
+    if "ema_require_ema200" in cfg:
+        val = cfg["ema_require_ema200"] == "true"
+        ema_strategy.config.require_ema200_alignment = val
+        logger.info("Runtime config: ema_require_ema200=%s", val)
 
 
 def _init_quantity_precision(orchestrator: StrategyOrchestrator, db: Database) -> None:

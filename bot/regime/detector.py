@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from bot.indicators import atr as compute_atr, wilder_smooth
+from bot.indicators.utils import adx_last as _adx_last
 
 logger = logging.getLogger(__name__)
 
@@ -74,37 +75,8 @@ class RegimeDetector:
         return MarketRegime.RANGING
 
     def _adx(self, df: pd.DataFrame, period: int) -> float:
-        high = df["high"]
-        low = df["low"]
-        prev_high = high.shift(1)
-        prev_low = low.shift(1)
-        prev_close = df["close"].shift(1)
-
-        plus_dm = (high - prev_high).clip(lower=0)
-        minus_dm = (prev_low - low).clip(lower=0)
-        plus_dm = plus_dm.where(plus_dm > minus_dm, 0.0)
-        minus_dm = minus_dm.where(minus_dm > plus_dm, 0.0)
-
-        # True Range for ADX uses Wilder smoothing (separate from atr() which uses SMA)
-        tr = pd.concat(
-            [high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1
-        ).max(axis=1)
-
-        smoothed_tr = wilder_smooth(tr, period)
-        smoothed_plus = wilder_smooth(plus_dm, period)
-        smoothed_minus = wilder_smooth(minus_dm, period)
-
-        plus_di = 100 * smoothed_plus / smoothed_tr.replace(0, float("nan"))
-        minus_di = 100 * smoothed_minus / smoothed_tr.replace(0, float("nan"))
-
-        dx = (
-            100
-            * (plus_di - minus_di).abs()
-            / (plus_di + minus_di).replace(0, float("nan"))
-        ).fillna(0)
-
-        adx = wilder_smooth(dx, period)
-        return float(adx.iloc[-1])
+        """Delegate to the shared `adx_last` indicator helper (bit-identical)."""
+        return _adx_last(df, period)
 
     def _hurst_exponent(self, prices: np.ndarray) -> float:
         """Hurst exponent via Rescaled Range (R/S) analysis."""

@@ -70,13 +70,16 @@ class BacktestConfig:
     # Weekly momentum filter (defaults leave behaviour unchanged)
     momentum_filter_enabled: bool  = False
     momentum_sma_period:     int   = 20
-    momentum_neutral_band:   float = 0.05
+    momentum_neutral_band:   float = 0.08  # live parity: matches MomentumFilter.NEUTRAL_BAND (0.08 since 2026-04)
     # Entry quality filter overrides (None = use config_presets.py defaults)
     ema_volume_mult:      float | None = None
     ema_require_bar_dir:  bool  | None = None
     ema_require_momentum: bool  | None = None
     ema_min_atr_pct:      float | None = None
     ema_max_distance_atr: float | None = None
+    # Phase 2 entry filters (None = use config_presets default; default=OFF for live parity)
+    ema_min_entry_adx:            float | None = None   # ADX gate on continuation entries; 0.0 = off
+    ema_require_ema200_alignment: bool  | None = None   # EMA200 alignment gate; False = off
     # Bias filter strictness — True: only matching-bias signals pass (no NEUTRAL trades)
     bias_strict:          bool  = False
     # Endogenous news-pause filter — passes through to NewsPauseConfig (defaults disable it)
@@ -149,6 +152,8 @@ class BacktestEngine:
         if config.ema_require_momentum is not None: ema_cfg["require_ema_momentum"]  = config.ema_require_momentum
         if config.ema_min_atr_pct      is not None: ema_cfg["min_atr_pct"]           = config.ema_min_atr_pct
         if config.ema_max_distance_atr is not None: ema_cfg["max_distance_atr"]      = config.ema_max_distance_atr
+        if config.ema_min_entry_adx            is not None: ema_cfg["min_entry_adx"]            = config.ema_min_entry_adx
+        if config.ema_require_ema200_alignment is not None: ema_cfg["require_ema200_alignment"] = config.ema_require_ema200_alignment
         if config.long_only:
             ema_cfg["long_only"] = True
 

@@ -54,6 +54,7 @@ class WindowResult:
     total_trades:      int
     final_pnl_pct:     float
     per_symbol:        dict[str, dict[str, Any]] = field(default_factory=dict)
+    regime_label:      "Any | None"         = None  # RegimeLabel or None; optional for backward compat
 
 
 def split_windows(cfg: WalkForwardConfig) -> list[Window]:
@@ -214,13 +215,21 @@ def run_all(
 def aggregate_metrics(
     results: list[WindowResult],
     *,
-    bootstrap_seed: int = 42,
-    n_bootstrap:    int = 2000,
+    by_regime:      bool = False,
+    bootstrap_seed: int  = 42,
+    n_bootstrap:    int  = 2000,
 ) -> dict:
     """Aggregate per-window metrics into mean / median / std / CI / hit rate / worst.
 
     Returns an empty dict on empty input. Infinite values are stripped before
     computing mean/std (zero-DD windows produce inf Calmar — valid but skews stats).
+
+    Parameters
+    ----------
+    by_regime:
+        When True, adds a ``"by_regime"`` key containing per-label sub-aggregates.
+        Windows with ``regime_label=None`` are excluded from the per-regime breakdown
+        (they still appear in the top-level aggregates).
     """
     if not results:
         return {}
@@ -249,34 +258,58 @@ def aggregate_metrics(
             out["ci95"] = (out["mean"], out["mean"])
         return out
 
-    pf_vals     = [r.pf for r in results]
-    calmar_vals = [r.calmar for r in results]
-    sharpe_vals = [r.sharpe for r in results]
-    wr_vals     = [r.win_rate_pct for r in results]
-    dd_vals     = [r.max_drawdown_pct for r in results]
-    pnl_vals    = [r.final_pnl_pct for r in results]
-    trades      = [r.total_trades for r in results]
+    def _flat_aggregate(subset: list[WindowResult]) -> dict:
+        """Build the standard flat aggregate dict for a list of WindowResults."""
+        pf_vals     = [r.pf for r in subset]
+        calmar_vals = [r.calmar for r in subset]
+        sharpe_vals = [r.sharpe for r in subset]
+        wr_vals     = [r.win_rate_pct for r in subset]
+        dd_vals     = [r.max_drawdown_pct for r in subset]
+        pnl_vals    = [r.final_pnl_pct for r in subset]
+        trades_vals = [r.total_trades for r in subset]
 
-    # Worst DD means highest DD (not lowest) — override the convention
-    dd_stats          = _stats(dd_vals)
-    dd_stats["worst"] = float(np.max(np.array(dd_vals)))
+        dd_stats          = _stats(dd_vals)
+        dd_stats["worst"] = float(np.max(np.array(dd_vals)))
 
-    return {
-        "pf":               {**_stats(pf_vals, hit_threshold=1.0)},
-        "calmar":           _stats(calmar_vals),
-        "sharpe":           _stats(sharpe_vals),
-        "win_rate_pct":     _stats(wr_vals),
-        "max_drawdown_pct": dd_stats,
-        "final_pnl_pct":    _stats(pnl_vals),
-        "total_trades":     {
-            "mean":   float(np.mean(trades)),
-            "median": float(np.median(trades)),
-            "min":    int(np.min(trades)),
-            "max":    int(np.max(trades)),
-        },
-        "sparsity": {
-            "windows_lt_5_trades": int(sum(1 for n in trades if n < 5)),
-            "pct":                 float(np.mean(np.array(trades) < 5)),
-        },
-        "n_windows": len(results),
-    }
+        return {
+            "pf":               {**_stats(pf_vals, hit_threshold=1.0)},
+            "calmar":           _stats(calmar_vals),
+            "sharpe":           _stats(sharpe_vals),
+            "win_rate_pct":     _stats(wr_vals),
+            "max_drawdown_pct": dd_stats,
+            "final_pnl_pct":    _stats(pnl_vals),
+            "total_trades":     {
+                "mean":   float(np.mean(trades_vals)),
+                "median": float(np.median(trades_vals)),
+                "min":    int(np.min(trades_vals)),
+                "max":    int(np.max(trades_vals)),
+            },
+            "sparsity": {
+                "windows_lt_5_trades": int(sum(1 for n in trades_vals if n < 5)),
+                "pct":                 float(np.mean(np.array(trades_vals) < 5)),
+            },
+            "n_windows": len(subset),
+        }
+
+    # Top-level flat aggregate (all results, regardless of regime_label)
+    out = _flat_aggregate(results)
+
+    # Per-regime breakdown (only when requested)
+    if by_regime:
+        by_regime_map: dict[str, list[WindowResult]] = {}
+        for r in results:
+            label = r.regime_label
+            if label is None:
+                continue   # windows with no label are excluded from per-regime breakdown
+            # Use .value to get "BULL"/"BEAR"/"FLAT" — str(RegimeLabel.BULL) in Python ≥3.11
+            # includes the class name ("RegimeLabel.BULL"), so .value is the safe accessor.
+            key = label.value if hasattr(label, "value") else str(label)
+            by_regime_map.setdefault(key, []).append(r)
+
+        out["by_regime"] = {
+            label_key: _flat_aggregate(subset)
+            for label_key, subset in by_regime_map.items()
+            if subset
+        }
+
+    return out

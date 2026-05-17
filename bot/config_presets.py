@@ -92,6 +92,9 @@ _STRATEGY_PRESETS: dict[str, dict[StrategyName, dict]] = {
             require_bar_direction=True,    # crossover bar must close in signal direction
             require_ema_momentum=True,     # continuation: EMA9 must be trending
             long_only=True,                # BTC has long-term upward bias; backtests prove long-only outperforms
+            # Phase 2 entry filters (default OFF — champion-challenger audit T39 decides if ON)
+            min_entry_adx=0.0,             # ADX gate on continuation entries; 0 = off
+            require_ema200_alignment=False, # EMA200 alignment gate; False = off
         ),
     },
     "2h": {

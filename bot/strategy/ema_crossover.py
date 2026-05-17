@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from bot.indicators import atr as compute_atr
+from bot.indicators import adx_last as compute_adx_last, atr as compute_atr
 from bot.strategy.base import BaseStrategy, Signal
 from bot.strategy.signal_factory import hold_signal, buy_signal, sell_signal
 from bot.strategy.levels import calculate_levels
@@ -27,6 +27,9 @@ class EMACrossoverConfig:
     require_bar_direction: bool  = False  # crossover bar must close in signal direction
     require_ema_momentum:  bool  = False  # continuation: EMA9 must be rising/falling
     long_only:             bool  = False  # ignore SELL signals — only trade long
+    # ── Phase 2 entry filters (defaults OFF — no live-behaviour change until toggled) ──
+    min_entry_adx:           float = 0.0   # ADX gate on continuation entries; 0 = off
+    require_ema200_alignment: bool = False  # BUY blocked if close < EMA200; False = off
 
 
 class EMACrossoverStrategy(BaseStrategy):
@@ -108,12 +111,44 @@ class EMACrossoverStrategy(BaseStrategy):
             in_trend_buy  = in_trend_buy  and ema9_rising  and bar_bullish
             in_trend_sell = in_trend_sell and ema9_falling and bar_bearish
 
+        # ── Phase 2: ADX gate on continuation entries (NOT crossover bars) ───
+        # Design D1: crossovers have intrinsic slope-based strength; the gate
+        # targets the noisier trend-pull continuation path only.
+        if self.config.min_entry_adx > 0 and (in_trend_buy or in_trend_sell):
+            current_adx = compute_adx_last(df, self.config.atr_period)
+            if current_adx < self.config.min_entry_adx:
+                logger.debug(
+                    "EMACrossover: ADX gate blocks continuation (ADX=%.2f < threshold=%.2f)",
+                    current_adx, self.config.min_entry_adx,
+                )
+                in_trend_buy  = False
+                in_trend_sell = False
+
         # ── Action selection ──────────────────────────────────────────────────
         action = "HOLD"
         if crossed_up or in_trend_buy:
             action = "BUY"
         elif crossed_down or in_trend_sell:
             action = "SELL"
+
+        # ── Phase 2: EMA200 alignment gate (BUY only — long-only asymmetric) ─
+        # Design D2: fail-open during cold start (< 200 bars not yet warmed).
+        # SELL signals are NOT affected (bot is long-only on BTC per Validated Baseline).
+        if action == "BUY" and self.config.require_ema200_alignment:
+            ema_long = close.ewm(span=200, adjust=False).mean()
+            ema200_now = float(ema_long.iloc[-1])
+            if pd.isna(ema200_now) or len(df) < 200:
+                logger.warning(
+                    "EMA200 alignment requested but warmup incomplete (%d bars < 200) — fail-open",
+                    len(df),
+                )
+                # fail-open: allow the signal through
+            elif current_price < ema200_now:
+                logger.debug(
+                    "EMACrossover: EMA200 alignment blocks BUY (close=%.4f < EMA200=%.4f)",
+                    current_price, ema200_now,
+                )
+                action = "HOLD"
 
         if action == "BUY":
             if crossed_up:

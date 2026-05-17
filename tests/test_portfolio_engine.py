@@ -247,3 +247,106 @@ def test_vol_regime_filter_invoked_in_portfolio_sizing(monkeypatch):
     assert captured, (
         "_vol_filter.size_factor was never called — sizing path bypasses vol-regime filter"
     )
+
+
+# ── 8. Phase 2 filters propagate into per-symbol engines (T34/T35) ──────────
+
+class TestPhase2FiltersParityPortfolio:
+    """Regression guard — Phase 2 filters (ADX gate, EMA200 alignment) must
+    propagate from PortfolioBacktestEngine's BacktestConfig into every
+    per-symbol BacktestEngine's EMACrossoverStrategy.config, following the
+    same override pattern as existing filters (gotcha #26 parity contract).
+    """
+
+    def test_min_entry_adx_propagates_to_per_symbol_engines(self):
+        """PortfolioBacktestEngine(BacktestConfig(ema_min_entry_adx=35.0)) must
+        result in each per-symbol engine's EMACrossoverStrategy having
+        min_entry_adx == 35.0.
+        """
+        from bot.constants import StrategyName
+        cfg = BacktestConfig(
+            initial_capital   = 10_000.0,
+            risk_per_trade    = 0.01,
+            timeframe         = "1h",
+            cost_per_side_pct = 0.0,
+            ema_min_entry_adx = 35.0,
+        )
+        # Build per-symbol engines by inspecting how PortfolioBacktestEngine
+        # creates them (BacktestEngine(self.config)) — we create one directly.
+        engine = BacktestEngine(cfg)
+        ema_strategy = engine._strategies[StrategyName.EMA_CROSSOVER]
+        assert ema_strategy.config.min_entry_adx == pytest.approx(35.0), (
+            "min_entry_adx must flow from BacktestConfig → BacktestEngine → EMACrossoverConfig"
+        )
+
+    def test_require_ema200_propagates_to_per_symbol_engines(self):
+        """PortfolioBacktestEngine(BacktestConfig(ema_require_ema200_alignment=True))
+        must result in each per-symbol engine's EMACrossoverStrategy having
+        require_ema200_alignment == True.
+        """
+        from bot.constants import StrategyName
+        cfg = BacktestConfig(
+            initial_capital             = 10_000.0,
+            risk_per_trade              = 0.01,
+            timeframe                   = "1h",
+            cost_per_side_pct           = 0.0,
+            ema_require_ema200_alignment = True,
+        )
+        engine = BacktestEngine(cfg)
+        ema_strategy = engine._strategies[StrategyName.EMA_CROSSOVER]
+        assert ema_strategy.config.require_ema200_alignment is True, (
+            "require_ema200_alignment must flow from BacktestConfig → BacktestEngine → EMACrossoverConfig"
+        )
+
+    def test_adx_gate_reduces_trade_count_in_portfolio(self):
+        """Setting a very high ADX threshold (200 = impossible) must produce
+        fewer trades than default (0 = off) — proving the gate fires inside
+        the portfolio engine's per-symbol signal path.
+
+        Uses the same uptrend fixture that produces continuation (in_trend_buy)
+        entries in the unit tests — replicates _uptrend_with_shallow_pullback()
+        scaled up to portfolio engine data format.
+        """
+        # Build a long uptrend that generates continuation entries:
+        # 300 bars warm-up + 600 bars of clear uptrend.
+        periods = 900
+        closes = [50_000.0 + i * 10.0 for i in range(periods)]  # monotone uptrend
+        df = pd.DataFrame({
+            "open_time": pd.date_range("2024-01-01", periods=periods, freq="1h", tz="UTC"),
+            "open":   closes,
+            "high":   [c * 1.005 for c in closes],
+            "low":    [c * 0.995 for c in closes],
+            "close":  closes,
+            "volume": [1000.0] * periods,
+        })
+
+        base_cfg = BacktestConfig(
+            initial_capital   = 10_000.0,
+            risk_per_trade    = 0.02,
+            timeframe         = "1h",
+            cost_per_side_pct = 0.0,
+        )
+        gated_cfg = BacktestConfig(
+            initial_capital   = 10_000.0,
+            risk_per_trade    = 0.02,
+            timeframe         = "1h",
+            cost_per_side_pct = 0.0,
+            ema_min_entry_adx = 200.0,   # impossible threshold → all continuation blocked
+        )
+
+        base_result  = PortfolioBacktestEngine(base_cfg).run_portfolio({"BTCUSDT": df.copy()})
+        gated_result = PortfolioBacktestEngine(gated_cfg).run_portfolio({"BTCUSDT": df.copy()})
+
+        base_trades  = len(base_result.per_symbol_trades.get("BTCUSDT", []))
+        gated_trades = len(gated_result.per_symbol_trades.get("BTCUSDT", []))
+
+        # Gated engine (impossible ADX=200) must produce fewer trades than base.
+        # If base produces 0 trades, the fixture isn't testing what we need —
+        # we assert base > 0 separately for a clear failure message.
+        assert base_trades > 0, (
+            "Base config (ADX gate off) should produce at least one trade with this uptrend fixture"
+        )
+        assert gated_trades < base_trades, (
+            f"ADX gate (threshold=200) should reduce trade count: "
+            f"base={base_trades}, gated={gated_trades}"
+        )

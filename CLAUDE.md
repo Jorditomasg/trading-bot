@@ -24,7 +24,7 @@ The dataclass defaults in `bot/config.py` mirror these so test/script paths that
 | `timeframe` | `4h` | 1h is unviable (legacy backtests: PF=0.75, Ann=-26%) |
 | `risk_per_trade` | `0.015` (1.5%) | Picked over 4% per `scripts/risk_scaler_matrix.py` (May 2026) |
 | `ema_stop_mult` | `1.5` | SL = 1.5 × ATR |
-| `ema_tp_mult` | `4.5` | TP = 4.5 × ATR |
+| `ema_tp_mult` | `5.0` | TP = 5.0 × ATR (B-pick: walk-forward audit winner, May 2026) |
 | `ema_max_dist_atr` | `1.0` | Max distance from EMA9 for trend-continuation entries |
 | `long_only` | `true` | Bidirectional destroys PF on BTC |
 
@@ -700,11 +700,12 @@ to clear the peak, then manually DB-poke `account_baseline` to the correct value
 
 ### 32. Audit configs are SPEC-LOCKED — never tweak mid-run
 
-`scripts/audit/run_walk_forward.py` hardcodes `CONFIG_C1_BASELINE` and `CONFIG_C2_PROD`. These
-mirror the audit spec (`docs/superpowers/specs/2026-05-14-walk-forward-audit-design.md`
-section 5) and MUST NOT drift from production silently — that would invalidate prior reports.
-If you need to test a different config, add a new constant and a new CLI flag, never mutate
-C1/C2 in place. The verdict thresholds in `bot/audit/verdict.py` follow the same lock.
+`scripts/audit/run_walk_forward.py` hardcodes `CONFIG_C1_BASELINE`, `CONFIG_C2_PROD`, and
+(as of Phase 1 May 2026) `CONFIG_C3_LIVE`. These mirror the audit spec
+(`docs/superpowers/specs/2026-05-14-walk-forward-audit-design.md` section 5) and MUST NOT
+drift from production silently — that would invalidate prior reports. If you need to test a
+different config, add a new constant and a new CLI flag, never mutate C1/C2/C3 in place. The
+verdict thresholds in `bot/audit/verdict.py` follow the same lock.
 
 The walk-forward audit (May 2026, `docs/audits/A_walk_forward_2026-05-14.md`) revealed that
 C2 (production: 3% risk, SL=1.25×ATR, TP=3.5×ATR) yields **NO-GO** verdict — max DD of 45%
@@ -712,8 +713,108 @@ across all 10 quarterly windows, 29.6% above the 35% safety ceiling — while C1
 1.5% risk, SL=1.5×ATR, TP=4.5×ATR) is rock-solid **GO** with DD=14% in every window,
 PF=1.46 mean, Calmar=16.4. Paired t-test confirms C1 dominates with p < 0.0001, Cohen's
 d = 3.62 (huge effect). The auto-optimizer's evolution (1.5/4.5 → 1.25/3.5 + 3% risk) is
-degrading risk-adjusted return. Reverting production to C1 is recommended (sub-project B/D
-will quantify the rollback). The audit framework is reusable for future configs.
+degrading risk-adjusted return.
+
+**Phase 1 (May 2026) — C3_LIVE audit**: `CONFIG_C3_LIVE` (1.5% risk, SL=1.5×ATR, TP=5.0×ATR,
+0.08 momentum band, bar_dir=True, ema_momentum=True) yields **GO** verdict across 10 windows:
+PF mean=1.383, Calmar mean=13.52, max DD=24.56%, WR mean=36.3%. See
+`docs/audits/A_walk_forward_2026-05-17.md`. C3_LIVE is now the baseline for Phase 2
+champion-challenger testing (ADX gate + EMA200 alignment).
+
+**Key difference between C1/C2 and C3**: C1 and C2 use `momentum_neutral_band=0.05` (spec-locked
+to reproduce historical reports). C3_LIVE uses `0.08` which matches the live `MomentumFilter`
+configuration. The `BacktestConfig.momentum_neutral_band` default was changed from 0.05 → 0.08
+in Phase 1 to reflect live parity. C1 and C2 pass `0.05` explicitly to preserve reproducibility.
+
+### 33. `MomentumFilterConfig.neutral_band` — promoted from module constant, was 0.08 all along
+
+In Phase 1 (win-rate-uplift-2026-05), `bot/momentum/filter.py` promoted `NEUTRAL_BAND = 0.08`
+(module constant) to `MomentumFilterConfig(neutral_band=0.08)` (dataclass). This makes the
+band configurable per caller — audit scripts can now pass `MomentumFilterConfig(neutral_band=0.05)`
+to reproduce C1/C2 results without changing the live default.
+
+The live bot's `MomentumFilter.get_state()` behaviour is UNCHANGED — the default `MomentumFilterConfig()`
+still produces 0.08. The signature change is backward-compatible: old callers with positional
+`(df_weekly, current_price)` still work.
+
+The `BacktestConfig.momentum_neutral_band` default was aligned from `0.05` → `0.08` simultaneously.
+This WAS a behaviour-affecting change for any code relying on the BacktestConfig default — but audit
+C1/C2 explicitly pass `0.05` and are protected by regression tests.
+
+### 34. Legacy C2 DB values — detect-and-warn, NOT auto-correct
+
+If a running bot was previously seeded with C2 config values (`risk_per_trade=0.03`,
+`ema_stop_mult=1.25`, `ema_tp_mult=3.5`, `ema_vol_mult=2.0`, `ema_bar_dir=false`,
+`momentum_neutral_band=0.05`), Phase 1's `_seed_optimized_defaults()` will detect them and
+emit a WARNING log on startup. It will NOT auto-correct these values (design D11: the user
+may have intentionally set them for paper testing).
+
+To apply the recommended Phase 1 values, run:
+
+```bash
+PYTHONPATH=. python scripts/migrate_to_b_pick.py
+```
+
+This script is interactive, shows old/new values, and requires explicit confirmation. Use
+`--dry-run` to preview without writing. Run it while the bot is stopped to avoid a race
+condition with live cycles.
+
+The legacy-value detection covers: `risk_per_trade`, `ema_stop_mult`, `ema_tp_mult`,
+`ema_vol_mult`, `ema_bar_dir`, `momentum_neutral_band`. Values defined in `_LEGACY_OVERRIDES`
+in `main.py`.
+
+### 35. Phase 2 entry filters — shipped dark; champion-challenger verdict INCONCLUSIVE
+
+**Phase 2 (win-rate-uplift-2026-05)** adds two optional entry-quality gates to
+`EMACrossoverStrategy`. Both default to OFF and have no live-behaviour impact:
+
+| Config field | Default | Effect |
+|---|---|---|
+| `EMACrossoverConfig.min_entry_adx` | `0.0` (disabled) | Gate continuation entries when ADX < threshold; crossovers always pass |
+| `EMACrossoverConfig.require_ema200_alignment` | `False` | BUY blocked if close < EMA200; fail-open when < 200 bars |
+
+**Architecture**: ADX gate applies ONLY to trend-continuation entries (`in_trend_buy` /
+`in_trend_sell`). Fresh crossovers are never gated — this is intentional (design D1).
+EMA200 is long-only asymmetric (BUY-only); SELL direction is unaffected.
+
+**Parity contract**: Both filters propagate through the full stack:
+- Live orchestrator (`bot/orchestrator.py` → `EMACrossoverStrategy`)
+- `BacktestEngine` (`bot/backtest/engine.py` — `BacktestConfig.ema_min_entry_adx`, `ema_require_ema200_alignment`)
+- `PortfolioBacktestEngine` automatically via `BacktestEngine` constructor
+- `_apply_ema_config()` in `main.py` — hot-patch path for DB-driven updates
+
+Seeds in `_seed_optimized_defaults()`: `ema_min_entry_adx="0.0"`, `ema_require_ema200="false"`.
+4h preset in `bot/config_presets.py` reflects the same OFF defaults.
+
+**Helper function**: `adx_last(df, period) -> float` extracted to `bot/indicators/utils.py`
+(pure function, bit-identical with `RegimeDetector._adx()` which now delegates to it).
+
+**Champion-challenger audit (May 2026, `docs/audits/CC_2026-05-17_PHASE2_SUMMARY.md`)**:
+4 challengers tested against C3_LIVE (Calmar=13.52) over 10 quarterly windows (2022-04 → 2026-05):
+
+| Challenger | Verdict | Calmar | Cohen's d | Wins/10 |
+|---|---|---|---|---|
+| C3_ADX25 (min_entry_adx=25) | **REJECT** | 3.53 | -2.19 | 0 |
+| C3_ADX30 (min_entry_adx=30) | **REJECT** | 8.03 | -1.21 | 1 |
+| C3_EMA200 (require_ema200=True) | **INCONCLUSIVE** | 13.28 | -0.35 | 4 |
+| C3_BOTH (ADX=25 + EMA200) | **REJECT** | 3.58 | -2.20 | 0 |
+
+**Overall verdict: INCONCLUSIVE** — no filter earned ADOPT.
+
+**Interpretation**:
+- ADX gates (25/30) are catastrophically damaging: filtering by trend strength
+  removes exactly the continuation entries that carry the most alpha on EMA crossover
+  in 4h BTC/ETH. Calmar collapses from 13.52 to 3-8, with 0-1 windows won out of 10.
+- EMA200 alignment is statistically neutral (p=0.29, d=-0.35, 4 wins vs 3 losses).
+  Not harmful, but not a proven improvement either. Trade count drops from ~960 to ~912
+  (fewer entries, same quality).
+- Combined (C3_BOTH): ADX damage dominates; EMA200 cannot rescue.
+
+**Recommendation**: Keep all Phase 2 filters OFF. Do not enable `min_entry_adx` or
+`require_ema200_alignment` in production. The code ships as-is for future testing
+with different thresholds or longer evaluation windows. EMA200 alone may be worth
+revisiting after accumulating more post-2025 data (the EMA200 signal tends to become
+more relevant in extended bear regimes not well-represented in the 2022-2026 training set).
 
 ---
 

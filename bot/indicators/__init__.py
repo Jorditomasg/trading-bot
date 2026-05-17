@@ -1,3 +1,3 @@
-from bot.indicators.utils import atr, rsi, wilder_smooth
+from bot.indicators.utils import adx_last, atr, rsi, wilder_smooth
 
-__all__ = ["atr", "rsi", "wilder_smooth"]
+__all__ = ["adx_last", "atr", "rsi", "wilder_smooth"]

@@ -628,6 +628,38 @@ def test_momentum_neutral_halves_risk():
 
 # ── B1: BacktestConfig.ema_max_distance_atr ───────────────────────────────────
 
+class TestMomentumBandParity:
+    """T07 — BacktestConfig.momentum_neutral_band default parity + audit constants guard."""
+
+    def test_momentum_band_parity_with_live(self) -> None:
+        """BacktestConfig().momentum_neutral_band must be 0.08 to match live MomentumFilter.
+
+        REQ-PARITY-1: dashboard backtest must use same band as the live bot.
+        """
+        assert BacktestConfig().momentum_neutral_band == 0.08, (
+            f"momentum_neutral_band default must be 0.08 (live parity), "
+            f"got {BacktestConfig().momentum_neutral_band}"
+        )
+
+    def test_c1_c2_audit_configs_still_use_0_05(self) -> None:
+        """Regression guard (gotcha #32): C1 and C2 audit constants must stay at 0.05.
+
+        The run_walk_forward.py file must still contain momentum_neutral_band=0.05
+        for both CONFIG_C1_BASELINE and CONFIG_C2_PROD.
+        This test fails if anyone accidentally changes the spec-locked values.
+        """
+        import pathlib
+        source = (
+            pathlib.Path(__file__).parent.parent
+            / "scripts" / "audit" / "run_walk_forward.py"
+        ).read_text()
+        # The file must contain exactly the 0.05 literal (for C1 and C2)
+        assert "momentum_neutral_band   = 0.05" in source, (
+            "C1 and/or C2 audit configs must still have momentum_neutral_band = 0.05 "
+            "(spec-locked per gotcha #32). Do not change these values."
+        )
+
+
 class TestBacktestConfigMaxDistanceAtr:
     def test_override_applies_when_set(self):
         """BacktestConfig with ema_max_distance_atr=0.3 → engine strategy has max_distance_atr == 0.3."""
@@ -646,3 +678,57 @@ class TestBacktestConfigMaxDistanceAtr:
         ema_strategy = engine._strategies[StrategyName.EMA_CROSSOVER]
         preset_val = get_strategy_configs("4h")[StrategyName.EMA_CROSSOVER].get("max_distance_atr")
         assert ema_strategy.config.max_distance_atr == pytest.approx(preset_val)
+
+
+# ── T32/T33: Phase 2 BacktestConfig fields ────────────────────────────────────
+
+class TestBacktestConfigPhase2Fields:
+    """T32/T33 — BacktestConfig must expose ema_min_entry_adx and
+    ema_require_ema200_alignment, both None by default (use preset).
+    When set, the engine must propagate them to EMACrossoverConfig.
+    """
+
+    def test_ema_min_entry_adx_field_defaults_to_none(self):
+        """BacktestConfig().ema_min_entry_adx must be None by default."""
+        cfg = BacktestConfig()
+        assert hasattr(cfg, "ema_min_entry_adx")
+        assert cfg.ema_min_entry_adx is None
+
+    def test_ema_require_ema200_alignment_field_defaults_to_none(self):
+        """BacktestConfig().ema_require_ema200_alignment must be None by default."""
+        cfg = BacktestConfig()
+        assert hasattr(cfg, "ema_require_ema200_alignment")
+        assert cfg.ema_require_ema200_alignment is None
+
+    def test_ema_min_entry_adx_propagates_to_strategy(self):
+        """BacktestConfig(ema_min_entry_adx=35.0) → engine EMA strategy has min_entry_adx == 35."""
+        from bot.constants import StrategyName
+        cfg = BacktestConfig(ema_min_entry_adx=35.0)
+        engine = BacktestEngine(cfg)
+        ema_strategy = engine._strategies[StrategyName.EMA_CROSSOVER]
+        assert ema_strategy.config.min_entry_adx == pytest.approx(35.0)
+
+    def test_ema_require_ema200_alignment_propagates_to_strategy(self):
+        """BacktestConfig(ema_require_ema200_alignment=True) → engine EMA strategy has flag True."""
+        from bot.constants import StrategyName
+        cfg = BacktestConfig(ema_require_ema200_alignment=True)
+        engine = BacktestEngine(cfg)
+        ema_strategy = engine._strategies[StrategyName.EMA_CROSSOVER]
+        assert ema_strategy.config.require_ema200_alignment is True
+
+    def test_ema_min_entry_adx_none_leaves_preset_value(self):
+        """When ema_min_entry_adx is None, the preset default (0.0) must survive."""
+        from bot.constants import StrategyName
+        cfg = BacktestConfig(ema_min_entry_adx=None)
+        engine = BacktestEngine(cfg)
+        ema_strategy = engine._strategies[StrategyName.EMA_CROSSOVER]
+        # Preset default is 0.0 (gate off)
+        assert ema_strategy.config.min_entry_adx == pytest.approx(0.0)
+
+    def test_ema_require_ema200_none_leaves_preset_value(self):
+        """When ema_require_ema200_alignment is None, the preset default (False) must survive."""
+        from bot.constants import StrategyName
+        cfg = BacktestConfig(ema_require_ema200_alignment=None)
+        engine = BacktestEngine(cfg)
+        ema_strategy = engine._strategies[StrategyName.EMA_CROSSOVER]
+        assert ema_strategy.config.require_ema200_alignment is False

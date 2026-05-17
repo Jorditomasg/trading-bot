@@ -113,8 +113,9 @@ def backtest_runner_section(db: Database) -> None:
 
                 cost_pct = st.number_input(
                     "Fee / side (%)", min_value=0.0, max_value=1.0,
-                    value=0.07, step=0.01, format="%.2f",
-                    help="0.02% maker · 0.07% recommended · 0.10% taker",
+                    value=float(cfg.get("backtest_cost_per_side", 0.001)) * 100,
+                    step=0.01, format="%.2f",
+                    help="0.02% maker · 0.10% taker (seeded from DB backtest_cost_per_side)",
                 )
                 use_bias      = st.checkbox("BiasFilter (daily EMA9/21)", value=True)
                 use_momentum  = st.checkbox(
@@ -262,11 +263,11 @@ def _run_portfolio_backtest(
         momentum_neutral_band   = 0.08,
         long_only            = cfg_rt.get("long_only", "true") == "true",
         ema_stop_mult        = float(cfg_rt.get("ema_stop_mult", 1.5)),
-        ema_tp_mult          = float(cfg_rt.get("ema_tp_mult", 4.5)),
+        ema_tp_mult          = float(cfg_rt.get("ema_tp_mult", 5.0)),
         ema_max_distance_atr = float(cfg_rt.get("ema_max_dist_atr", 1.0)),
-        ema_volume_mult      = float(cfg_rt.get("ema_vol_mult", 2.0)),
+        ema_volume_mult      = float(cfg_rt.get("ema_vol_mult", 1.5)),
         ema_require_momentum = cfg_rt.get("ema_momentum", "true") == "true",
-        ema_require_bar_dir  = cfg_rt.get("ema_bar_dir", "false") == "true",
+        ema_require_bar_dir  = cfg_rt.get("ema_bar_dir", "true") == "true",
         ema_min_atr_pct      = float(cfg_rt.get("ema_min_atr", 0.0)),
     )
     engine = PortfolioBacktestEngine(cfg)

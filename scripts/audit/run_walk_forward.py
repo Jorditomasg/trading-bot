@@ -63,6 +63,28 @@ CONFIG_C2_PROD = BacktestConfig(
     momentum_neutral_band   = 0.05,
 )
 
+# ── Phase 1 (win-rate-uplift-2026-05): live-seeded B-pick baseline ─────────────
+# Reflects Phase 1 production config: 0.08 neutral band (live parity), B-pick TP=5.0.
+# This is the NEW baseline for Phase 2 champion-challenger comparisons.
+# DO NOT modify — spec-locked per gotcha #32 conventions.
+# C1 and C2 above MUST NOT be changed (historical audit reproducibility).
+CONFIG_C3_LIVE = BacktestConfig(
+    initial_capital         = 10_000.0,
+    risk_per_trade          = 0.015,    # 1.5% — validated production risk
+    timeframe               = "4h",
+    cost_per_side_pct       = 0.001,
+    long_only               = True,
+    ema_stop_mult           = 1.5,      # C1 SL (validated)
+    ema_tp_mult             = 5.0,      # B-pick TP (bake-off winner, May 2026)
+    ema_max_distance_atr    = 1.0,
+    ema_volume_mult         = 1.5,      # 4h preset volume filter
+    ema_require_bar_dir     = True,     # 4h preset bar-direction filter
+    ema_require_momentum    = True,     # 4h preset EMA momentum filter
+    momentum_filter_enabled = True,
+    momentum_sma_period     = 20,
+    momentum_neutral_band   = 0.08,     # LIVE PARITY — differs from C1/C2 (0.05)
+)
+
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Walk-forward validation audit")
@@ -73,7 +95,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--train-months", type=int, default=18)
     p.add_argument("--test-months",  type=int, default=3)
     p.add_argument("--step-months",  type=int, default=3)
-    p.add_argument("--only", type=str, default=None, choices=["C1", "C2"],
+    p.add_argument("--only", type=str, default=None, choices=["C1", "C2", "C3"],
                    help="Run only the named config (debugging)")
     return p.parse_args()
 
@@ -119,7 +141,7 @@ def main() -> int:
         timeframe    = "4h",
     )
 
-    bt_configs = {"C1": CONFIG_C1_BASELINE, "C2": CONFIG_C2_PROD}
+    bt_configs = {"C1": CONFIG_C1_BASELINE, "C2": CONFIG_C2_PROD, "C3": CONFIG_C3_LIVE}
     if args.only:
         bt_configs = {args.only: bt_configs[args.only]}
 
