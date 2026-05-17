@@ -58,3 +58,14 @@ data/
 .atl/
 .worktrees/
 .claude/
+
+# Type checkers / linters
+.mypy_cache/
+.ruff_cache/
+
+# Streamlit cache
+.streamlit/cache/
+
+# Editor backups
+*.bak
+*.orig
