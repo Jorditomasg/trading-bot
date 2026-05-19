@@ -10,7 +10,20 @@ import pathlib
 
 import pytest
 
-RUNNER_PATH = pathlib.Path(__file__).parent.parent / "dashboard" / "sections" / "backtest_runner.py"
+# The runtime config lookups moved from `dashboard/sections/backtest_runner.py`
+# (with parameter name `cfg_rt`) to `bot/backtest/portfolio_runner.py` (with
+# parameter name `runtime_cfg`) as part of the dashboard/runner extraction.
+# The Streamlit wrapper now delegates all real work to that pure module, so the
+# AST checks below scan it directly. `tests/test_parity_runtime.py` runs the
+# same checks at runtime — these AST checks remain as a fast literal guard.
+RUNNER_PATH = (
+    pathlib.Path(__file__).parent.parent / "bot" / "backtest" / "portfolio_runner.py"
+)
+
+# Names accepted as the runtime-config mapping argument. Listed in priority
+# order — we accept both for backward compatibility with any code that still
+# uses the old `cfg_rt` name.
+_RT_PARAM_NAMES = ("runtime_cfg", "cfg_rt")
 
 
 def _read_source() -> str:
@@ -18,17 +31,18 @@ def _read_source() -> str:
 
 
 def _find_cfg_rt_defaults(source: str) -> dict[str, object]:
-    """Parse the source with AST and collect fallback values from cfg_rt.get(key, DEFAULT) calls."""
+    """Parse the source with AST and collect fallback values from
+    `<rt>.get(key, DEFAULT)` calls, where `<rt>` is one of `_RT_PARAM_NAMES`.
+    """
     tree = ast.parse(source)
     defaults: dict[str, object] = {}
     for node in ast.walk(tree):
-        # Looking for: cfg_rt.get("some_key", DEFAULT)
         if not isinstance(node, ast.Call):
             continue
         func = node.func
         if not (isinstance(func, ast.Attribute) and func.attr == "get"):
             continue
-        if not (isinstance(func.value, ast.Name) and func.value.id == "cfg_rt"):
+        if not (isinstance(func.value, ast.Name) and func.value.id in _RT_PARAM_NAMES):
             continue
         if len(node.args) < 2:
             continue

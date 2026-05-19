@@ -8,13 +8,12 @@ from datetime import datetime, timedelta, timezone
 import plotly.graph_objects as go
 import streamlit as st
 
-from bot.backtest.cache import cache_info, fetch_and_cache
-from bot.backtest.engine import BacktestConfig
-from bot.backtest.portfolio_engine import (
-    PortfolioBacktestEngine,
-    PortfolioBacktestResult,
+from bot.backtest.cache import cache_info
+from bot.backtest.portfolio_engine import PortfolioBacktestResult
+from bot.backtest.portfolio_runner import (
+    BacktestRequest,
+    run_portfolio_backtest_core,
 )
-from bot.config_presets import BIAS_TIMEFRAME_MAP as _BIAS_TF
 from bot.database.db import Database
 from dashboard.constants import (
     GREEN, RED,
@@ -193,114 +192,51 @@ def _run_portfolio_backtest(
     use_1m:       bool,
     cfg_rt:       dict,
 ) -> None:
-    bias_tf  = _BIAS_TF.get(timeframe, "1d")
-    progress = st.empty()
+    """Streamlit wrapper around `run_portfolio_backtest_core`.
 
-    # Warmup buffers so the higher-timeframe filters have valid indicators at
-    # backtest start. Without these, BiasFilter falls into NEUTRAL/passthrough
-    # and MomentumFilter falls into BULLISH (fail-open) during the first weeks
-    # of the period — both effectively disabled, which lets in low-quality
-    # entries the live bot rejects. Verified divergence: 16 trades / PF=0.90
-    # without warmup vs 11 trades / PF=1.79 with warmup (BTC 6mo).
-    #   - BiasFilter needs slow_period+1 = 22 daily bars (safety: 30 days)
-    #   - MomentumFilter needs sma_period+1 = 21 weekly bars = 147d (safety: 154d)
-    BIAS_WARMUP     = timedelta(days=30)
-    MOMENTUM_WARMUP = timedelta(days=154)
+    All real work — fetch planning, fetching, config building, engine run —
+    lives in `bot/backtest/portfolio_runner.py` so it can be tested without
+    a Streamlit runtime. This function only handles UI: spinner, error,
+    warning, session_state, rerun.
+    """
+    req = BacktestRequest(
+        symbols       = tuple(symbols),
+        timeframe     = timeframe,
+        start_dt      = start_dt,
+        end_dt        = end_dt,
+        capital       = capital,
+        risk          = risk,
+        cost_per_side = cost,
+        use_bias      = use_bias,
+        use_momentum  = use_momentum,
+        use_1m        = use_1m,
+    )
+
+    progress = st.empty()
 
     def on_progress(msg: str) -> None:
         progress.caption(msg)
 
-    dfs:        dict = {}
-    dfs_4h:     dict = {}
-    dfs_weekly: dict = {}
-    dfs_1m:     dict = {}
+    def on_warning(sym: str, msg: str) -> None:
+        st.warning(f"{sym}: {msg}")
 
-    # ── Per-symbol fetch ──────────────────────────────────────────────────────
-    for sym in symbols:
-        # Primary bars — hard requirement; skip the symbol if this fails.
-        # No warmup added: BacktestEngine handles its own indicator warmup
-        # internally (ATR/EMA on the primary timeframe).
-        with st.spinner(f"Fetching {sym} {timeframe} data…"):
-            try:
-                dfs[sym] = fetch_and_cache(sym, timeframe, start_dt, end_dt, on_progress=on_progress)
-            except Exception as exc:
-                st.error(f"Failed to fetch {sym} {timeframe} data: {exc} — skipping {sym}.")
-                continue
-
-        # Bias bars — fail-soft per symbol. Fetched with warmup so BiasFilter
-        # has ≥22 daily bars at backtest_start (live-parity).
-        if use_bias:
-            bias_start = start_dt - BIAS_WARMUP
-            with st.spinner(f"Fetching {sym} {bias_tf} klines for BiasFilter…"):
-                try:
-                    dfs_4h[sym] = fetch_and_cache(sym, bias_tf, bias_start, end_dt, on_progress=on_progress)
-                except Exception as exc:
-                    dfs_4h[sym] = None
-                    st.warning(f"Could not fetch {sym} {bias_tf} data ({exc}) — running {sym} without BiasFilter.")
-
-        # Weekly bars for momentum filter — fail-soft per symbol. Fetched with
-        # warmup so MomentumFilter has ≥21 weekly bars at backtest_start
-        # (live-parity).
-        if use_momentum:
-            momentum_start = start_dt - MOMENTUM_WARMUP
-            with st.spinner(f"Fetching {sym} weekly klines for momentum filter…"):
-                try:
-                    dfs_weekly[sym] = fetch_and_cache(sym, "1w", momentum_start, end_dt, on_progress=on_progress)
-                except Exception as exc:
-                    dfs_weekly[sym] = None
-                    st.warning(f"Could not fetch {sym} weekly data ({exc}) — momentum filter pass-through for {sym}.")
-
-        # 1m precision bars — fail-soft per symbol.
-        if use_1m:
-            with st.spinner(f"Fetching {sym} 1m klines for precision exits (this may take a while)…"):
-                try:
-                    dfs_1m[sym] = fetch_and_cache(sym, "1m", start_dt, end_dt, on_progress=on_progress)
-                    on_progress(f"{sym} 1m cache ready: {len(dfs_1m[sym]):,} bars")
-                except Exception as exc:
-                    dfs_1m[sym] = None
-                    st.warning(f"Could not fetch {sym} 1m data ({exc}) — bar-level precision for {sym}.")
+    try:
+        with st.spinner("Running portfolio backtest…"):
+            result = run_portfolio_backtest_core(
+                req, cfg_rt,
+                on_progress=on_progress,
+                on_warning=on_warning,
+            )
+    except Exception as exc:
+        progress.empty()
+        st.error(f"Portfolio backtest error: {exc}")
+        return
 
     progress.empty()
 
-    if not dfs:
+    if result is None:
         st.error("No primary data could be fetched for any selected symbol — aborting.")
         return
-
-    # ── Run engine ────────────────────────────────────────────────────────────
-    # Pull live-bot strategy parameters from runtime config so the backtest
-    # measures the SAME strategy the live bot trades. Without this, the engine
-    # uses BacktestConfig dataclass defaults — most notably long_only=False,
-    # which bidirectionalises EMA on BTC and destroys PF per Validated Baseline.
-    cfg = BacktestConfig(
-        initial_capital         = capital,
-        risk_per_trade          = risk,
-        timeframe               = timeframe,
-        cost_per_side_pct       = cost,
-        momentum_filter_enabled = use_momentum,
-        momentum_sma_period     = 20,
-        momentum_neutral_band   = 0.08,
-        long_only            = cfg_rt.get("long_only", "true") == "true",
-        ema_stop_mult        = float(cfg_rt.get("ema_stop_mult", 1.5)),
-        ema_tp_mult          = float(cfg_rt.get("ema_tp_mult", 5.0)),
-        ema_max_distance_atr = float(cfg_rt.get("ema_max_dist_atr", 1.0)),
-        ema_volume_mult      = float(cfg_rt.get("ema_vol_mult", 1.5)),
-        ema_require_momentum = cfg_rt.get("ema_momentum_req", "true") == "true",
-        ema_require_bar_dir  = cfg_rt.get("ema_bar_dir", "true") == "true",
-        ema_min_atr_pct      = float(cfg_rt.get("ema_min_atr", 0.005)),
-    )
-    engine = PortfolioBacktestEngine(cfg)
-
-    with st.spinner("Simulating portfolio…"):
-        try:
-            result = engine.run_portfolio(
-                dfs,
-                dfs_4h     = dfs_4h     or None,
-                dfs_weekly = dfs_weekly or None,
-                dfs_1m     = dfs_1m     or None,
-            )
-        except Exception as exc:
-            st.error(f"Portfolio backtest error: {exc}")
-            return
 
     # Drop legacy single-symbol session keys so the old display path stays dark.
     st.session_state.pop("bt_result",  None)

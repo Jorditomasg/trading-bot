@@ -16,9 +16,19 @@ import pytest
 from bot.database.db import Database
 from main import _seed_optimized_defaults
 
-RUNNER_PATH = pathlib.Path(__file__).parent.parent / "dashboard" / "sections" / "backtest_runner.py"
+# The runtime config lookups moved from `dashboard/sections/backtest_runner.py`
+# to `bot/backtest/portfolio_runner.py` as part of the dashboard/runner
+# extraction. The Streamlit wrapper now delegates all real work to that pure
+# module, so the AST checks below scan it directly. `tests/test_parity_runtime.py`
+# runs the same checks at runtime — these AST checks remain as a fast guard.
+RUNNER_PATH = (
+    pathlib.Path(__file__).parent.parent / "bot" / "backtest" / "portfolio_runner.py"
+)
 
-# Keys whose fallback value in backtest_runner.py must match the seed
+# Accepted runtime-config parameter names (backward-compatible).
+_RT_PARAM_NAMES = ("runtime_cfg", "cfg_rt")
+
+# Keys whose fallback value in the runner must match the seed
 KEYS_TO_CHECK = {
     "ema_tp_mult",
     "ema_vol_mult",
@@ -35,7 +45,7 @@ def _get_seed_values(tmp_path: pathlib.Path) -> dict[str, str]:
 
 
 def _find_cfg_rt_defaults(source: str) -> dict[str, object]:
-    """Parse source with AST; collect fallback values from cfg_rt.get(key, DEFAULT) calls."""
+    """Parse source with AST; collect fallback values from `<rt>.get(key, DEFAULT)` calls."""
     tree = ast.parse(source)
     defaults: dict[str, object] = {}
     for node in ast.walk(tree):
@@ -44,7 +54,7 @@ def _find_cfg_rt_defaults(source: str) -> dict[str, object]:
         func = node.func
         if not (isinstance(func, ast.Attribute) and func.attr == "get"):
             continue
-        if not (isinstance(func.value, ast.Name) and func.value.id == "cfg_rt"):
+        if not (isinstance(func.value, ast.Name) and func.value.id in _RT_PARAM_NAMES):
             continue
         if len(node.args) < 2:
             continue
