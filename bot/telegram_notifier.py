@@ -171,6 +171,44 @@ class TelegramNotifier:
     def bot_stopped(self) -> None:
         self._post("🛑 <b>BOT STOPPED</b>")
 
+    def heartbeat(
+        self,
+        *,
+        equity: float,
+        drawdown: float,
+        open_positions: list[dict],
+        per_symbol: list[dict],
+        mode: str,
+        paused: bool,
+        trades_24h: int,
+    ) -> None:
+        """Periodic 'still alive' digest that explains WHY the bot is or isn't trading.
+
+        Unlike `/status` (balance + open positions), this surfaces the last
+        per-symbol regime/bias and a plain-language reason, so a quiet bot reads
+        as "waiting for a valid setup" instead of "broken".
+
+        per_symbol: list of {symbol, regime, bias, reason} dicts.
+        """
+        bot_state = "⏸ Paused" if paused else "▶️ Running"
+        if per_symbol:
+            lines = [
+                f"<b>{s['symbol']}</b>  regime=<code>{s['regime']}</code> "
+                f"bias=<code>{s['bias']}</code>\n"
+                f"  → {s['reason']}"
+                for s in per_symbol
+            ]
+            symbols_block = "\n".join(lines)
+        else:
+            symbols_block = "No active symbols"
+        self._post(
+            f"💓 <b>HEARTBEAT</b>  [{self._mode_tag(mode)}]\n"
+            f"Equity:  <code>${_fmt(equity)}</code>  (DD <code>{drawdown * 100:.2f}%</code>)\n"
+            f"Bot:     <code>{bot_state}</code>\n"
+            f"24h:     <code>{trades_24h} trades</code>  ·  Open: <code>{len(open_positions)}</code>\n\n"
+            f"{symbols_block}"
+        )
+
     # ── Command responses ─────────────────────────────────────────────────────
 
     def paused(self) -> None:

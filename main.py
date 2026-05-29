@@ -444,9 +444,11 @@ def run_cycle(
     logger.info("[%s] Equity snapshot total_balance=%.2f drawdown=%.4f", sym, total_balance, drawdown)
 
     if adaptor is not None:
-        peak = db.get_peak_capital() or total_balance
+        # step() already evaluated the breaker against TRADING EQUITY (gotcha #31).
+        # Reuse that state — re-checking with raw exchange balance here false-fires
+        # the breaker every cycle whenever testnet USDT differs from trading equity.
         adaptor.maybe_adapt(
-            circuit_breaker_active=orchestrator.risk_manager.check_circuit_breaker(total_balance, peak)
+            circuit_breaker_active=orchestrator.risk_manager._breaker_triggered_at is not None
         )
 
     logger.info("─── [%s] Cycle end ───", sym)
@@ -864,6 +866,78 @@ def _launch_auto_entry_quality_optimizer(
     logger.info("Auto entry-quality optimizer: background thread started")
 
 
+def _holding_reason(
+    regime: str | None,
+    bias: str | None,
+    action: str,
+    has_open: bool,
+) -> str:
+    """Plain-language explanation of the last per-symbol decision for the heartbeat."""
+    if has_open:
+        return "en posición abierta"
+    if action in ("BUY", "SELL"):
+        return f"señal {action} generada este ciclo"
+    if regime is not None and regime != "TRENDING":
+        return f"esperando: regime {regime} (solo entra en TRENDING)"
+    if bias == "BEARISH":
+        return "esperando: bias bajista (long-only no compra)"
+    if bias == "NEUTRAL":
+        return "esperando: bias NEUTRAL (datos insuficientes)"
+    if bias == "BULLISH":
+        return "esperando: sin cruce/entrada válida"
+    return "esperando setup"
+
+
+def send_heartbeat(
+    orchestrators: dict[str, StrategyOrchestrator],
+    db: Database,
+    notifier: TelegramNotifier,
+) -> None:
+    """Send a periodic 'still alive' digest to Telegram.
+
+    Reads account state from the DB and the last per-symbol decision from each
+    orchestrator (populated by run_cycle). Read-only — never places orders or
+    mutates the breaker.
+    """
+    try:
+        baseline = db.get_account_baseline() or 0.0
+        equity   = baseline + db.get_closed_pnl_sum()
+        peak     = db.get_peak_capital() or equity
+        drawdown = (peak - equity) / peak if peak > 0 else 0.0
+
+        open_trades = db.get_open_trades()
+        open_syms   = {t["symbol"] for t in open_trades}
+
+        cutoff = (dt.datetime.now() - dt.timedelta(hours=24)).isoformat()
+        trades_24h = sum(
+            1 for t in db.get_all_trades()
+            if t.get("exit_time") and t["exit_time"] >= cutoff
+        )
+
+        per_symbol = []
+        for sym, orch in orchestrators.items():
+            regime = orch.last_regime.value if orch.last_regime is not None else None
+            bias   = orch.last_bias.value if orch.last_bias is not None else None
+            per_symbol.append({
+                "symbol": sym,
+                "regime": regime or "—",
+                "bias":   bias or "—",
+                "reason": _holding_reason(regime, bias, orch.last_action, sym in open_syms),
+            })
+
+        notifier.heartbeat(
+            equity=equity,
+            drawdown=drawdown,
+            open_positions=open_trades,
+            per_symbol=per_symbol,
+            mode=db.get_active_mode(),
+            paused=db.get_bot_paused(),
+            trades_24h=trades_24h,
+        )
+    except Exception as exc:
+        logger.error("send_heartbeat failed: %s", exc)
+
+
 def main() -> None:
     args = parse_args()
     setup_logging(settings.log_level)
@@ -986,6 +1060,8 @@ def main() -> None:
     schedule.every(7).days.do(
         _launch_auto_entry_quality_optimizer, db, primary_orch, notifier
     )
+    # Daily 'still alive' digest so a quiet (correctly-waiting) bot doesn't look broken.
+    schedule.every().day.at("09:00").do(send_heartbeat, orchestrators, db, notifier)
 
     while not _shutdown:
         if db.consume_restart_request():

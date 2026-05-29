@@ -44,6 +44,10 @@ class StrategyOrchestrator:
         # The HWM is re-read from DB at the top of each step() to prevent
         # cross-symbol race conditions (gotcha #4, #30, #31).
         self._last_momentum_state: MomentumState = MomentumState.BULLISH
+        # Latest decision snapshot for the Telegram heartbeat digest (set each step()).
+        self.last_regime: Optional[MarketRegime] = None
+        self.last_bias: Optional[Bias] = None
+        self.last_action: str = "HOLD"
 
     def get_strategy(self, name: StrategyName) -> BaseStrategy:
         """Return the strategy instance for *name*. Raises KeyError if not registered."""
@@ -105,6 +109,11 @@ class StrategyOrchestrator:
                     sym, signal.action, bias.value,
                 )
                 signal = hold_signal(atr=signal.atr)
+
+        # Snapshot the latest decision for the heartbeat digest (read-only).
+        self.last_regime = regime
+        self.last_bias = bias
+        self.last_action = signal.action
 
         if signal.action != "HOLD":
             self.db.insert_signal(
