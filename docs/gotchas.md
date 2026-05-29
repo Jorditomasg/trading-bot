@@ -645,3 +645,40 @@ The fix was later refactored: `_run_portfolio_backtest` is now a thin Streamlit
 wrapper around `bot/backtest/portfolio_runner.run_portfolio_backtest_core`,
 which owns the warmup constants and is testable without Streamlit. See
 `tests/test_parity_runtime.py::TestFetchPlanWarmup` for the runtime guards.
+
+### 38. Binance testnet caps 1d klines (~20) → daily bias gate silently disabled live
+
+`main.run_cycle()` fetched the bias series with `get_klines(sym, "1d", 60)`, but
+Binance **testnet** returns at most ~20 daily bars regardless of `limit`. The
+`BiasFilter` needs `slow_period+1 = 22` rows (`bot/bias/filter.py:42`); below that
+it returns a data-failure `NEUTRAL`, and with the default `neutral_passthrough=True`
+NEUTRAL lets **both** BUY and SELL through. Net effect on testnet: the daily
+EMA9/21 trend gate was effectively OFF, so the long-only bot opened BUYs in
+bearish regimes — the opposite of what the gate exists to prevent. This is the
+mechanism behind the consecutive STOP_LOSS losses observed May 2026.
+
+**Fix (2026-05-29)**: when the direct 1d fetch returns `< slow_period+1` rows and
+the primary timeframe is `4h`, rebuild the daily series by resampling the 200
+primary 4h bars via `bot.indicators.utils.resample_ohlcv(df, "1D")`. 200×4h ≈ 33
+days, comfortably above the 22 needed. 4h candles are UTC-aligned (00,04,…,20) so
+the resample is an **exact** reconstruction of real daily candles — the trailing
+in-progress bucket is kept, mirroring a live daily kline. Mainnet still prefers
+the direct 60-bar fetch (more history); the resample only kicks in when the direct
+fetch is short. Guarded by `tests/test_resample.py`.
+
+### 39. Equity snapshot was per-symbol → over-sampled the curve in multi-symbol mode
+
+`run_cycle` runs once per symbol per hour and used to call
+`db.insert_equity_snapshot(total_balance, drawdown)` at the end. But the exchange
+USDT balance is a **single shared pool** (and `drawdown` is account-level, from
+trading equity), so with N symbols the curve got N identical points/hour. Those
+spurious zero-return bars deflated return volatility and **inflated the annualized
+Sharpe** shown on the dashboard (`bot.metrics.sharpe_ratio` takes `pct_change`
+over equity points), and tripled `equity` table growth on a 3-symbol setup.
+
+**Fix (2026-05-29)**: moved the snapshot out of `run_cycle` into a module-level
+`record_equity_snapshot(db, client)` called **once** after the symbol loop in
+`run_all_cycles`. Single-symbol cadence is unchanged (1/hour on startup + hourly
+schedule). The breaker/HWM are unaffected — neither reads the `equity` table
+(both use `account_baseline + closed_pnl` vs `peak_capital`). Guarded by
+`tests/test_equity_snapshot.py`.

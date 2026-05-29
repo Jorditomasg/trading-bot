@@ -62,3 +62,27 @@ def rsi(close: pd.Series, period: int) -> pd.Series:
 
 def wilder_smooth(series: pd.Series, period: int) -> pd.Series:
     return series.ewm(alpha=1 / period, adjust=False).mean()
+
+
+def resample_ohlcv(df: pd.DataFrame, rule: str) -> pd.DataFrame:
+    """Aggregate an OHLCV frame to a coarser timeframe.
+
+    `df` needs an ``open_time`` datetime column plus open/high/low/close/volume.
+    Used to derive a higher-timeframe series (e.g. the daily bias gate) from the
+    primary klines when the exchange caps direct higher-tf fetches: Binance
+    testnet returns ~20 daily bars, below the 22 the bias EMA21 needs (gotcha
+    #38). 4h candles are UTC-aligned (00,04,…,20) so resampling to ``"1D"`` is an
+    exact reconstruction of real daily candles.
+
+    The trailing (in-progress) bucket is kept, mirroring a live higher-tf kline
+    whose last candle is still forming.
+    """
+    out = (
+        df.set_index("open_time")
+        .resample(rule)
+        .agg({"open": "first", "high": "max", "low": "min",
+              "close": "last", "volume": "sum"})
+        .dropna()
+        .reset_index()
+    )
+    return out

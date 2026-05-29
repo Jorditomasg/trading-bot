@@ -20,6 +20,7 @@ from bot.config import settings
 from bot.constants import ExitReason, StrategyName, TradeAction
 from bot.database.db import Database
 from bot.exchange.binance_client import BinanceClient
+from bot.indicators.utils import resample_ohlcv
 from bot.logging_setup import setup_logging
 from bot.optimizer.auto_optimizer import run_and_apply, should_run
 from bot.optimizer.auto_entry_quality_optimizer import (
@@ -355,6 +356,26 @@ def _init_account_baseline(db: Database, client: BinanceClient) -> None:
     )
 
 
+def record_equity_snapshot(db: Database, client: BinanceClient) -> None:
+    """Persist ONE account-level equity point per full cycle.
+
+    The exchange USDT balance is shared across all symbols, so snapshotting
+    inside run_cycle (once per symbol) over-sampled the curve in multi-symbol
+    mode: N identical points/hour inflated Sharpe with spurious zero-return
+    bars and tripled storage (gotcha #39). Called once after every symbol has
+    stepped. On balance-fetch failure the point is skipped — the curve simply
+    has one fewer sample, never a wrong one.
+    """
+    try:
+        total_balance = client.get_balance("USDT")
+    except Exception as exc:
+        logger.warning("Equity snapshot skipped — balance fetch failed: %s", exc)
+        return
+    drawdown = compute_drawdown(db)
+    db.insert_equity_snapshot(balance=total_balance, drawdown=drawdown)
+    logger.info("Equity snapshot total_balance=%.2f drawdown=%.4f", total_balance, drawdown)
+
+
 def run_cycle(
     orchestrator: StrategyOrchestrator,
     db: Database,
@@ -392,6 +413,24 @@ def run_cycle(
             "(signals pass if neutral_passthrough=True, blocked if block_on_data_failure=True)",
             sym, exc,
         )
+
+    # Binance testnet caps 1d klines at ~20 bars — below the 22 the bias EMA21
+    # needs — silently disabling the daily gate and letting longs through in
+    # bear markets (gotcha #38). When the direct fetch is short, rebuild the
+    # daily series from the 200 primary 4h bars (≈33 UTC-aligned days → exact).
+    bias_min_bars = (
+        orchestrator.bias_filter.config.slow_period + 1
+        if orchestrator.bias_filter is not None else 22
+    )
+    if settings.timeframe == "4h" and (df_4h is None or len(df_4h) < bias_min_bars):
+        derived = resample_ohlcv(df, "1D")
+        if len(derived) >= bias_min_bars:
+            logger.info(
+                "[%s] Daily bias: direct 1d fetch short (%s rows) — using %d daily "
+                "bars resampled from 4h klines",
+                sym, len(df_4h) if df_4h is not None else "None", len(derived),
+            )
+            df_4h = derived
 
     # Weekly klines for momentum filter
     df_weekly: pd.DataFrame | None = None
@@ -439,9 +478,8 @@ def run_cycle(
     else:
         logger.info("[%s] No orders this cycle", sym)
 
-    drawdown = compute_drawdown(db)
-    db.insert_equity_snapshot(balance=total_balance, drawdown=drawdown)
-    logger.info("[%s] Equity snapshot total_balance=%.2f drawdown=%.4f", sym, total_balance, drawdown)
+    # Equity is account-level (shared USDT pool), so the snapshot is recorded
+    # once per full cycle in run_all_cycles — not per symbol (gotcha #39).
 
     if adaptor is not None:
         # step() already evaluated the breaker against TRADING EQUITY (gotcha #31).
@@ -1040,6 +1078,11 @@ def main() -> None:
                 run_cycle(orch, db, dry_run=args.dry_run, adaptor=adaptor, notifier=notifier, n_symbols=n)
             except Exception as exc:
                 logger.error("run_cycle failed for %s: %s", sym, exc)
+        # One account-level equity point per full cycle (gotcha #39)
+        try:
+            record_equity_snapshot(db, _build_client(db))
+        except Exception as exc:
+            logger.error("record_equity_snapshot failed: %s", exc)
 
     # Run immediately on startup, then schedule hourly
     run_all_cycles()
