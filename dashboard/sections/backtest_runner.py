@@ -106,7 +106,11 @@ def backtest_runner_section(db: Database) -> None:
 
             with c2:
                 end_default   = datetime.now(tz=timezone.utc).date()
-                start_default = end_default - timedelta(days=180)
+                # Default to a full market cycle (3y) — the Validated Baseline
+                # window. A short window (the old 180d default) lands on whatever
+                # the last few months did and makes a trend strategy look broken
+                # during sideways stretches. User can shorten via the picker.
+                start_default = end_default - timedelta(days=1095)
                 start_date = st.date_input("From", value=start_default)
                 end_date   = st.date_input("To",   value=end_default)
 

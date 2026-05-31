@@ -145,6 +145,16 @@ def build_backtest_config(
         ema_min_atr_pct      = float(runtime_cfg.get("ema_min_atr", 0.005)),
         ema_min_entry_adx            = float(runtime_cfg.get("ema_min_entry_adx", 0.0)),
         ema_require_ema200_alignment = runtime_cfg.get("ema_require_ema200", "false") == "true",
+        # Mirror the live BiasFilter gate (main._build_bias_filter): live blocks
+        # NEUTRAL-bias signals when bias_neutral_passthrough="false". The engine
+        # wires neutral_passthrough = not bias_strict, so bias_strict is the
+        # inverse of the passthrough flag. Without this the web backtest ran
+        # passthrough (more permissive than live) and understated performance.
+        bias_strict = runtime_cfg.get("bias_neutral_passthrough", "true") != "true",
+        # Mirror live Kelly toggle (RiskConfig.kelly_enabled, applied in
+        # main._apply_runtime_config). Default True = current production
+        # behaviour; set "false" in bot_config for flat risk_per_trade sizing.
+        kelly_enabled = runtime_cfg.get("kelly_enabled", "true") == "true",
     )
 
 

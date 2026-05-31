@@ -160,11 +160,18 @@ class StrategyOrchestrator:
             logger.debug("[%s] signal not valid for execution — skipping", sym)
             return []
 
-        kelly_stats = self.db.get_kelly_stats(
-            strategy.name,
-            self.risk_manager.config.kelly_min_trades,
+        kelly_stats = (
+            self.db.get_kelly_stats(
+                strategy.name,
+                self.risk_manager.config.kelly_min_trades,
+            )
+            if self.risk_manager.config.kelly_enabled
+            else None
         )
-        if kelly_stats:
+        if not self.risk_manager.config.kelly_enabled:
+            risk_frac = None
+            logger.debug("[%s] Kelly disabled — using fixed risk_per_trade", sym)
+        elif kelly_stats:
             kf = compute_kelly_fraction(
                 kelly_stats["win_rate"],
                 kelly_stats["avg_win_pct"],

@@ -116,6 +116,8 @@ def _apply_runtime_config(db: Database, risk_config: RiskConfig) -> None:
         risk_config.max_drawdown = float(cfg["max_drawdown"])
     if "cooldown_hours" in cfg:
         risk_config.cooldown_hours = int(cfg["cooldown_hours"])
+    if "kelly_enabled" in cfg:
+        risk_config.kelly_enabled = cfg["kelly_enabled"] == "true"
     logger.info("Runtime config applied: %s", list(cfg.keys()))
 
 

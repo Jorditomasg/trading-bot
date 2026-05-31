@@ -119,6 +119,57 @@ class TestRuntimeConfigParity:
             + "\n".join(mismatches)
         )
 
+    @pytest.mark.parametrize("passthrough_val", ["true", "false"])
+    def test_dashboard_bias_gate_matches_live(self, seeded_db, passthrough_val) -> None:
+        """The web backtest's BiasFilter must gate NEUTRAL signals exactly like
+        live. Live builds the filter from `bias_neutral_passthrough`
+        (main._build_bias_filter); the backtest engine wires
+        neutral_passthrough = not BacktestConfig.bias_strict. Before this guard,
+        build_backtest_config never set bias_strict, so the web always ran
+        passthrough (more permissive than live with passthrough="false") and
+        overstated the trade count / understated the strategy's true behaviour.
+        """
+        from main import _build_bias_filter
+
+        seeded_db.set_runtime_config(bias_neutral_passthrough=passthrough_val)
+        runtime_cfg = seeded_db.get_runtime_config()
+
+        live_filter = _build_bias_filter(seeded_db)
+
+        bt_cfg = build_backtest_config(_make_request(), runtime_cfg)
+        bt_engine = BacktestEngine(bt_cfg)
+
+        assert (
+            bt_engine._bias_filter.config.neutral_passthrough
+            == live_filter.config.neutral_passthrough
+        ), (
+            f"Bias gate diverges for bias_neutral_passthrough={passthrough_val!r}: "
+            f"live passthrough={live_filter.config.neutral_passthrough}, "
+            f"backtest passthrough={bt_engine._bias_filter.config.neutral_passthrough}"
+        )
+
+    @pytest.mark.parametrize("kelly_val", ["true", "false"])
+    def test_dashboard_kelly_toggle_matches_live(self, seeded_db, kelly_val) -> None:
+        """The `kelly_enabled` DB key must drive the live RiskConfig
+        (main._apply_runtime_config) and the backtest BacktestConfig
+        (build_backtest_config) identically. Without parity, flipping Kelly off
+        for live would leave the web backtest still sizing with Kelly (or vice
+        versa), so the dashboard would model a different strategy than the bot.
+        """
+        from main import _apply_runtime_config
+
+        seeded_db.set_runtime_config(kelly_enabled=kelly_val)
+        runtime_cfg = seeded_db.get_runtime_config()
+
+        live_rc = RiskConfig()
+        _apply_runtime_config(seeded_db, live_rc)
+
+        bt_cfg = build_backtest_config(_make_request(), runtime_cfg)
+
+        expected = kelly_val == "true"
+        assert live_rc.kelly_enabled == expected
+        assert bt_cfg.kelly_enabled == expected
+
     def test_seeded_db_drives_all_critical_keys(self, seeded_db) -> None:
         """Every key the dashboard config builder reads must be in the seed.
 

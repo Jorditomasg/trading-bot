@@ -18,6 +18,7 @@ class RiskConfig:
     min_signal_strength: float = 0.5
     cooldown_hours: int = 4
     quantity_precision: int = 5
+    kelly_enabled: bool = True   # False → flat risk_per_trade (mirrors BacktestConfig.kelly_enabled)
     kelly_max_mult: float = 2.0
     kelly_min_mult: float = 0.25
     kelly_min_trades: int = 15
