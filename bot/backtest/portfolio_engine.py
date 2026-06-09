@@ -163,6 +163,11 @@ class PortfolioBacktestEngine:
         peak_capital = capital  # HWM for drawdown-aware risk scaling
         dd_cfg       = self.config.dd_risk if self.config.dd_risk is not None else DrawdownRiskConfig(enabled=False)
         equity_curve: list[dict] = []
+        # Live parity (gotcha #40): main.run_cycle gives each symbol
+        # balance = total/N before sizing. N is the configured symbol count,
+        # fixed for the whole run — live divides by len(orchestrators), not by
+        # how many symbols happen to have a bar this cycle.
+        n_symbols = len(states)
 
         for current_time in union_times:
             participating: dict[str, int] = {}
@@ -309,8 +314,11 @@ class PortfolioBacktestEngine:
                     )
                 # NOTE: sizing uses CASH (capital), not total equity — mirrors the
                 # live bot's `BinanceClient.get_balance("USDT")` semantics.
+                # Divided by N for live parity (gotcha #40, fixed 2026-06-10):
+                # before the fix every symbol sized off the FULL pool, so
+                # multi-symbol backtests overstated live CAGR/DD by ~N×.
                 quantity = engine._compute_quantity_with_risk(
-                    capital, net_entry, signal.stop_loss, effective_risk
+                    capital / n_symbols, net_entry, signal.stop_loss, effective_risk
                 )
 
                 if quantity <= 0:

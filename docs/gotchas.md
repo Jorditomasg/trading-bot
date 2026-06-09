@@ -705,10 +705,14 @@ unaffected (N=1). **Relative** comparisons between symbol sets still hold (both
 engines rank SOL diversification as a Calmar improvement), so config *decisions*
 remain valid; only the *absolute* dashboard numbers are inflated.
 
-**Status (2026-06-09): documented, NOT fixed.** Fixing it (divide the sizing
-capital by N in the portfolio engine) halves every multi-symbol dashboard number
-and touches `tests/test_portfolio_engine.py` — a separate change. When you DO fix
-it, also reconsider whether live's static 1/N split is the right allocation at
-all (it leaves capital idle — see the capital-efficiency follow-up in
-`docs/superpowers/specs/2026-06-09-add-sol-diversification.md`). Until then, read
-multi-symbol dashboard CAGR/DD as ~N× the real live expectation.
+**Status (2026-06-10): FIXED.** `PortfolioBacktestEngine` now sizes every entry
+off `capital / n_symbols` (constant N = configured symbol count, matching live's
+`len(orchestrators)`). Regression guard:
+`tests/test_portfolio_engine.py::test_multi_symbol_sizing_divides_capital_by_n`.
+Validation (3y, live config 2.5% flat): the fixed engine reproduces the ÷N row
+above — BTC+ETH CAGR 19.3 / DD 12.1 / Calmar 1.60 / PF 1.58, BTC+ETH+SOL
+DD 9.4 / Calmar 1.97. **Dashboard multi-symbol numbers are now true-live scale**;
+any backtest/sweep result recorded before 2026-06-10 is still ~N× inflated.
+Open follow-up: live's static 1/N split leaves capital idle — see the
+capital-efficiency note in
+`docs/superpowers/specs/2026-06-09-add-sol-diversification.md`.

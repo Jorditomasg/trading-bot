@@ -49,11 +49,12 @@ Hard rules — do not change without re-running `BacktestEngine` or `PortfolioBa
   worse than BTC's. BNB was rejected (toxic, standalone Calmar −0.04). Spec:
   `docs/superpowers/specs/2026-06-09-add-sol-diversification.md`.
 
-> ⚠️ **Dashboard overstates live multi-symbol numbers ~N× (gotcha #40).**
-> `PortfolioBacktestEngine` sizes each symbol off the full pool; live divides
-> capital by N. So the dashboard's "~40% CAGR" for BTC+ETH is really **~20% / 12%
-> DD** live. Read all multi-symbol backtest CAGR/DD below as ~N× the real live
-> figure. The Risk×DD table that follows is from the (inflated) engine path.
+> ✅ **Gotcha #40 FIXED (2026-06-10):** `PortfolioBacktestEngine` now sizes each
+> symbol off `capital/N`, mirroring live's `total/N` allocation — dashboard
+> multi-symbol numbers are **true-live scale** (validated: BTC+ETH 19.3% CAGR /
+> 12.1% DD / Calmar 1.60; BTC+ETH+SOL DD 9.4% / Calmar 1.97). Any multi-symbol
+> result recorded BEFORE 2026-06-10 — including the Risk×DD table below — is
+> still ~N× inflated; re-run before relying on its absolute values.
 
 ### Risk × DD trade-off (BTC+ETH, 4h, bias_strict, 3y)
 

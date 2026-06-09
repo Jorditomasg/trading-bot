@@ -350,3 +350,51 @@ class TestPhase2FiltersParityPortfolio:
             f"ADX gate (threshold=200) should reduce trade count: "
             f"base={base_trades}, gated={gated_trades}"
         )
+
+
+# ── 9. Live parity: sizing capital divided by N (gotcha #40) ─────────────────
+
+def test_multi_symbol_sizing_divides_capital_by_n(monkeypatch):
+    """Live parity (gotcha #40, fixed 2026-06-10): each symbol must size off
+    capital/N, mirroring main.run_cycle's `balance = total/N`. Before the fix
+    every symbol sized off the FULL shared pool, so multi-symbol backtests
+    overstated live CAGR/DD by ~N×.
+
+    The first sizing call happens before any trade closes, so the cash pool
+    still equals initial_capital — the capital argument must be exactly
+    initial/N at that point.
+    """
+    df = _synthetic_ohlcv("2024-01-01", periods=500, freq="1h", trend=20.0, base=40_000.0)
+
+    captured: list[float] = []
+    real_fn = BacktestEngine._compute_quantity_with_risk
+
+    def spy(self, capital, net_entry, stop_loss, risk_per_trade):
+        captured.append(capital)
+        return real_fn(self, capital, net_entry, stop_loss, risk_per_trade)
+
+    monkeypatch.setattr(BacktestEngine, "_compute_quantity_with_risk", spy)
+
+    cfg = BacktestConfig(
+        initial_capital   = 10_000.0,
+        risk_per_trade    = 0.04,
+        timeframe         = "1h",
+        cost_per_side_pct = 0.0,
+    )
+
+    # N=2 → first sizing call sees half the pool
+    PortfolioBacktestEngine(cfg).run_portfolio({
+        "BTCUSDT": df.copy(),
+        "ETHUSDT": df.copy(),
+    })
+    assert captured, "no sizing call — synthetic data produced no entries"
+    assert captured[0] == pytest.approx(10_000.0 / 2), (
+        f"first sizing call used capital={captured[0]:.2f}, expected initial/N=5000 "
+        "(gotcha #40 regression: engine sizing off the full pool again?)"
+    )
+
+    # N=1 → unaffected, sizes off the full pool
+    captured.clear()
+    PortfolioBacktestEngine(cfg).run_portfolio({"BTCUSDT": df.copy()})
+    assert captured, "no sizing call in single-symbol run"
+    assert captured[0] == pytest.approx(10_000.0)
