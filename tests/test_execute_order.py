@@ -150,3 +150,102 @@ def test_alert_orphan_with_non_dict_exchange_result(caplog):
     notifier.alert.assert_called_once()
     msg = notifier.alert.call_args[0][0]
     assert "N/A" in msg
+
+
+# ── per-symbol price precision ───────────────────────────────────────────────
+
+
+def test_init_price_precision_per_symbol(monkeypatch):
+    """Each active symbol gets its own PRICE_FILTER precision cached."""
+    fake_client = MagicMock()
+    fake_client.get_price_precision.side_effect = (
+        lambda s: {"BTCUSDT": 2, "DOGEUSDT": 5}[s]
+    )
+    monkeypatch.setattr(main_module, "_build_client", lambda db: fake_client)
+    monkeypatch.setattr(main_module, "_price_precision", {})
+
+    main_module._init_price_precision(MagicMock(), ["BTCUSDT", "DOGEUSDT"])
+
+    assert main_module._price_precision == {"BTCUSDT": 2, "DOGEUSDT": 5}
+
+
+def test_init_price_precision_partial_failure_keeps_other_symbols(monkeypatch):
+    """A fetch failure on one symbol does not block the rest; the failed one
+    falls back to _DEFAULT_PRICE_PRECISION at order time."""
+
+    def fetch(sym):
+        if sym == "SOLUSDT":
+            raise RuntimeError("exchangeInfo down")
+        return 2
+
+    fake_client = MagicMock()
+    fake_client.get_price_precision.side_effect = fetch
+    monkeypatch.setattr(main_module, "_build_client", lambda db: fake_client)
+    monkeypatch.setattr(main_module, "_price_precision", {})
+
+    main_module._init_price_precision(MagicMock(), ["BTCUSDT", "SOLUSDT"])
+
+    assert main_module._price_precision == {"BTCUSDT": 2}
+    assert (
+        main_module._price_precision.get("SOLUSDT", main_module._DEFAULT_PRICE_PRECISION)
+        == main_module._DEFAULT_PRICE_PRECISION
+    )
+
+
+def test_execute_order_open_uses_symbol_precision(monkeypatch):
+    """_execute_order passes the per-symbol precision to place_entry_order."""
+    monkeypatch.setattr(main_module, "_price_precision", {"ETHUSDT": 4})
+
+    client = MagicMock()
+    client.is_testnet = True
+    client.place_entry_order.return_value = {"orderId": 1, "status": "FILLED"}
+    db = MagicMock()
+    db.get_active_mode.return_value = "TESTNET"
+    db.insert_trade.return_value = 7
+
+    main_module._execute_order(client, db, {
+        "action":      "OPEN",
+        "symbol":      "ETHUSDT",
+        "side":        "BUY",
+        "quantity":    0.5,
+        "entry_price": 1800.0,
+        "stop_loss":   1750.0,
+        "take_profit": 1950.0,
+        "strategy":    "EMA_CROSSOVER",
+        "regime":      "TRENDING",
+        "atr":         25.0,
+        "timeframe":   "4h",
+    }, notifier=None)
+
+    assert client.place_entry_order.call_args.kwargs["price_precision"] == 4
+
+
+def test_execute_order_open_unknown_symbol_uses_default(monkeypatch):
+    """Symbols missing from the cache fall back to _DEFAULT_PRICE_PRECISION."""
+    monkeypatch.setattr(main_module, "_price_precision", {})
+
+    client = MagicMock()
+    client.is_testnet = True
+    client.place_entry_order.return_value = {"orderId": 1, "status": "FILLED"}
+    db = MagicMock()
+    db.get_active_mode.return_value = "TESTNET"
+    db.insert_trade.return_value = 8
+
+    main_module._execute_order(client, db, {
+        "action":      "OPEN",
+        "symbol":      "BTCUSDT",
+        "side":        "BUY",
+        "quantity":    0.01,
+        "entry_price": 65000.0,
+        "stop_loss":   63000.0,
+        "take_profit": 70000.0,
+        "strategy":    "EMA_CROSSOVER",
+        "regime":      "TRENDING",
+        "atr":         900.0,
+        "timeframe":   "4h",
+    }, notifier=None)
+
+    assert (
+        client.place_entry_order.call_args.kwargs["price_precision"]
+        == main_module._DEFAULT_PRICE_PRECISION
+    )

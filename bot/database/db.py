@@ -124,6 +124,10 @@ class Database:
 
     def _init_schema(self) -> None:
         with self._conn() as conn:
+            # WAL lets the dashboard process read while the bot's threads write
+            # (and vice versa) without `database is locked` errors. Persistent
+            # per-file setting; re-issuing it on startup is a cheap no-op.
+            conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(DDL)
         self._migrate_schema()
         logger.debug("Database schema initialized at %s", self.path)

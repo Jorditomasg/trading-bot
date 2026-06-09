@@ -285,22 +285,33 @@ def _init_quantity_precision(orchestrator: StrategyOrchestrator, db: Database) -
         )
 
 
-# Price precision for limit entry orders (decimal places for price, e.g. 2 for BTC)
-_price_precision: int = 2
+# Price precision for limit entry orders, per symbol (decimal places for price,
+# e.g. 2 for BTCUSDT). BTC/ETH/SOL all share tickSize=0.01 today, but a symbol
+# with a different tick (e.g. DOGE 0.00001) would get its LIMIT_MAKER orders
+# rejected if priced with the wrong precision — hence per-symbol lookup.
+_price_precision: dict[str, int] = {}
+_DEFAULT_PRICE_PRECISION = 2
 
 
-def _init_price_precision(db: Database) -> None:
-    """Fetch PRICE_FILTER tickSize for the configured symbol and cache globally."""
-    global _price_precision
+def _init_price_precision(db: Database, symbols: list[str]) -> None:
+    """Fetch PRICE_FILTER tickSize for every active symbol and cache globally."""
     try:
         client = _build_client(db)
-        _price_precision = client.get_price_precision(settings.symbol)
-        logger.info("Price precision for %s: %d", settings.symbol, _price_precision)
     except Exception as exc:
         logger.warning(
-            "Could not fetch price precision for %s: %s — using default %d",
-            settings.symbol, exc, _price_precision,
+            "Could not build client for price precision: %s — using default %d",
+            exc, _DEFAULT_PRICE_PRECISION,
         )
+        return
+    for sym in symbols:
+        try:
+            _price_precision[sym] = client.get_price_precision(sym)
+            logger.info("Price precision for %s: %d", sym, _price_precision[sym])
+        except Exception as exc:
+            logger.warning(
+                "Could not fetch price precision for %s: %s — using default %d",
+                sym, exc, _DEFAULT_PRICE_PRECISION,
+            )
 
 
 def compute_drawdown(db: Database) -> float:
@@ -603,7 +614,7 @@ def _execute_order(
                 side=order["side"],
                 quantity=order["quantity"],
                 entry_price=order["entry_price"],
-                price_precision=_price_precision,
+                price_precision=_price_precision.get(symbol, _DEFAULT_PRICE_PRECISION),
             )
         except Exception as exc:
             logger.error("[%s] Failed to place open order: %s", symbol, exc)
@@ -1059,7 +1070,7 @@ def main() -> None:
         db=db,
         risk_manager=primary_orch.risk_manager,
     )
-    _init_price_precision(db)
+    _init_price_precision(db, symbols)
 
     # Telegram — always instantiated; no-ops when unconfigured
     notifier    = TelegramNotifier(db=db)

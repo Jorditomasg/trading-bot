@@ -116,7 +116,7 @@ PF actually peaks at 1.5%. The seeded 1.5% trades return for survivability.
                  │ Signal
       ┌──────────▼──────────┐
       │   RiskManager        │  bot/risk/manager.py
-      │  validate_signal()   │  rejects if strength < 0.4 or circuit breaker active
+      │  validate_signal()   │  rejects if strength < 0.5 or circuit breaker active
       │  compute_position_   │  qty = min(risk/(entry-SL),  capital*0.99/entry)
       │  size()              │  ↑ risk-based            ↑ spot capital cap
       └──────────┬───────────┘
