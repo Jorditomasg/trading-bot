@@ -682,3 +682,33 @@ over equity points), and tripled `equity` table growth on a 3-symbol setup.
 schedule). The breaker/HWM are unaffected — neither reads the `equity` table
 (both use `account_baseline + closed_pnl` vs `peak_capital`). Guarded by
 `tests/test_equity_snapshot.py`.
+
+### 40. PortfolioBacktestEngine sizes off the FULL pool — live divides by N (dashboard overstates live ~N×)
+
+Live (`main.run_cycle`, gotcha #22) gives each symbol `balance = total/N` and
+sizes risk off that share. But `PortfolioBacktestEngine` (`portfolio_engine.py`,
+the `_compute_quantity_with_risk(capital, …)` call) sizes **every symbol off the
+full shared pool** `capital`, with no division by N. So each symbol in the
+backtest takes an N× larger position than live would, and the dashboard/backtest
+**overstates live CAGR and max-DD by roughly N×** as the symbol count grows.
+
+Measured (3y BTC+ETH 4h, live config 2.5% flat, 2026-06-09):
+
+| BTC+ETH | CAGR | MaxDD | Calmar | PF |
+|---|---|---|---|---|
+| Engine as-is (what the dashboard shows) | 39.6% | 22.8% | 1.73 | 1.52 |
+| ÷N (true live allocation) | **19.5%** | **12.1%** | **1.61** | **1.58** |
+
+This is why the "~40% config" in older notes (`project_strategy_levers_40pct.md`)
+is inflated — **true live BTC+ETH is ~20% CAGR / 12% DD.** Single-symbol runs are
+unaffected (N=1). **Relative** comparisons between symbol sets still hold (both
+engines rank SOL diversification as a Calmar improvement), so config *decisions*
+remain valid; only the *absolute* dashboard numbers are inflated.
+
+**Status (2026-06-09): documented, NOT fixed.** Fixing it (divide the sizing
+capital by N in the portfolio engine) halves every multi-symbol dashboard number
+and touches `tests/test_portfolio_engine.py` — a separate change. When you DO fix
+it, also reconsider whether live's static 1/N split is the right allocation at
+all (it leaves capital idle — see the capital-efficiency follow-up in
+`docs/superpowers/specs/2026-06-09-add-sol-diversification.md`). Until then, read
+multi-symbol dashboard CAGR/DD as ~N× the real live expectation.

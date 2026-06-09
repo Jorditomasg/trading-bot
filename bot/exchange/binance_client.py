@@ -62,6 +62,7 @@ class BinanceClient:
         _api_secret = api_secret if api_secret is not None else settings.api_secret
         _testnet    = testnet    if testnet    is not None else settings.testnet
 
+        self._testnet = _testnet
         kwargs: dict = {}
         if _testnet:
             kwargs["testnet"] = True
@@ -72,16 +73,31 @@ class BinanceClient:
                 **kwargs,
             )
             self._client.API_URL = TESTNET_BASE_URL + "/api"
-            logger.info("BinanceClient initialised — TESTNET mode (%s)", TESTNET_BASE_URL)
+            # Market data (klines/ticker/streams) comes from MAINNET public
+            # endpoints even in testnet mode: the testnet book prints phantom
+            # 1m wicks (4–9% ranges) that trigger false SL exits, and every
+            # periodic testnet reset wipes kline history, starving the regime
+            # detector (needs 60 bars) and bias filter (needs 22) for weeks.
+            # Orders, balances and exchangeInfo stay on the testnet client.
+            self._market = Client()
+            logger.info(
+                "BinanceClient initialised — TESTNET mode (%s), market data from mainnet",
+                TESTNET_BASE_URL,
+            )
         else:
             self._client = Client(_api_key, _api_secret)
+            self._market = self._client
             logger.info("BinanceClient initialised — LIVE mode")
 
         self._twm: Optional[ThreadedWebsocketManager] = None
 
+    @property
+    def is_testnet(self) -> bool:
+        return self._testnet
+
     @_retry
     def get_klines(self, symbol: str, interval: str, limit: int = 200) -> pd.DataFrame:
-        raw = self._client.get_klines(symbol=symbol, interval=interval, limit=limit)
+        raw = self._market.get_klines(symbol=symbol, interval=interval, limit=limit)
         df = pd.DataFrame(raw, columns=[
             "open_time", "open", "high", "low", "close", "volume",
             "close_time", "quote_asset_volume", "num_trades",
@@ -287,7 +303,7 @@ class BinanceClient:
 
     @_retry
     def get_ticker_price(self, symbol: str) -> float:
-        ticker = self._client.get_symbol_ticker(symbol=symbol)
+        ticker = self._market.get_symbol_ticker(symbol=symbol)
         return float(ticker["price"])
 
     def start_price_stream(
@@ -295,14 +311,16 @@ class BinanceClient:
     ) -> ThreadedWebsocketManager:
         """Start or reuse a single TWM to stream klines for the given symbol."""
         if self._twm is None:
+            # Kline streams are public — always from mainnet (testnet streams
+            # carry the same phantom-wick prices as its REST klines).
             self._twm = ThreadedWebsocketManager(
-                api_key=settings.api_key,
-                api_secret=settings.api_secret,
-                testnet=settings.testnet,
+                api_key=None if self._testnet else settings.api_key,
+                api_secret=None if self._testnet else settings.api_secret,
+                testnet=False,
                 tld="com",
             )
             self._twm.start()
-            logger.info("ThreadedWebsocketManager started (testnet=%s)", settings.testnet)
+            logger.info("ThreadedWebsocketManager started (market data: mainnet)")
 
         try:
             self._twm.start_kline_socket(callback=on_tick, symbol=symbol, interval="1m")

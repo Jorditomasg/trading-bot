@@ -142,6 +142,15 @@ def _seed_optimized_defaults(db: Database) -> None:
     # they can be safely re-enabled.
     defaults = {
         "symbol":          "BTCUSDT",
+        # Multi-symbol set (gotcha #22 splits capital total/N across these).
+        # SOLUSDT added 2026-06-09 for diversification: under the TRUE live ÷N
+        # allocation it cuts 3y max-DD 12.1%→9.4% and lifts Calmar 1.61→1.99,
+        # robust in BOTH sub-period halves (esp. the weak 2025-26 chop, where it
+        # improves CAGR *and* DD). SOL standalone Calmar (0.80) is worse than
+        # BTC's — this is decorrelation, not return-chasing. BNB was rejected
+        # (toxic: standalone Calmar -0.04). See docs/superpowers/specs/
+        # 2026-06-09-add-sol-diversification.md and gotcha #40 (parity caveat).
+        "symbols":         "BTCUSDT,ETHUSDT,SOLUSDT",
         "timeframe":       "4h",
         "risk_per_trade":  "0.015",   # 1.5% = Quarter-Kelly; safe, ~17% annual
         "ema_stop_mult":   "1.5",
@@ -603,7 +612,13 @@ def _execute_order(
         # Order is filled. From here on, any exception risks an orphan — the
         # position exists on the exchange but not in the DB. Retry DB writes
         # before giving up; on final failure raise an explicit orphan alert.
-        actual_entry = _avg_fill_price(result) or order["entry_price"]
+        # Testnet fills come from a thin phantom book that can sit several % off
+        # mainnet — recording them corrupts PnL. In testnet mode the signal price
+        # (mainnet market data) is the faithful entry; SL/TP/PnL stay consistent.
+        if client.is_testnet:
+            actual_entry = order["entry_price"]
+        else:
+            actual_entry = _avg_fill_price(result) or order["entry_price"]
         try:
             trade_id = _retry_db_write(
                 "insert_trade", db.insert_trade,

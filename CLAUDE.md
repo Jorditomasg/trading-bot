@@ -20,7 +20,7 @@ The dataclass defaults in `bot/config.py` mirror these so test/script paths that
 
 | Param | Value | Notes |
 |---|---|---|
-| `symbol` | `BTCUSDT` | Multi-symbol supported via `PortfolioBacktestEngine` (BTC+ETH validated) |
+| `symbol` | `BTCUSDT` | Multi-symbol via `PortfolioBacktestEngine`. Live set seeded **`BTCUSDT,ETHUSDT,SOLUSDT`** (SOL added 2026-06-09 for diversification — see below) |
 | `timeframe` | `4h` | 1h is unviable (legacy backtests: PF=0.75, Ann=-26%) |
 | `risk_per_trade` | `0.015` (1.5%) | Picked over 4% per `scripts/risk_scaler_matrix.py` (May 2026) |
 | `ema_stop_mult` | `1.5` | SL = 1.5 × ATR |
@@ -41,6 +41,19 @@ Hard rules — do not change without re-running `BacktestEngine` or `PortfolioBa
   and recovery winners at quarter size. Code is wired (`bot/risk/drawdown_scaler.py`,
   `bot/orchestrator.py`, `bot/backtest/{engine,portfolio_engine}.py`) but `enabled=False`.
   Can help mean-reverting strategies; never enable for trend-following.
+- **SOLUSDT added to the live set (2026-06-09)** for diversification. Under the
+  TRUE live ÷N capital allocation, BTC+ETH+SOL cuts 3y max-DD 12.1%→9.4% and
+  lifts Calmar 1.61→1.99 vs BTC+ETH, **robust in both sub-period halves** (and in
+  the weak 2025-26 chop it improves CAGR *and* DD). SOL is a decorrelation play
+  (4h corr to BTC 0.73), not return-chasing — its standalone Calmar (0.80) is
+  worse than BTC's. BNB was rejected (toxic, standalone Calmar −0.04). Spec:
+  `docs/superpowers/specs/2026-06-09-add-sol-diversification.md`.
+
+> ⚠️ **Dashboard overstates live multi-symbol numbers ~N× (gotcha #40).**
+> `PortfolioBacktestEngine` sizes each symbol off the full pool; live divides
+> capital by N. So the dashboard's "~40% CAGR" for BTC+ETH is really **~20% / 12%
+> DD** live. Read all multi-symbol backtest CAGR/DD below as ~N× the real live
+> figure. The Risk×DD table that follows is from the (inflated) engine path.
 
 ### Risk × DD trade-off (BTC+ETH, 4h, bias_strict, 3y)
 

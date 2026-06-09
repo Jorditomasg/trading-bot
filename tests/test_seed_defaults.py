@@ -19,6 +19,7 @@ from main import _seed_optimized_defaults
 
 EXPECTED_SEED = {
     "symbol":                    "BTCUSDT",
+    "symbols":                   "BTCUSDT,ETHUSDT,SOLUSDT",  # SOL added 2026-06-09 (diversification)
     "timeframe":                 "4h",
     "risk_per_trade":            "0.015",
     "ema_stop_mult":             "1.5",
