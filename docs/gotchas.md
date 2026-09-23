@@ -918,3 +918,26 @@ does not get refactored away.
 
 Related: #28 (`_retry` narrowed to network/Binance exceptions — it retries, then
 correctly re-raises; the bug was the missing containment above it).
+
+### 45. A Binance testnet reset strands open trades — the close is rejected forever
+
+**Live incident 2026-09-18 → found 2026-09-23.** Binance wipes spot-testnet
+balances periodically. Sometime between 2026-08-22 and 2026-09-15 it did, and
+the 7.051 SOL of trade #26 (opened 08-22) vanished — `get_my_trades(SOLUSDT)`
+came back empty and the account sat at the default 4 SOL. Trade #26 hit its TP
+on 09-18 15:58 and `position_manager` tried to SELL every 60s: **4,597 failed
+closes** with `APIError(code=-2010): insufficient balance`, ~14 s of retry
+backoff each time, and the SOL slot stuck "in position" so it could never
+re-enter. BTC/ETH survived only because the reset's default balances happened
+to cover their quantities.
+
+Fix (`main.py:_handle_unfillable_close`): when a CLOSE fails with -2010 and the
+free base asset is below the trade quantity —
+- **testnet**: close the trade in the DB at the signal's exit price (testnet
+  PnL is already booked at signal prices, see the OPEN branch) and alert.
+- **mainnet**: never fake it. CRITICAL log + one Telegram alert per trade.
+
+-2010 with enough base balance is left alone — it means something else.
+
+**Diagnosis**: compare `get_my_trades(symbol)` against the DB's open trades. An
+empty exchange history for a symbol the DB holds open is a reset.

@@ -4,12 +4,14 @@ services:
     # TEMPORARY local build carrying two unpushed fixes:
     #   2026-07-30  closed-candle fetch + one-decision-per-bar  (gotcha #41)
     #   2026-08-15  scheduler job guard                          (gotcha #44)
+    #   2026-09-23  reconcile closes stranded by a testnet reset  (gotcha #45)
+    #               (built FROM the 0815 image + new main.py, same deps)
     # CI has not built these because the changes are not pushed. Watchtower pulls
     # :latest nightly at 04:00, so pointing at the ghcr tag would silently revert
     # them; the label below keeps this container out of that run.
     # TO RESTORE NORMAL DEPLOYMENT: push the changes, wait for CI, then revert
     # this image tag to ghcr.io/jorditomasg/trading-bot:latest and drop the label.
-    image: trading-bot:local-20260815-schedguard
+    image: trading-bot:local-20260923-resetfix
     container_name: trading-bot
     restart: unless-stopped
     command: python main.py
@@ -32,7 +34,7 @@ services:
 
   dashboard:
     # Same temporary local image as `bot` — see the note above.
-    image: trading-bot:local-20260815-schedguard
+    image: trading-bot:local-20260923-resetfix
     container_name: trading-dashboard
     restart: unless-stopped
     labels:

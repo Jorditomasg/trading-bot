@@ -250,3 +250,98 @@ def test_execute_order_open_unknown_symbol_uses_default(monkeypatch):
         == main_module._DEFAULT_PRICE_PRECISION
     )
 
+
+# ── CLOSE rejected for insufficient balance (testnet reset) ─────────────────
+# Incident 2026-09-18 → 09-23: Binance's spot testnet was reset, wiping the
+# 7.051 SOL of trade 26. Its TP hit on 09-18 and every 60s since the SELL was
+# rejected with -2010 — 4,597 failed closes, and the SOL slot stayed "in
+# position" so it could never re-enter.
+
+
+def _insufficient_balance_error() -> RuntimeError:
+    from binance.exceptions import BinanceAPIException
+
+    response = MagicMock()
+    response.text = '{"code":-2010,"msg":"Account has insufficient balance for requested action."}'
+    api_exc = BinanceAPIException(response, 400, response.text)
+    err = RuntimeError("All 3 attempts failed for place_order")
+    err.__cause__ = api_exc
+    return err
+
+
+def _close_order(trade_id: int = 26) -> dict:
+    return {
+        "action":      "CLOSE",
+        "symbol":      "SOLUSDT",
+        "side":        "SELL",
+        "quantity":    7.051,
+        "trade_id":    trade_id,
+        "exit_price":  111.20,
+        "exit_reason": "TAKE_PROFIT",
+    }
+
+
+def _rejecting_client(testnet: bool, free_base: float) -> MagicMock:
+    client = MagicMock()
+    client.is_testnet = testnet
+    client.place_order.side_effect = _insufficient_balance_error()
+    client.get_balance.return_value = free_base
+    return client
+
+
+@pytest.fixture(autouse=True)
+def _reset_close_alerts(monkeypatch):
+    monkeypatch.setattr(main_module, "_unfillable_close_alerted", set())
+
+
+def test_testnet_close_whose_base_asset_was_wiped_is_recorded_at_signal_price():
+    client = _rejecting_client(testnet=True, free_base=4.0)
+    db = MagicMock()
+    db.get_active_mode.return_value = "TESTNET"
+    notifier = MagicMock()
+
+    main_module._execute_order(client, db, _close_order(), notifier=notifier)
+
+    client.get_balance.assert_called_with("SOL")
+    db.close_trade.assert_called_once_with(
+        trade_id=26, exit_price=111.20, exit_reason="TAKE_PROFIT",
+    )
+    notifier.alert.assert_called_once()
+    notifier.trade_closed.assert_called_once()
+
+
+def test_mainnet_close_rejected_for_balance_is_never_faked_and_alerts_once():
+    client = _rejecting_client(testnet=False, free_base=4.0)
+    db = MagicMock()
+    db.get_active_mode.return_value = "MAINNET"
+    notifier = MagicMock()
+
+    main_module._execute_order(client, db, _close_order(), notifier=notifier)
+    main_module._execute_order(client, db, _close_order(), notifier=notifier)
+
+    db.close_trade.assert_not_called()
+    notifier.alert.assert_called_once()
+
+
+def test_testnet_close_with_enough_base_balance_is_not_reconciled():
+    # Balance is there, so -2010 means something else — do not paper over it.
+    client = _rejecting_client(testnet=True, free_base=10.0)
+    db = MagicMock()
+    db.get_active_mode.return_value = "TESTNET"
+
+    main_module._execute_order(client, db, _close_order(), notifier=None)
+
+    db.close_trade.assert_not_called()
+
+
+def test_close_failing_for_other_reasons_is_not_reconciled():
+    client = MagicMock()
+    client.is_testnet = True
+    client.place_order.side_effect = RuntimeError("All 3 attempts failed for place_order")
+    db = MagicMock()
+    db.get_active_mode.return_value = "TESTNET"
+
+    main_module._execute_order(client, db, _close_order(), notifier=None)
+
+    client.get_balance.assert_not_called()
+    db.close_trade.assert_not_called()

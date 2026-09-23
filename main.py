@@ -677,6 +677,90 @@ def _alert_orphan_position(
         )
 
 
+# trade_ids already alerted as unfillable — position_manager retries every 60s,
+# and one Telegram alert per trade is enough.
+_unfillable_close_alerted: set[int] = set()
+
+
+def _is_insufficient_balance(exc: BaseException) -> bool:
+    """True if `exc` (or the error it wraps) is Binance -2010 insufficient balance."""
+    cause = exc.__cause__ or exc
+    return getattr(cause, "code", None) == -2010
+
+
+def _handle_unfillable_close(
+    client: BinanceClient,
+    db: Database,
+    order: dict,
+    notifier: TelegramNotifier | None,
+    mode: str,
+) -> None:
+    """A CLOSE was rejected because the account lacks the base asset to sell.
+
+    On testnet this is the signature of a testnet reset: Binance wipes spot
+    testnet balances periodically, so the position the DB tracks no longer
+    exists. Testnet PnL is already booked at signal prices (see the OPEN
+    branch), so recording the close at the signal's exit price is consistent —
+    and without it the trade stays open forever, the symbol can never re-enter
+    and the close is retried every 60s (gotcha #45).
+
+    On mainnet a missing balance is a real discrepancy: never fake the close,
+    alert once and leave it to a human.
+    """
+    symbol   = order["symbol"]
+    trade_id = order["trade_id"]
+    base     = symbol[:-4] if symbol.endswith("USDT") else symbol
+    try:
+        free = client.get_balance(base)
+    except Exception as exc:
+        logger.warning("[%s] Could not read %s balance to diagnose failed close: %s", symbol, base, exc)
+        return
+    if free >= order["quantity"]:
+        return  # balance is there — -2010 means something else, do not paper over it
+
+    if client.is_testnet:
+        try:
+            _retry_db_write(
+                "close_trade", db.close_trade,
+                trade_id=trade_id,
+                exit_price=order["exit_price"],
+                exit_reason=order["exit_reason"],
+            )
+        except Exception as exc:
+            logger.error("[%s] Reconcile of trade id=%d failed: %s", symbol, trade_id, exc)
+            return
+        logger.warning(
+            "[%s] Trade id=%d reconciled: testnet holds %.5f %s < %.5f (testnet reset). "
+            "Closed in DB at signal price %.4f reason=%s",
+            symbol, trade_id, free, base, order["quantity"], order["exit_price"], order["exit_reason"],
+        )
+        if notifier:
+            notifier.alert(
+                f"<b>Trade reconciled</b> on <code>{symbol}</code> (id {trade_id})\n"
+                f"Testnet holds <code>{free:.5f} {base}</code>, trade needs "
+                f"<code>{order['quantity']:.5f}</code> — testnet balances were reset.\n"
+                f"Closed in DB at signal price <code>{order['exit_price']:.4f}</code>."
+            )
+            trade = db.get_trade(trade_id)
+            notifier.trade_closed(trade or order, trade["pnl"] if trade else 0.0, order["exit_reason"], mode)
+        return
+
+    if trade_id in _unfillable_close_alerted:
+        return
+    _unfillable_close_alerted.add(trade_id)
+    logger.critical(
+        "[%s] Cannot close trade id=%d: account holds %.5f %s but trade needs %.5f. "
+        "Manual reconciliation required.",
+        symbol, trade_id, free, base, order["quantity"],
+    )
+    if notifier:
+        notifier.alert(
+            f"<b>CLOSE BLOCKED</b> on <code>{symbol}</code> (id {trade_id})\n"
+            f"Account holds <code>{free:.5f} {base}</code>, trade needs "
+            f"<code>{order['quantity']:.5f}</code>.\nManual reconciliation required."
+        )
+
+
 def _execute_order(
     client: BinanceClient,
     db: Database,
@@ -744,6 +828,8 @@ def _execute_order(
             )
         except Exception as exc:
             logger.error("[%s] Failed to place close order: %s", symbol, exc)
+            if _is_insufficient_balance(exc):
+                _handle_unfillable_close(client, db, order, notifier, mode)
             return
 
         # Order is filled on the exchange. Retry the DB close before alerting.
