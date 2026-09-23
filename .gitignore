@@ -57,7 +57,11 @@ data/
 # Agent tooling
 .atl/
 .worktrees/
-.claude/
+# `.claude/` is local scratch EXCEPT project skills, which are part of the repo's
+# tooling and must survive a fresh clone (see docs/trading_skills.md). Needs the
+# `/*` form: git cannot un-ignore a path inside an excluded directory.
+.claude/*
+!.claude/skills/
 
 # Type checkers / linters
 .mypy_cache/

@@ -1,0 +1,619 @@
+<title>Trend Follower Post-Mortem</title>
+<style>
+  :root {
+    --paper:      #F4F6F8;
+    --surface:    #FFFFFF;
+    --surface-2:  #EDF0F3;
+    --ink:        #131A24;
+    --ink-soft:   #4C5866;
+    --ink-faint:  #7A8794;
+    --rule:       #D8DEE5;
+    --accent:     #1F6F8B;
+    --accent-ink: #14536A;
+    --pos:        #2E7D5B;
+    --neg:        #B3402F;
+    --warn:       #9A6B1F;
+    --shadow:     0 1px 2px rgba(19,26,36,.06), 0 8px 24px rgba(19,26,36,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:      #0E1319;
+      --surface:    #161D26;
+      --surface-2:  #1D2530;
+      --ink:        #E4E8ED;
+      --ink-soft:   #A2AEBB;
+      --ink-faint:  #74818F;
+      --rule:       #2A3441;
+      --accent:     #56B6D4;
+      --accent-ink: #8ED2E8;
+      --pos:        #5FBE92;
+      --neg:        #E27A66;
+      --warn:       #D3A24E;
+      --shadow:     0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:      #0E1319;
+    --surface:    #161D26;
+    --surface-2:  #1D2530;
+    --ink:        #E4E8ED;
+    --ink-soft:   #A2AEBB;
+    --ink-faint:  #74818F;
+    --rule:       #2A3441;
+    --accent:     #56B6D4;
+    --accent-ink: #8ED2E8;
+    --pos:        #5FBE92;
+    --neg:        #E27A66;
+    --warn:       #D3A24E;
+    --shadow:     0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 60rem;
+    margin: 0 auto;
+    padding: clamp(2rem, 5vw, 4.5rem) clamp(1rem, 4vw, 2.5rem) 6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 3.25rem;
+  }
+
+  /* ── Masthead ─────────────────────────────────────────── */
+  .masthead { display: flex; flex-direction: column; gap: 1rem; }
+  .kicker {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .72rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    display: flex; flex-wrap: wrap; gap: .6rem 1rem;
+  }
+  h1 {
+    font-family: Georgia, "Iowan Old Style", "Times New Roman", serif;
+    font-weight: 600;
+    font-size: clamp(2.1rem, 5.5vw, 3.1rem);
+    line-height: 1.1;
+    letter-spacing: -.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-size: 1.1rem;
+    color: var(--ink-soft);
+    max-width: 46rem;
+    margin: 0;
+    text-wrap: pretty;
+  }
+
+  /* ── Stat band ────────────────────────────────────────── */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .stat { background: var(--surface); padding: 1.1rem 1.15rem; display: flex; flex-direction: column; gap: .3rem; }
+  .stat dt {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .68rem; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--ink-faint); margin: 0;
+  }
+  .stat dd {
+    margin: 0;
+    font-size: 1.6rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.02em;
+    line-height: 1.15;
+  }
+  .stat dd small { font-size: .8rem; font-weight: 500; color: var(--ink-faint); letter-spacing: 0; }
+  .stat.is-verdict dd { color: var(--pos); }
+
+  /* ── Sections ─────────────────────────────────────────── */
+  section { display: flex; flex-direction: column; gap: 1.15rem; }
+  .sec-head { display: flex; flex-direction: column; gap: .55rem; border-top: 2px solid var(--ink); padding-top: 1rem; }
+  .eyebrow-row { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
+  .eyebrow {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .68rem; letter-spacing: .15em; text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  h2 {
+    font-family: Georgia, "Iowan Old Style", "Times New Roman", serif;
+    font-size: clamp(1.4rem, 3vw, 1.85rem);
+    font-weight: 600; line-height: 1.2; letter-spacing: -.01em; margin: 0;
+    text-wrap: balance;
+  }
+  h3 {
+    font-size: .95rem; font-weight: 650; margin: .6rem 0 0;
+    letter-spacing: .01em;
+  }
+  p { margin: 0; max-width: 46rem; text-wrap: pretty; }
+  section > p + p { margin-top: -.35rem; }
+
+  .chip {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .65rem; letter-spacing: .1em; text-transform: uppercase;
+    padding: .22rem .5rem; border-radius: 2px; font-weight: 600;
+    border: 1px solid currentColor; white-space: nowrap;
+  }
+  .chip.critical { color: var(--neg); }
+  .chip.fixed    { color: var(--pos); }
+  .chip.rejected { color: var(--warn); }
+  .chip.ok       { color: var(--accent-ink); }
+
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .87em;
+    background: var(--surface-2);
+    padding: .1em .34em;
+    border-radius: 2px;
+  }
+  strong { font-weight: 650; }
+
+  /* ── Callout ──────────────────────────────────────────── */
+  .callout {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    border-radius: 2px;
+    padding: 1.05rem 1.2rem;
+    box-shadow: var(--shadow);
+    display: flex; flex-direction: column; gap: .5rem;
+  }
+  .callout.bad { border-left-color: var(--neg); }
+  .callout p { max-width: none; font-size: .95rem; }
+  .callout .lead {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .68rem; letter-spacing: .13em; text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  /* ── Tables ───────────────────────────────────────────── */
+  .scroll { overflow-x: auto; border: 1px solid var(--rule); border-radius: 3px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  caption {
+    caption-side: top; text-align: left; padding: .8rem 1rem .1rem;
+    font-size: .82rem; color: var(--ink-faint);
+  }
+  th, td { padding: .55rem .85rem; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--rule); }
+  th:first-child, td:first-child { text-align: left; }
+  thead th {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .68rem; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 600;
+    border-bottom: 1px solid var(--ink-faint);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td { font-variant-numeric: tabular-nums; }
+  .num-pos { color: var(--pos); }
+  .num-neg { color: var(--neg); }
+  tr.is-live { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  tr.is-live td { font-weight: 600; }
+
+  /* ── Heatmap grid ─────────────────────────────────────── */
+  .grid-note { font-size: .85rem; color: var(--ink-soft); max-width: 46rem; }
+  table.heat td { text-align: center; position: relative; }
+  table.heat th[scope="row"] { text-align: left; font-variant-numeric: tabular-nums; font-weight: 500; }
+  table.heat td.peak { outline: 2px solid var(--accent); outline-offset: -2px; font-weight: 700; }
+
+  ul { margin: 0; padding-left: 1.15rem; display: flex; flex-direction: column; gap: .5rem; max-width: 46rem; }
+  li { padding-left: .15rem; }
+  li::marker { color: var(--ink-faint); }
+
+  footer {
+    border-top: 1px solid var(--rule); padding-top: 1.25rem;
+    font-size: .84rem; color: var(--ink-faint);
+    display: flex; flex-direction: column; gap: .4rem;
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="kicker">
+      <span>Strategy Review</span><span>15 Aug 2026</span><span>BTC · ETH · SOL — 4h</span>
+    </div>
+    <h1>The bot was dead for two days. The strategy was fine.</h1>
+    <p class="standfirst">
+      Applying an external skill library to this repo turned up two real problems — a silent
+      production outage and a measurement bug that had been understating the strategy in its own
+      documentation. Neither was the trading edge, which scores <strong>Deploy</strong> on nine
+      years of multi-regime data.
+    </p>
+  </header>
+
+  <dl class="stats">
+    <div class="stat is-verdict">
+      <dt>Verdict</dt>
+      <dd>87<small>/100</small></dd>
+    </div>
+    <div class="stat">
+      <dt>Tested</dt>
+      <dd>9<small> yr</small></dd>
+    </div>
+    <div class="stat">
+      <dt>Trades</dt>
+      <dd>477</dd>
+    </div>
+    <div class="stat">
+      <dt>Profit factor</dt>
+      <dd>1.48</dd>
+    </div>
+    <div class="stat">
+      <dt>Max drawdown</dt>
+      <dd>12.2<small>%</small></dd>
+    </div>
+  </dl>
+
+  <!-- ── 1. Incident ─────────────────────────────────────── -->
+  <section>
+    <div class="sec-head">
+      <div class="eyebrow-row">
+        <span class="eyebrow">Incident</span>
+        <span class="chip critical">Critical</span>
+        <span class="chip fixed">Fixed &amp; deployed</span>
+      </div>
+      <h2>A dead bot that looked perfectly healthy</h2>
+    </div>
+
+    <p>
+      On <strong>13 Aug 02:58 UTC</strong> a connection reset during a Binance SSL handshake
+      escaped the position manager, propagated out of the scheduler, and killed the main loop.
+      The container stayed <code>Up</code> with a restart count of zero — because the websocket
+      manager runs non-daemon threads, the process never exited, so Docker's restart policy
+      never fired.
+    </p>
+    <p>
+      Nothing ran for <strong>2 days 8 hours</strong>. No entries, and — the part that matters —
+      no position manager, which is the only thing watching stops on open positions.
+    </p>
+
+    <div class="callout bad">
+      <span class="lead">What it cost</span>
+      <p>
+        The open SOLUSDT trade (entry 76.42, stop 75.089) had its stop breached on 14 Aug
+        at 14:00 — session low <strong>74.69</strong> — and no exit was executed. Entries
+        stopping is harmless. Exits stopping is not.
+      </p>
+    </div>
+
+    <p>
+      Three things hid it: the process didn't exit, the logs kept scrolling with warnings from
+      surviving daemon threads, and the crash handler logged and returned by design. Only the
+      <em>absence</em> of INFO lines gave it away.
+    </p>
+
+    <div class="callout">
+      <span class="lead">Cheapest liveness probe</span>
+      <p>
+        “Container Up” proves nothing. The <code>equity</code> table gets a row per hourly
+        cycle, so <code>SELECT MAX(timestamp) FROM equity</code> is the honest health check.
+      </p>
+    </div>
+
+    <p>
+      Fixed with a per-job guard wrapper plus a contained scheduler tick and
+      <code>try/finally</code> cleanup, so the process now actually exits and lets Docker
+      restart it. Five regression tests pin the behaviour — including one that deliberately
+      pins the <em>unguarded</em> starvation case, so the reason for per-job wrapping can't be
+      refactored away.
+    </p>
+  </section>
+
+  <!-- ── 2. Parity ───────────────────────────────────────── -->
+  <section>
+    <div class="sec-head">
+      <div class="eyebrow-row">
+        <span class="eyebrow">Measurement</span>
+        <span class="chip fixed">Documented</span>
+      </div>
+      <h2>The documented risk table described a strategy that wasn't running</h2>
+    </div>
+
+    <p>
+      A research script built its backtest config by hand, which silently inherits the permissive
+      research defaults. That config differed from production in <strong>ten fields</strong> —
+      all four entry-quality filters off instead of on, the strict bias gate off, Kelly sizing on
+      instead of off, and a take-profit of 4.5 instead of the seeded 5.0. Its output was written
+      into the project's own baseline documentation.
+    </p>
+
+    <div class="scroll">
+      <table>
+        <caption>Same 3-year window, same symbols, same 1.5% risk — only the config differs.</caption>
+        <thead>
+          <tr><th>Config</th><th>Annual</th><th>Max DD</th><th>PF</th><th>Calmar</th><th>Trades</th></tr>
+        </thead>
+        <tbody>
+          <tr class="is-live">
+            <td>Live-parity (actual production)</td>
+            <td class="num-pos">+12.5%</td><td>10.4%</td><td>1.36</td><td>1.20</td><td>253</td>
+          </tr>
+          <tr>
+            <td>The config the docs used</td>
+            <td class="num-pos">+10.6%</td><td class="num-neg">21.7%</td><td>1.14</td><td>0.49</td><td>326</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      The error ran in the flattering direction for the fix and the unflattering one for the bot:
+      the documentation had been <strong>doubling the drawdown and halving the Calmar</strong> of
+      its own strategy. The entry-quality filters are doing real work — 22% fewer trades, and the
+      ones they skip are the bad ones.
+    </p>
+  </section>
+
+  <!-- ── 3. Validation ───────────────────────────────────── -->
+  <section>
+    <div class="sec-head">
+      <div class="eyebrow-row">
+        <span class="eyebrow">Validation</span>
+        <span class="chip ok">Deploy — 87/100</span>
+      </div>
+      <h2>Nine years, six regimes, one honest config</h2>
+    </div>
+
+    <p>
+      The kline cache only reached back to May 2023, so the strategy had <strong>never been tested
+      through the 2021 blow-off top or the 2022 bear</strong>. History now extends to August 2017.
+      Every run below uses the real production config.
+    </p>
+
+    <div class="scroll">
+      <table>
+        <caption>Baseline, live-parity config.</caption>
+        <thead>
+          <tr><th>Window</th><th>Annual</th><th>Max DD</th><th>PF</th><th>Calmar</th><th>Trades</th><th>Win</th></tr>
+        </thead>
+        <tbody>
+          <tr class="is-live"><td>BTC+ETH · 2017→2026 (9y)</td><td class="num-pos">+15.9%</td><td>12.2%</td><td>1.48</td><td>1.31</td><td>477</td><td>34.6%</td></tr>
+          <tr><td>BTC+ETH+SOL · 2020→2026 (6y)</td><td class="num-pos">+12.8%</td><td>10.4%</td><td>1.38</td><td>1.23</td><td>498</td><td>32.3%</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Average win <strong>13.0%</strong> of notional against an average loss of <strong>4.0%</strong>
+      — a 3.25:1 ratio, consistent with the 5×ATR target and 1.5×ATR stop. Expectancy
+      <strong>+1.95% per trade</strong>. At 477 trades the sample clears the “high confidence”
+      threshold several times over.
+    </p>
+
+    <h3>Parameter sensitivity — one plateau, one cliff-hanger</h3>
+    <p class="grid-note">
+      Calmar across the stop × take-profit grid. Darker is better. The methodology asks for
+      <em>plateaus, not peaks</em> — stable neighbourhoods rather than lucky spikes.
+    </p>
+
+    <div class="scroll">
+      <table class="heat">
+        <caption>Rows: stop multiplier. Columns: take-profit multiplier. Outlined cell is the live setting.</caption>
+        <thead>
+          <tr><th>stop \ TP</th><th>4.0</th><th>4.5</th><th>5.0</th><th>5.5</th><th>6.0</th></tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">0.750</th>
+            <td style="background:rgba(31,111,139,.05)">0.31</td>
+            <td style="background:rgba(31,111,139,.10)">0.42</td>
+            <td style="background:rgba(31,111,139,.18)">0.62</td>
+            <td style="background:rgba(31,111,139,.27)">0.84</td>
+            <td style="background:rgba(31,111,139,.34)">1.02</td></tr>
+          <tr><th scope="row">1.125</th>
+            <td style="background:rgba(31,111,139,.21)">0.71</td>
+            <td style="background:rgba(31,111,139,.33)">1.00</td>
+            <td style="background:rgba(31,111,139,.40)">1.16</td>
+            <td style="background:rgba(31,111,139,.42)">1.20</td>
+            <td style="background:rgba(31,111,139,.48)">1.37</td></tr>
+          <tr><th scope="row">1.500</th>
+            <td style="background:rgba(31,111,139,.25)">0.80</td>
+            <td style="background:rgba(31,111,139,.41)">1.19</td>
+            <td class="peak" style="background:rgba(31,111,139,.43)">1.23</td>
+            <td style="background:rgba(31,111,139,.52)">1.45</td>
+            <td style="background:rgba(31,111,139,.55)">1.53</td></tr>
+          <tr><th scope="row">1.875</th>
+            <td style="background:rgba(31,111,139,.28)">0.87</td>
+            <td style="background:rgba(31,111,139,.30)">0.93</td>
+            <td style="background:rgba(31,111,139,.41)">1.18</td>
+            <td style="background:rgba(31,111,139,.44)">1.26</td>
+            <td style="background:rgba(31,111,139,.48)">1.36</td></tr>
+          <tr><th scope="row">2.250</th>
+            <td style="background:rgba(31,111,139,.25)">0.80</td>
+            <td style="background:rgba(31,111,139,.29)">0.90</td>
+            <td style="background:rgba(31,111,139,.37)">1.08</td>
+            <td style="background:rgba(31,111,139,.42)">1.22</td>
+            <td style="background:rgba(31,111,139,.45)">1.29</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      <strong>The stop is well chosen.</strong> Read down the 5.0 column: 0.62 → 1.16 →
+      <em>1.23</em> → 1.18 → 1.08. Cleanly centred on 1.5 with no cliff either side, and the
+      same shape holds in every column. That is what a parameter that isn't curve-fit looks like.
+    </p>
+    <p>
+      <strong>The take-profit is not.</strong> Along the 1.5 row, Calmar climbs all the way to the
+      edge of the grid and never turns over. The optimum lies <em>outside</em> the tested range —
+      and the built-in walk-forward optimizer caps its take-profit grid at exactly 5.0, so it
+      cannot discover the better region even in principle.
+    </p>
+
+    <div class="callout">
+      <span class="lead">Deliberately not acting on this</span>
+      <p>
+        A monotonic climb into a boundary is exactly what a plain grid search over-reads, and
+        higher targets also mean fewer trades and less fee drag — two explanations, one number.
+        The right next step is widening the grid and running the walk-forward audit, not editing
+        a config.
+      </p>
+    </div>
+
+    <h3>Friction and time robustness</h3>
+    <p>
+      Stressed to triple the assumed fee, the strategy still turns a profit factor of 1.19. The
+      edge is not a fee-structure artifact.
+    </p>
+
+    <div class="scroll">
+      <table>
+        <caption>Calendar-year breakdown. Every losing year is a bear market.</caption>
+        <thead>
+          <tr><th>Year</th><th>Annual</th><th>Max DD</th><th>PF</th><th>Trades</th><th>Win</th><th>Regime</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>2018</td><td class="num-neg">−4.4%</td><td>11.3%</td><td>0.74</td><td>27</td><td>18.5%</td><td>bear</td></tr>
+          <tr><td>2019</td><td class="num-pos">+26.2%</td><td>7.3%</td><td>2.08</td><td>46</td><td>41.3%</td><td>recovery</td></tr>
+          <tr><td>2020</td><td class="num-pos">+41.0%</td><td>6.9%</td><td>2.17</td><td>67</td><td>43.3%</td><td>covid crash + bull</td></tr>
+          <tr><td>2021</td><td class="num-pos">+19.4%</td><td>7.1%</td><td>1.44</td><td>109</td><td>32.1%</td><td>blow-off top</td></tr>
+          <tr><td>2022</td><td class="num-neg">−1.4%</td><td>8.4%</td><td>0.93</td><td>49</td><td>24.5%</td><td>bear</td></tr>
+          <tr><td>2023</td><td class="num-pos">+10.1%</td><td>6.9%</td><td>1.38</td><td>74</td><td>32.4%</td><td>recovery</td></tr>
+          <tr><td>2024</td><td class="num-pos">+16.9%</td><td>7.6%</td><td>1.53</td><td>86</td><td>33.7%</td><td>bull</td></tr>
+          <tr><td>2025</td><td class="num-pos">+8.1%</td><td>5.9%</td><td>1.33</td><td>67</td><td>31.3%</td><td>chop/decline</td></tr>
+          <tr><td>2026</td><td class="num-neg">−10.2%</td><td>10.4%</td><td>0.62</td><td>41</td><td>19.5%</td><td>bear</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      <strong>Six of nine years positive</strong>, no single year losing more than 11.3% at its
+      worst point, and every loss confined to a bear market. That is the textbook signature of a
+      long-only trend follower — not a broken edge.
+    </p>
+  </section>
+
+  <!-- ── 4. Rejected hypothesis ──────────────────────────── -->
+  <section>
+    <div class="sec-head">
+      <div class="eyebrow-row">
+        <span class="eyebrow">Hypothesis</span>
+        <span class="chip rejected">Rejected</span>
+      </div>
+      <h2>The obvious fix for the drawdown makes it worse</h2>
+    </div>
+
+    <p>
+      The strategy ships two entry gates that are switched off and that look like the natural
+      answer to a bear market: block longs below the 200 EMA, and require a minimum trend
+      strength. Judging them on the current bear alone would be regime-fitting, so they were
+      tested across five regime windows.
+    </p>
+
+    <div class="scroll">
+      <table>
+        <caption>Calmar by variant. Higher is better.</caption>
+        <thead>
+          <tr><th>Variant</th><th>Full 6y</th><th>2020–21 bull</th><th>2022 bear</th><th>2023–24</th><th>2025–26 chop</th></tr>
+        </thead>
+        <tbody>
+          <tr class="is-live"><td>Both off — live setting</td><td>1.23</td><td>3.50</td><td>−0.34</td><td>1.59</td><td>0.36</td></tr>
+          <tr><td>EMA200 alignment on</td><td>1.07</td><td>3.50</td><td class="num-neg">−0.52</td><td>1.60</td><td>0.33</td></tr>
+          <tr><td>Min entry ADX 20</td><td>0.83</td><td>3.38</td><td>−0.40</td><td>1.00</td><td>0.11</td></tr>
+          <tr><td>Min entry ADX 25</td><td>0.63</td><td>3.05</td><td class="num-neg">−0.60</td><td>1.51</td><td>0.04</td></tr>
+          <tr><td>EMA200 + ADX 20</td><td>0.82</td><td>3.38</td><td>−0.40</td><td>1.01</td><td>0.06</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      The live setting wins or ties in <strong>every window</strong>. The striking result is the
+      2022 column: the 200-EMA gate makes the <em>bear market itself</em> worse — Calmar −0.34 to
+      −0.52, win rate 23.5% down to 18.8%. It barely removes any trades (34 → 32) but it delays
+      re-entry on the recovery legs, which is precisely where a long-only trend follower earns
+      the money that pays for the bear.
+    </p>
+    <p>
+      <strong>Action: none.</strong> Both gates stay off. This is the fix people reach for during
+      a drawdown, and it has now been tested and ruled out.
+    </p>
+  </section>
+
+  <!-- ── 5. Live streak ──────────────────────────────────── -->
+  <section>
+    <div class="sec-head">
+      <div class="eyebrow-row">
+        <span class="eyebrow">Context</span>
+      </div>
+      <h2>Is the live losing streak the edge failing?</h2>
+    </div>
+
+    <p>
+      The live record reads badly: 12 closed trades, one win, profit factor 0.22, −231 USDT on a
+      10,000 baseline. Three independent checks say environment, not breakage.
+    </p>
+
+    <ul>
+      <li>
+        <strong>Regime scoring puts the market at RISK_OFF, 37.4/100.</strong> Bitcoin sits in a
+        bear stack — price below the 50-day below the 200-day, with the 200-day falling — 49.5%
+        off its one-year high, with only 35% of the top 20 positive over 30 days.
+      </li>
+      <li>
+        <strong>The backtest reproduces it.</strong> 2026 in the table above is −10.2% with a
+        19.5% win rate, on data the strategy never saw.
+      </li>
+      <li>
+        <strong>The sample is too small to conclude anything.</strong> Twelve trades is below the
+        30-trade minimum. The probability of one win or fewer in twelve, at the true 34% rate,
+        is 4.9% — low, but not damning once the regime is accounted for.
+      </li>
+    </ul>
+
+    <div class="callout">
+      <span class="lead">The live sample is contaminated anyway</span>
+      <p>
+        Four of those twelve trades were opened by code that traded the still-forming candle, and
+        the open SOL trade spans the multi-day outage. A clean live scorecard starts from today.
+      </p>
+    </div>
+  </section>
+
+  <!-- ── 6. Open ─────────────────────────────────────────── -->
+  <section>
+    <div class="sec-head">
+      <div class="eyebrow-row"><span class="eyebrow">Open items</span></div>
+      <h2>What still needs doing</h2>
+    </div>
+    <ul>
+      <li>
+        <strong>Nothing is committed.</strong> Both production fixes run from a local image CI has
+        never built. An image prune or a compose revert silently undoes both. Highest priority.
+      </li>
+      <li>
+        <strong>Widen the take-profit grid past 5.0</strong> and re-run the walk-forward audit
+        before touching the parameter.
+      </li>
+      <li>
+        <strong>No liveness alerting.</strong> The outage went unnoticed for two days and eight hours.
+        A daily heartbeat exists, but nothing alerts on its <em>absence</em> — and silence is
+        indistinguishable from a healthy quiet bot.
+      </li>
+      <li>
+        <strong>The one-decision-per-bar guard is in-memory.</strong> A restart clears it, and the
+        host reboots weekly. Low impact, not zero.
+      </li>
+    </ul>
+  </section>
+
+  <footer>
+    <div>Nine tunable parameters is the one medium red flag in the scoring — curve-fitting surface worth remembering before adding a tenth.</div>
+    <div>Full detail, reproduction scripts and gotcha write-ups live in the repo under <code>docs/audits/</code> and <code>docs/gotchas.md</code>.</div>
+  </footer>
+
+</div>

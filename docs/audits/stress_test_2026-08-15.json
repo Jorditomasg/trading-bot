@@ -1,0 +1,940 @@
+{
+  "baseline": [
+    {
+      "label": "BTC+ETH+SOL 2020-08\u2192now",
+      "skipped": false,
+      "annual": 0.12763371089955222,
+      "dd": 10.415004209041514,
+      "pf": 1.3767985943274996,
+      "sharpe": 1.1747769483582866,
+      "trades": 498,
+      "win_rate": 32.329317269076306,
+      "avg_win_pct": 0.12914217015857696,
+      "avg_loss_pct": 0.04116298868612942,
+      "final": 20593.15722489404,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ]
+      }
+    },
+    {
+      "label": "BTC+ETH 2017-08\u2192now",
+      "skipped": false,
+      "annual": 0.15916715360378642,
+      "dd": 12.193731558670105,
+      "pf": 1.4763260977062547,
+      "sharpe": 1.2946239699836257,
+      "trades": 477,
+      "win_rate": 34.59119496855346,
+      "avg_win_pct": 0.11127153175155592,
+      "avg_loss_pct": 0.03775014005468685,
+      "final": 37784.57985290293,
+      "extra": {
+        "days": 3285,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT"
+        ]
+      }
+    }
+  ],
+  "parity": [
+    {
+      "label": "3y live-parity config",
+      "skipped": false,
+      "annual": 0.124802420506547,
+      "dd": 10.415130819963217,
+      "pf": 1.363372809903117,
+      "sharpe": 1.144017147865193,
+      "trades": 253,
+      "win_rate": 32.41106719367589,
+      "avg_win_pct": 0.09681926120134876,
+      "avg_loss_pct": 0.03261361281929958,
+      "final": 14230.780721051726,
+      "extra": {
+        "days": 1095,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ]
+      }
+    },
+    {
+      "label": "3y validate_live_risk cfg",
+      "skipped": false,
+      "annual": 0.10602496199058997,
+      "dd": 21.73835080676932,
+      "pf": 1.142891166687825,
+      "sharpe": 0.5968134243822986,
+      "trades": 326,
+      "win_rate": 29.754601226993866,
+      "avg_win_pct": 0.0958960508366277,
+      "avg_loss_pct": 0.03288405504215234,
+      "final": 13529.906212840287,
+      "extra": {
+        "days": 1095,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ]
+      }
+    }
+  ],
+  "sensitivity": [
+    {
+      "label": "s0.75/t4.0",
+      "skipped": false,
+      "annual": 0.05385911409474731,
+      "dd": 17.107616573566915,
+      "pf": 1.0859534061977079,
+      "sharpe": 0.4282149791101901,
+      "trades": 838,
+      "win_rate": 19.928400954653938,
+      "avg_win_pct": 0.0937905844484684,
+      "avg_loss_pct": 0.02107040673446378,
+      "final": 13709.052024820758,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 0.75,
+        "tp": 4.0
+      }
+    },
+    {
+      "label": "s0.75/t4.5",
+      "skipped": false,
+      "annual": 0.07582924817545744,
+      "dd": 18.20544947424747,
+      "pf": 1.1205881873059582,
+      "sharpe": 0.5498251170901017,
+      "trades": 803,
+      "win_rate": 18.55541718555417,
+      "avg_win_pct": 0.10858393384438239,
+      "avg_loss_pct": 0.021028035353514045,
+      "final": 15520.114574591942,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 0.75,
+        "tp": 4.5
+      }
+    },
+    {
+      "label": "s0.75/t5.0",
+      "skipped": false,
+      "annual": 0.11416723908021065,
+      "dd": 18.46249391657136,
+      "pf": 1.1859014535706223,
+      "sharpe": 0.7583202658249901,
+      "trades": 770,
+      "win_rate": 17.92207792207792,
+      "avg_win_pct": 0.12171821695124221,
+      "avg_loss_pct": 0.02087953547976915,
+      "final": 19157.792363776745,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 0.75,
+        "tp": 5.0
+      }
+    },
+    {
+      "label": "s0.75/t5.5",
+      "skipped": false,
+      "annual": 0.13665100995335555,
+      "dd": 16.23417918059753,
+      "pf": 1.2217851389819052,
+      "sharpe": 0.8613657325472115,
+      "trades": 746,
+      "win_rate": 17.024128686327078,
+      "avg_win_pct": 0.13368210606394654,
+      "avg_loss_pct": 0.020975526171131038,
+      "final": 21603.537375119104,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 0.75,
+        "tp": 5.5
+      }
+    },
+    {
+      "label": "s0.75/t6.0",
+      "skipped": false,
+      "annual": 0.16838059962279672,
+      "dd": 16.545515104510077,
+      "pf": 1.2663368275895157,
+      "sharpe": 1.0031779381874253,
+      "trades": 720,
+      "win_rate": 16.52777777777778,
+      "avg_win_pct": 0.14865320344259506,
+      "avg_loss_pct": 0.02123226374658651,
+      "final": 25493.639223680315,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 0.75,
+        "tp": 6.0
+      }
+    },
+    {
+      "label": "s1.125/t4.0",
+      "skipped": false,
+      "annual": 0.09482357516360551,
+      "dd": 13.37995114854093,
+      "pf": 1.2034953115191482,
+      "sharpe": 0.7973593188319956,
+      "trades": 657,
+      "win_rate": 28.767123287671232,
+      "avg_win_pct": 0.09902905439127123,
+      "avg_loss_pct": 0.03092474162043698,
+      "final": 17242.64173630266,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 1.125,
+        "tp": 4.0
+      }
+    },
+    {
+      "label": "s1.125/t4.5",
+      "skipped": false,
+      "annual": 0.1291594129958633,
+      "dd": 12.954282699443187,
+      "pf": 1.2871701783735443,
+      "sharpe": 1.010251641301202,
+      "trades": 613,
+      "win_rate": 27.732463295269167,
+      "avg_win_pct": 0.11314912274505909,
+      "avg_loss_pct": 0.031204528222488672,
+      "final": 20761.285010994816,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 1.125,
+        "tp": 4.5
+      }
+    },
+    {
+      "label": "s1.125/t5.0",
+      "skipped": false,
+      "annual": 0.15026916521534406,
+      "dd": 12.985735485066744,
+      "pf": 1.350303145818824,
+      "sharpe": 1.124331691555998,
+      "trades": 578,
+      "win_rate": 26.643598615916954,
+      "avg_win_pct": 0.12525262602803888,
+      "avg_loss_pct": 0.031139053360074206,
+      "final": 23207.573658911115,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 1.125,
+        "tp": 5.0
+      }
+    },
+    {
+      "label": "s1.125/t5.5",
+      "skipped": false,
+      "annual": 0.16141222063422034,
+      "dd": 13.403584447981782,
+      "pf": 1.3743205824415057,
+      "sharpe": 1.1650876112667445,
+      "trades": 557,
+      "win_rate": 25.314183123877914,
+      "avg_win_pct": 0.13774815739883417,
+      "avg_loss_pct": 0.031251550105118764,
+      "final": 24592.83371583423,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 1.125,
+        "tp": 5.5
+      }
+    },
+    {
+      "label": "s1.125/t6.0",
+      "skipped": false,
+      "annual": 0.17998766979402703,
+      "dd": 13.165547836346084,
+      "pf": 1.4107505777996296,
+      "sharpe": 1.252031236147309,
+      "trades": 534,
+      "win_rate": 24.531835205992508,
+      "avg_win_pct": 0.15275660983417283,
+      "avg_loss_pct": 0.03145332710305239,
+      "final": 27055.118349852826,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 1.125,
+        "tp": 6.0
+      }
+    },
+    {
+      "label": "s1.5/t4.0",
+      "skipped": false,
+      "annual": 0.08672921007779189,
+      "dd": 10.898963281449117,
+      "pf": 1.2348375646039567,
+      "sharpe": 0.8628015059790719,
+      "trades": 573,
+      "win_rate": 34.72949389179756,
+      "avg_win_pct": 0.10221753308548114,
+      "avg_loss_pct": 0.04038212990141231,
+      "final": 16490.083558962764,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 1.5,
+        "tp": 4.0
+      }
+    },
+    {
+      "label": "s1.5/t4.5",
+      "skipped": false,
+      "annual": 0.11224529013836904,
+      "dd": 9.44976233450873,
+      "pf": 1.316304868267783,
+      "sharpe": 1.0714697787042289,
+      "trades": 533,
+      "win_rate": 33.58348968105066,
+      "avg_win_pct": 0.11628327347695624,
+      "avg_loss_pct": 0.04111736577168093,
+      "final": 18959.912855477978,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 1.5,
+        "tp": 4.5
+      }
+    },
+    {
+      "label": "s1.5/t5.0",
+      "skipped": false,
+      "annual": 0.12763371089955222,
+      "dd": 10.415004209041514,
+      "pf": 1.3767985943274996,
+      "sharpe": 1.1747769483582866,
+      "trades": 498,
+      "win_rate": 32.329317269076306,
+      "avg_win_pct": 0.12914217015857696,
+      "avg_loss_pct": 0.04116298868612942,
+      "final": 20593.15722489404,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 1.5,
+        "tp": 5.0
+      }
+    },
+    {
+      "label": "s1.5/t5.5",
+      "skipped": false,
+      "annual": 0.13847056028658766,
+      "dd": 9.541988466917013,
+      "pf": 1.4077232585424826,
+      "sharpe": 1.233907522939636,
+      "trades": 483,
+      "win_rate": 30.848861283643892,
+      "avg_win_pct": 0.14235275632262,
+      "avg_loss_pct": 0.04121957393140376,
+      "final": 21812.345071694104,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 1.5,
+        "tp": 5.5
+      }
+    },
+    {
+      "label": "s1.5/t6.0",
+      "skipped": false,
+      "annual": 0.14709099696183925,
+      "dd": 9.599459546687934,
+      "pf": 1.4395213544888712,
+      "sharpe": 1.2640752699662858,
+      "trades": 453,
+      "win_rate": 29.80132450331126,
+      "avg_win_pct": 0.15770443578304605,
+      "avg_loss_pct": 0.041641956288621385,
+      "final": 22824.62422769189,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 1.5,
+        "tp": 6.0
+      }
+    },
+    {
+      "label": "s1.875/t4.0",
+      "skipped": false,
+      "annual": 0.08601539365031474,
+      "dd": 9.859142237267069,
+      "pf": 1.2888310828007756,
+      "sharpe": 0.9845001654442742,
+      "trades": 502,
+      "win_rate": 40.63745019920319,
+      "avg_win_pct": 0.10516915770360502,
+      "avg_loss_pct": 0.04958915615674951,
+      "final": 16425.053426897804,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 1.875,
+        "tp": 4.0
+      }
+    },
+    {
+      "label": "s1.875/t4.5",
+      "skipped": false,
+      "annual": 0.10401755055379014,
+      "dd": 11.14510239408665,
+      "pf": 1.366310853735064,
+      "sharpe": 1.1469865563880206,
+      "trades": 466,
+      "win_rate": 39.27038626609442,
+      "avg_win_pct": 0.12017991042999557,
+      "avg_loss_pct": 0.05037367691460899,
+      "final": 18131.952661967178,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 1.875,
+        "tp": 4.5
+      }
+    },
+    {
+      "label": "s1.875/t5.0",
+      "skipped": false,
+      "annual": 0.11418868483529887,
+      "dd": 9.69103050830938,
+      "pf": 1.4167648641238768,
+      "sharpe": 1.22620357522952,
+      "trades": 438,
+      "win_rate": 37.67123287671233,
+      "avg_win_pct": 0.13315101648621033,
+      "avg_loss_pct": 0.05041444598588356,
+      "final": 19160.01004457195,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 1.875,
+        "tp": 5.0
+      }
+    },
+    {
+      "label": "s1.875/t5.5",
+      "skipped": false,
+      "annual": 0.12483105844413589,
+      "dd": 9.91811212230595,
+      "pf": 1.4652610656876957,
+      "sharpe": 1.2993716884038642,
+      "trades": 423,
+      "win_rate": 36.17021276595745,
+      "avg_win_pct": 0.14753860225763804,
+      "avg_loss_pct": 0.05064896300213648,
+      "final": 20287.270625965604,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 1.875,
+        "tp": 5.5
+      }
+    },
+    {
+      "label": "s1.875/t6.0",
+      "skipped": false,
+      "annual": 0.13105725386300393,
+      "dd": 9.616990893315675,
+      "pf": 1.4901087238551791,
+      "sharpe": 1.3209121624754665,
+      "trades": 398,
+      "win_rate": 34.92462311557789,
+      "avg_win_pct": 0.16358187665251503,
+      "avg_loss_pct": 0.05085317568553736,
+      "final": 20972.017036149828,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 1.875,
+        "tp": 6.0
+      }
+    },
+    {
+      "label": "s2.25/t4.0",
+      "skipped": false,
+      "annual": 0.07310802050717902,
+      "dd": 9.15204100811605,
+      "pf": 1.2938776675847725,
+      "sharpe": 0.9552312458344713,
+      "trades": 459,
+      "win_rate": 44.88017429193899,
+      "avg_win_pct": 0.10457705463860563,
+      "avg_loss_pct": 0.058650973965077936,
+      "final": 15285.527058770498,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 2.25,
+        "tp": 4.0
+      }
+    },
+    {
+      "label": "s2.25/t4.5",
+      "skipped": false,
+      "annual": 0.08545025940193929,
+      "dd": 9.537718707946107,
+      "pf": 1.3558388881214605,
+      "sharpe": 1.0839113614172151,
+      "trades": 426,
+      "win_rate": 43.1924882629108,
+      "avg_win_pct": 0.12078144652694818,
+      "avg_loss_pct": 0.05990346839559717,
+      "final": 16373.720315887462,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 2.25,
+        "tp": 4.5
+      }
+    },
+    {
+      "label": "s2.25/t5.0",
+      "skipped": false,
+      "annual": 0.09657075268464044,
+      "dd": 8.963242450822651,
+      "pf": 1.4199653574931335,
+      "sharpe": 1.190693510724122,
+      "trades": 400,
+      "win_rate": 41.75,
+      "avg_win_pct": 0.1332207765485605,
+      "avg_loss_pct": 0.0605193150081159,
+      "final": 17408.7824275917,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 2.25,
+        "tp": 5.0
+      }
+    },
+    {
+      "label": "s2.25/t5.5",
+      "skipped": false,
+      "annual": 0.11590933001403592,
+      "dd": 9.519457790610229,
+      "pf": 1.5186127159113287,
+      "sharpe": 1.3839208064459818,
+      "trades": 378,
+      "win_rate": 41.269841269841265,
+      "avg_win_pct": 0.1498295453982204,
+      "avg_loss_pct": 0.05900693865244891,
+      "final": 19338.63884788447,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 2.25,
+        "tp": 5.5
+      }
+    },
+    {
+      "label": "s2.25/t6.0",
+      "skipped": false,
+      "annual": 0.11746847002431804,
+      "dd": 9.09851098787899,
+      "pf": 1.5319966657301585,
+      "sharpe": 1.3634867780015394,
+      "trades": 356,
+      "win_rate": 39.60674157303371,
+      "avg_win_pct": 0.16717877941051265,
+      "avg_loss_pct": 0.059333340337418466,
+      "final": 19501.69796559668,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "stop": 2.25,
+        "tp": 6.0
+      }
+    }
+  ],
+  "friction": [
+    {
+      "label": "cost 1.0x (0.10%/side)",
+      "skipped": false,
+      "annual": 0.12763371089955222,
+      "dd": 10.415004209041514,
+      "pf": 1.3767985943274996,
+      "sharpe": 1.1747769483582866,
+      "trades": 498,
+      "win_rate": 32.329317269076306,
+      "avg_win_pct": 0.12914217015857696,
+      "avg_loss_pct": 0.04116298868612942,
+      "final": 20593.15722489404,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ]
+      }
+    },
+    {
+      "label": "cost 1.5x (0.15%/side)",
+      "skipped": false,
+      "annual": 0.11144982642345846,
+      "dd": 10.949834777235589,
+      "pf": 1.3253206500969081,
+      "sharpe": 1.0528279748117755,
+      "trades": 498,
+      "win_rate": 32.1285140562249,
+      "avg_win_pct": 0.12881414164868937,
+      "avg_loss_pct": 0.04199694923225877,
+      "final": 18878.51382902436,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ]
+      }
+    },
+    {
+      "label": "cost 2.0x (0.20%/side)",
+      "skipped": false,
+      "annual": 0.09603947038474447,
+      "dd": 11.468013829951147,
+      "pf": 1.2775654647324683,
+      "sharpe": 0.9317593816403378,
+      "trades": 498,
+      "win_rate": 32.1285140562249,
+      "avg_win_pct": 0.12768588824898036,
+      "avg_loss_pct": 0.042954476392028096,
+      "final": 17358.12171502998,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ]
+      }
+    },
+    {
+      "label": "cost 3.0x (0.30%/side)",
+      "skipped": false,
+      "annual": 0.0666084635757942,
+      "dd": 12.65016095156695,
+      "pf": 1.1892849126753513,
+      "sharpe": 0.6858985696403784,
+      "trades": 498,
+      "win_rate": 32.1285140562249,
+      "avg_win_pct": 0.12543275608585264,
+      "avg_loss_pct": 0.044866666722055894,
+      "final": 14737.159486279983,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ]
+      }
+    }
+  ],
+  "by_year": [
+    {
+      "label": "2018",
+      "skipped": false,
+      "annual": -0.04435789391296763,
+      "dd": 11.337778860742773,
+      "pf": 0.7370073023042422,
+      "sharpe": -0.618479375847589,
+      "trades": 27,
+      "win_rate": 18.51851851851852,
+      "avg_win_pct": 0.16592379955399106,
+      "avg_loss_pct": 0.04109250585324686,
+      "final": 9557.609058116415,
+      "extra": {
+        "days": 364,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT"
+        ]
+      }
+    },
+    {
+      "label": "2019",
+      "skipped": false,
+      "annual": 0.26191778728725335,
+      "dd": 7.336244814221109,
+      "pf": 2.07563675103546,
+      "sharpe": 2.0000160256013655,
+      "trades": 46,
+      "win_rate": 41.30434782608695,
+      "avg_win_pct": 0.11462695222346075,
+      "avg_loss_pct": 0.04667124509609347,
+      "final": 12611.137606948441,
+      "extra": {
+        "days": 364,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT"
+        ]
+      }
+    },
+    {
+      "label": "2020",
+      "skipped": false,
+      "annual": 0.40987549263849976,
+      "dd": 6.860582368441404,
+      "pf": 2.165284141168387,
+      "sharpe": 2.4201024994224727,
+      "trades": 67,
+      "win_rate": 43.28358208955223,
+      "avg_win_pct": 0.10413407198949486,
+      "avg_loss_pct": 0.039495140208144985,
+      "final": 14098.754926384998,
+      "extra": {
+        "days": 365,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT"
+        ]
+      }
+    },
+    {
+      "label": "2021",
+      "skipped": false,
+      "annual": 0.1942479825228065,
+      "dd": 7.054003116197527,
+      "pf": 1.442221700177988,
+      "sharpe": 1.574507615550095,
+      "trades": 109,
+      "win_rate": 32.11009174311927,
+      "avg_win_pct": 0.2009871915342224,
+      "avg_loss_pct": 0.05582723426257672,
+      "final": 11936.673047214155,
+      "extra": {
+        "days": 364,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ]
+      }
+    },
+    {
+      "label": "2022",
+      "skipped": false,
+      "annual": -0.013680281093348179,
+      "dd": 8.443438286702412,
+      "pf": 0.9295779529138409,
+      "sharpe": -0.11110895371418988,
+      "trades": 49,
+      "win_rate": 24.489795918367346,
+      "avg_win_pct": 0.09726976183441316,
+      "avg_loss_pct": 0.038727945385173324,
+      "final": 9863.569422840852,
+      "extra": {
+        "days": 364,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ]
+      }
+    },
+    {
+      "label": "2023",
+      "skipped": false,
+      "annual": 0.10093194020861329,
+      "dd": 6.860173339164027,
+      "pf": 1.3800716446829082,
+      "sharpe": 0.9862514525850387,
+      "trades": 74,
+      "win_rate": 32.432432432432435,
+      "avg_win_pct": 0.1234608894493147,
+      "avg_loss_pct": 0.03436593147202242,
+      "final": 11006.419445569,
+      "extra": {
+        "days": 364,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ]
+      }
+    },
+    {
+      "label": "2024",
+      "skipped": false,
+      "annual": 0.1685276776347875,
+      "dd": 7.612736256995153,
+      "pf": 1.5277832454105387,
+      "sharpe": 1.4717766592483217,
+      "trades": 86,
+      "win_rate": 33.72093023255814,
+      "avg_win_pct": 0.10455929209652924,
+      "avg_loss_pct": 0.03718474053276785,
+      "final": 11685.276776347875,
+      "extra": {
+        "days": 365,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ]
+      }
+    },
+    {
+      "label": "2025",
+      "skipped": false,
+      "annual": 0.08092730488018196,
+      "dd": 5.926708142578743,
+      "pf": 1.3299547020707223,
+      "sharpe": 0.8485071942399305,
+      "trades": 67,
+      "win_rate": 31.343283582089555,
+      "avg_win_pct": 0.08266990929646878,
+      "avg_loss_pct": 0.03160453264819814,
+      "final": 10806.96871928788,
+      "extra": {
+        "days": 364,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ]
+      }
+    },
+    {
+      "label": "2026",
+      "skipped": false,
+      "annual": -0.10200669935176876,
+      "dd": 10.415162481154319,
+      "pf": 0.6182387899376767,
+      "sharpe": -1.093712603981133,
+      "trades": 41,
+      "win_rate": 19.51219512195122,
+      "avg_win_pct": 0.06675251274728211,
+      "avg_loss_pct": 0.02521808299267187,
+      "final": 9355.51556426978,
+      "extra": {
+        "days": 226,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ]
+      }
+    }
+  ]
+}

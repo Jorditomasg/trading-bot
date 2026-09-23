@@ -1,0 +1,70 @@
+{
+  "metadata": {
+    "as_of": "2026-08-15T10:39:59.948442+00:00",
+    "universe_size": 20
+  },
+  "components": {
+    "btc_trend": {
+      "score": 5,
+      "signal": "BEAR STACK (price < 50DMA < 200DMA); 200DMA falling",
+      "data_available": true,
+      "price": 62957.82,
+      "ma50": 63514.34,
+      "ma200": 69352.1,
+      "ma200_rising": false,
+      "ma200_direction": "falling"
+    },
+    "alt_breadth": {
+      "score": 45,
+      "signal": "37% of 19 tracked alts above 200DMA (37% above 50DMA)",
+      "data_available": true,
+      "pct_above_200dma": 36.8,
+      "pct_above_50dma": 36.8,
+      "universe_size": 19,
+      "skipped": []
+    },
+    "dominance": {
+      "score": 50,
+      "signal": "NO DATA: Need >= 31 daily dominance points",
+      "data_available": false
+    },
+    "funding": {
+      "score": 75,
+      "signal": "NEUTRAL (funding near baseline); avg 0.0038%/8h (~4.1% annualized) across 9 perps",
+      "data_available": true,
+      "avg_funding_8h": 3.780111111111111e-05,
+      "annualized_pct": 4.14,
+      "n_symbols": 9
+    },
+    "drawdown_vol": {
+      "score": 45,
+      "signal": "Drawdown 49.5% from 1y high; volatility compressed (bottom third of 1y range)",
+      "data_available": true,
+      "drawdown_pct": 49.53,
+      "realized_vol_30d": 0.2221,
+      "vol_percentile_1y": 0.0
+    },
+    "momentum_thrust": {
+      "score": 35,
+      "signal": "WEAK: 35% of 20 coins positive over 30d",
+      "data_available": true,
+      "pct_positive_30d": 35.0,
+      "universe_size": 20
+    }
+  },
+  "composite": {
+    "score": 37.4,
+    "zone": "RISK_OFF",
+    "guidance": "Defensive market conditions observed; review existing risk controls",
+    "effective_weights": {
+      "btc_trend": 0.2941,
+      "alt_breadth": 0.2353,
+      "funding": 0.1765,
+      "drawdown_vol": 0.1765,
+      "momentum_thrust": 0.1176
+    },
+    "components_available": 5,
+    "components_total": 6,
+    "available_weight": 0.85
+  }
+}

@@ -1,0 +1,557 @@
+{
+  "full3": [
+    {
+      "label": "baseline (both off)",
+      "skipped": false,
+      "annual": 0.12763371089955222,
+      "dd": 10.415004209041514,
+      "pf": 1.3767985943274996,
+      "sharpe": 1.1747769483582866,
+      "trades": 498,
+      "win_rate": 32.329317269076306,
+      "avg_win_pct": 0.12914217015857696,
+      "avg_loss_pct": 0.04116298868612942,
+      "final": 20593.15722489404,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "window": "full3"
+      }
+    },
+    {
+      "label": "EMA200 alignment ON",
+      "skipped": false,
+      "annual": 0.12266782586570191,
+      "dd": 11.446097614352679,
+      "pf": 1.3617780726349593,
+      "sharpe": 1.1407801363055305,
+      "trades": 497,
+      "win_rate": 31.991951710261567,
+      "avg_win_pct": 0.13032525286003166,
+      "avg_loss_pct": 0.04113152238198766,
+      "final": 20053.770148641146,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "window": "full3"
+      }
+    },
+    {
+      "label": "min entry ADX 20",
+      "skipped": false,
+      "annual": 0.1031223382026425,
+      "dd": 12.40311602154963,
+      "pf": 1.3427693639083116,
+      "sharpe": 1.0607002337789502,
+      "trades": 430,
+      "win_rate": 31.86046511627907,
+      "avg_win_pct": 0.13279264605199542,
+      "avg_loss_pct": 0.04087885731374093,
+      "final": 18043.715082765513,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "window": "full3"
+      }
+    },
+    {
+      "label": "min entry ADX 25",
+      "skipped": false,
+      "annual": 0.08692386219449233,
+      "dd": 13.723963305774472,
+      "pf": 1.3730860544261598,
+      "sharpe": 0.9879716520446071,
+      "trades": 348,
+      "win_rate": 32.18390804597701,
+      "avg_win_pct": 0.13842889973614372,
+      "avg_loss_pct": 0.04130753225148653,
+      "final": 16507.853963586218,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "window": "full3"
+      }
+    },
+    {
+      "label": "EMA200 + ADX 20",
+      "skipped": false,
+      "annual": 0.10154707760287063,
+      "dd": 12.403139467605506,
+      "pf": 1.337889648209541,
+      "sharpe": 1.0492313690868755,
+      "trades": 428,
+      "win_rate": 31.775700934579437,
+      "avg_win_pct": 0.13321350303360646,
+      "avg_loss_pct": 0.040915043937711865,
+      "final": 17889.317015419707,
+      "extra": {
+        "days": 2195,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "window": "full3"
+      }
+    }
+  ],
+  "bull2021": [
+    {
+      "label": "baseline (both off)",
+      "skipped": false,
+      "annual": 0.24699329721750307,
+      "dd": 7.053653355223617,
+      "pf": 1.571359279169669,
+      "sharpe": 1.9284720998244846,
+      "trades": 149,
+      "win_rate": 34.22818791946309,
+      "avg_win_pct": 0.1914675393242691,
+      "avg_loss_pct": 0.058642319975850454,
+      "final": 13588.11460142994,
+      "extra": {
+        "days": 507,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "window": "bull2021"
+      }
+    },
+    {
+      "label": "EMA200 alignment ON",
+      "skipped": false,
+      "annual": 0.24699329721750307,
+      "dd": 7.053653355223617,
+      "pf": 1.571359279169669,
+      "sharpe": 1.9284720998244846,
+      "trades": 149,
+      "win_rate": 34.22818791946309,
+      "avg_win_pct": 0.1914675393242691,
+      "avg_loss_pct": 0.058642319975850454,
+      "final": 13588.11460142994,
+      "extra": {
+        "days": 507,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "window": "bull2021"
+      }
+    },
+    {
+      "label": "min entry ADX 20",
+      "skipped": false,
+      "annual": 0.24015781658943558,
+      "dd": 7.0996702041471975,
+      "pf": 1.6848973196764994,
+      "sharpe": 2.054407117244615,
+      "trades": 122,
+      "win_rate": 36.0655737704918,
+      "avg_win_pct": 0.19906939203877255,
+      "avg_loss_pct": 0.06020487647988236,
+      "final": 13484.763433369657,
+      "extra": {
+        "days": 507,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "window": "bull2021"
+      }
+    },
+    {
+      "label": "min entry ADX 25",
+      "skipped": false,
+      "annual": 0.2018603289016614,
+      "dd": 6.620706485843845,
+      "pf": 1.7918482587653537,
+      "sharpe": 2.0048027068333547,
+      "trades": 94,
+      "win_rate": 37.234042553191486,
+      "avg_win_pct": 0.21187357696535647,
+      "avg_loss_pct": 0.06328505489230539,
+      "final": 12909.828945568717,
+      "extra": {
+        "days": 507,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "window": "bull2021"
+      }
+    },
+    {
+      "label": "EMA200 + ADX 20",
+      "skipped": false,
+      "annual": 0.24015781658943558,
+      "dd": 7.0996702041471975,
+      "pf": 1.6848973196764994,
+      "sharpe": 2.054407117244615,
+      "trades": 122,
+      "win_rate": 36.0655737704918,
+      "avg_win_pct": 0.19906939203877255,
+      "avg_loss_pct": 0.06020487647988236,
+      "final": 13484.763433369657,
+      "extra": {
+        "days": 507,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "window": "bull2021"
+      }
+    }
+  ],
+  "bear2022": [
+    {
+      "label": "baseline (both off)",
+      "skipped": false,
+      "annual": -0.03048934982550444,
+      "dd": 9.056854457941103,
+      "pf": 0.8502200518901907,
+      "sharpe": -0.2669306445186884,
+      "trades": 34,
+      "win_rate": 23.52941176470588,
+      "avg_win_pct": 0.08013095951075257,
+      "avg_loss_pct": 0.033790209614048626,
+      "final": 9695.928995601995,
+      "extra": {
+        "days": 364,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT"
+        ],
+        "window": "bear2022"
+      }
+    },
+    {
+      "label": "EMA200 alignment ON",
+      "skipped": false,
+      "annual": -0.06235260312761126,
+      "dd": 12.037674741827843,
+      "pf": 0.6917036093692582,
+      "sharpe": -0.6466852460175704,
+      "trades": 32,
+      "win_rate": 18.75,
+      "avg_win_pct": 0.09540804969792084,
+      "avg_loss_pct": 0.033790209614048626,
+      "final": 9378.128004125956,
+      "extra": {
+        "days": 364,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT"
+        ],
+        "window": "bear2022"
+      }
+    },
+    {
+      "label": "min entry ADX 20",
+      "skipped": false,
+      "annual": -0.039989403896235176,
+      "dd": 9.945559885083998,
+      "pf": 0.7784847768257385,
+      "sharpe": -0.4021851659019379,
+      "trades": 29,
+      "win_rate": 20.689655172413794,
+      "avg_win_pct": 0.09340169678010733,
+      "avg_loss_pct": 0.03483430755360226,
+      "final": 9601.17941696994,
+      "extra": {
+        "days": 364,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT"
+        ],
+        "window": "bear2022"
+      }
+    },
+    {
+      "label": "min entry ADX 25",
+      "skipped": false,
+      "annual": -0.08394938076647862,
+      "dd": 14.058219310177758,
+      "pf": 0.5266405190762725,
+      "sharpe": -0.9725596112359453,
+      "trades": 27,
+      "win_rate": 14.814814814814813,
+      "avg_win_pct": 0.09412897056958822,
+      "avg_loss_pct": 0.03523164766608862,
+      "final": 9162.707077673509,
+      "extra": {
+        "days": 364,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT"
+        ],
+        "window": "bear2022"
+      }
+    },
+    {
+      "label": "EMA200 + ADX 20",
+      "skipped": false,
+      "annual": -0.039989403896235176,
+      "dd": 9.945559885083998,
+      "pf": 0.7784847768257385,
+      "sharpe": -0.4021851659019379,
+      "trades": 29,
+      "win_rate": 20.689655172413794,
+      "avg_win_pct": 0.09340169678010733,
+      "avg_loss_pct": 0.03483430755360226,
+      "final": 9601.17941696994,
+      "extra": {
+        "days": 364,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT"
+        ],
+        "window": "bear2022"
+      }
+    }
+  ],
+  "rec2324": [
+    {
+      "label": "baseline (both off)",
+      "skipped": false,
+      "annual": 0.12088565699882992,
+      "dd": 7.613046833235283,
+      "pf": 1.3907165382916202,
+      "sharpe": 1.1109514936395632,
+      "trades": 171,
+      "win_rate": 31.57894736842105,
+      "avg_win_pct": 0.1135660773162505,
+      "avg_loss_pct": 0.03657725593697343,
+      "final": 12563.846560656984,
+      "extra": {
+        "days": 730,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "window": "rec2324"
+      }
+    },
+    {
+      "label": "EMA200 alignment ON",
+      "skipped": false,
+      "annual": 0.12164033269015917,
+      "dd": 7.612945400711343,
+      "pf": 1.3929087876143202,
+      "sharpe": 1.117369249206927,
+      "trades": 171,
+      "win_rate": 31.57894736842105,
+      "avg_win_pct": 0.11385896005095548,
+      "avg_loss_pct": 0.03657725593697343,
+      "final": 12580.77035917291,
+      "extra": {
+        "days": 730,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "window": "rec2324"
+      }
+    },
+    {
+      "label": "min entry ADX 20",
+      "skipped": false,
+      "annual": 0.09376954079629374,
+      "dd": 9.367724387763838,
+      "pf": 1.3304476479187617,
+      "sharpe": 0.9578508153206611,
+      "trades": 152,
+      "win_rate": 30.92105263157895,
+      "avg_win_pct": 0.10997862906854732,
+      "avg_loss_pct": 0.035893861545480334,
+      "final": 11963.318083737351,
+      "extra": {
+        "days": 730,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "window": "rec2324"
+      }
+    },
+    {
+      "label": "min entry ADX 25",
+      "skipped": false,
+      "annual": 0.10925797120512959,
+      "dd": 7.247222660447336,
+      "pf": 1.4939397047219416,
+      "sharpe": 1.1776999356995987,
+      "trades": 123,
+      "win_rate": 33.33333333333333,
+      "avg_win_pct": 0.11461073541113422,
+      "avg_loss_pct": 0.035214293677896163,
+      "final": 12304.5324668212,
+      "extra": {
+        "days": 730,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "window": "rec2324"
+      }
+    },
+    {
+      "label": "EMA200 + ADX 20",
+      "skipped": false,
+      "annual": 0.09450867269290453,
+      "dd": 9.368119392713133,
+      "pf": 1.332829112096711,
+      "sharpe": 0.9648805165620326,
+      "trades": 152,
+      "win_rate": 30.92105263157895,
+      "avg_win_pct": 0.11031513263608068,
+      "avg_loss_pct": 0.035893861545480334,
+      "final": 11979.492345999837,
+      "extra": {
+        "days": 730,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "window": "rec2324"
+      }
+    }
+  ],
+  "chop2526": [
+    {
+      "label": "baseline (both off)",
+      "skipped": false,
+      "annual": 0.037429772043736875,
+      "dd": 10.415103181049014,
+      "pf": 1.131237471983189,
+      "sharpe": 0.41638804477437347,
+      "trades": 118,
+      "win_rate": 28.8135593220339,
+      "avg_win_pct": 0.07483894657461448,
+      "avg_loss_pct": 0.02852755791390369,
+      "final": 10613.044589473027,
+      "extra": {
+        "days": 591,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "window": "chop2526"
+      }
+    },
+    {
+      "label": "EMA200 alignment ON",
+      "skipped": false,
+      "annual": 0.03388475483170361,
+      "dd": 10.415004269647593,
+      "pf": 1.11747407768949,
+      "sharpe": 0.38683471845145423,
+      "trades": 119,
+      "win_rate": 28.57142857142857,
+      "avg_win_pct": 0.07432746185221943,
+      "avg_loss_pct": 0.028551085207695625,
+      "final": 10554.385628970329,
+      "extra": {
+        "days": 591,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "window": "chop2526"
+      }
+    },
+    {
+      "label": "min entry ADX 20",
+      "skipped": false,
+      "annual": 0.013497340797661295,
+      "dd": 12.40301197716051,
+      "pf": 1.0549654558574721,
+      "sharpe": 0.20052469808006881,
+      "trades": 99,
+      "win_rate": 27.27272727272727,
+      "avg_win_pct": 0.0781181974952449,
+      "avg_loss_pct": 0.027597939937703334,
+      "final": 10219.457648979635,
+      "extra": {
+        "days": 591,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "window": "chop2526"
+      }
+    },
+    {
+      "label": "min entry ADX 25",
+      "skipped": false,
+      "annual": 0.002955330111279464,
+      "dd": 7.944084173037138,
+      "pf": 1.0149408299622729,
+      "sharpe": 0.0767547535075707,
+      "trades": 79,
+      "win_rate": 26.582278481012654,
+      "avg_win_pct": 0.07679709421933306,
+      "avg_loss_pct": 0.02918803271448594,
+      "final": 10047.895822667102,
+      "extra": {
+        "days": 591,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "window": "chop2526"
+      }
+    },
+    {
+      "label": "EMA200 + ADX 20",
+      "skipped": false,
+      "annual": 0.007295745805419029,
+      "dd": 12.40310495177944,
+      "pf": 1.029943099152497,
+      "sharpe": 0.12884543326865136,
+      "trades": 97,
+      "win_rate": 26.804123711340207,
+      "avg_win_pct": 0.07760844492864033,
+      "avg_loss_pct": 0.02755970862535791,
+      "final": 10118.397691263803,
+      "extra": {
+        "days": 591,
+        "symbols": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "window": "chop2526"
+      }
+    }
+  ]
+}

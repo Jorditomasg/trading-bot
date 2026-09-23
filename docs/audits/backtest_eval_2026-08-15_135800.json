@@ -1,0 +1,50 @@
+{
+  "total_score": 87,
+  "verdict": "Deploy",
+  "dimensions": [
+    {
+      "name": "Sample Size",
+      "score": 20,
+      "max_score": 20
+    },
+    {
+      "name": "Expectancy",
+      "score": 20,
+      "max_score": 20
+    },
+    {
+      "name": "Risk Management",
+      "score": 14,
+      "max_score": 20
+    },
+    {
+      "name": "Robustness",
+      "score": 13,
+      "max_score": 20
+    },
+    {
+      "name": "Execution Realism",
+      "score": 20,
+      "max_score": 20
+    }
+  ],
+  "red_flags": [
+    {
+      "id": "over_optimized",
+      "severity": "medium",
+      "message": "9 parameters suggests over-optimization / curve-fitting risk."
+    }
+  ],
+  "profit_factor": 1.7499999999999998,
+  "expectancy": 1.9499999999999997,
+  "inputs": {
+    "total_trades": 477,
+    "win_rate": 35.0,
+    "avg_win_pct": 13.0,
+    "avg_loss_pct": 4.0,
+    "max_drawdown_pct": 12.0,
+    "years_tested": 9,
+    "num_parameters": 9,
+    "slippage_tested": true
+  }
+}
