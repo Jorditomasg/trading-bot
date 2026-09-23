@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 import datetime as dt
+from typing import Callable
 
 import pandas as pd
 import schedule
@@ -33,6 +34,65 @@ from bot.telegram_commands import TelegramCommandHandler
 from bot.telegram_notifier import TelegramNotifier
 
 KLINES_LIMIT = 200
+
+# Last closed bar each symbol has already made an entry decision on. The
+# scheduler ticks hourly while the traded timeframe is 4h, so four consecutive
+# cycles see the exact same closed-bar data (see `closed_only` in
+# BinanceClient.get_klines). Without this guard the bot could stop out and
+# immediately re-enter the same setup an hour later at an arbitrary intrabar
+# price — churn that `BacktestEngine`, which decides once per bar, never
+# simulates. Exits are unaffected: `position_manager()` runs every 60s.
+_last_entry_bar: dict[str, pd.Timestamp] = {}
+
+
+def guarded(job_fn: Callable, name: str) -> Callable:
+    """Wrap a scheduled job so its exceptions can never escape into `schedule`.
+
+    Per-job isolation, which the outer catch in `run_scheduler_tick` cannot
+    provide: `schedule.run_pending()` iterates due jobs in order and **aborts
+    the whole pass** on the first exception. So a job that fails every tick
+    starves every job sorted after it — `position_manager` runs every 60s, and
+    if it raised persistently it would silently block the hourly
+    `run_all_cycles` forever. Wrapping each job keeps siblings running.
+    """
+    def wrapper(*args, **kwargs):
+        try:
+            return job_fn(*args, **kwargs)
+        except Exception:
+            logger.exception(
+                "Scheduled job %r raised — contained, other jobs unaffected. "
+                "If this repeats every tick it is a real bug, not a network blip.",
+                name,
+            )
+    wrapper.__name__ = f"guarded_{name}"
+    return wrapper
+
+
+def run_scheduler_tick() -> None:
+    """Run due scheduled jobs, containing any exception they raise (gotcha #44).
+
+    `schedule.run_pending()` re-raises whatever a job raises. An exception
+    escaping the main loop **kills the bot silently**: the main thread dies, but
+    `ThreadedWebsocketManager`'s non-daemon threads keep the process alive, so
+    the container stays `Up`, `restart: unless-stopped` never fires, and nothing
+    runs — no entries and, far worse, no `position_manager`, so the stops on
+    open positions go unmonitored.
+
+    Not theoretical. On 2026-08-13 02:58 UTC a `ConnectionResetError` during a
+    Binance SSL handshake outlived `_retry`'s 3 attempts, escaped
+    `position_manager`, and wedged the bot for 2d 8h holding an open SOLUSDT
+    position whose stop was breached (low 74.69 vs SL 75.09) and never executed.
+
+    `run_all_cycles` already wraps each `run_cycle`; the raw `position_manager`
+    job had no such guard. Catching here contains ANY job, present or future.
+    """
+    try:
+        schedule.run_pending()
+    except Exception:
+        logger.exception(
+            "Scheduled job raised — loop continues. If this repeats every tick "
+            "it is a real bug, not a network blip."
+        )
 
 
 def _build_client(db: Database) -> BinanceClient:
@@ -419,16 +479,36 @@ def run_cycle(
     client = _build_client(db)
 
     try:
-        df = client.get_klines(sym, settings.timeframe, KLINES_LIMIT)
+        df = client.get_klines(
+            sym, settings.timeframe, KLINES_LIMIT, closed_only=True
+        )
     except Exception as exc:
         logger.error("[%s] Failed to fetch klines: %s", sym, exc)
         return
+
+    if df.empty:
+        logger.error("[%s] Empty kline frame — skipping cycle", sym)
+        return
+
+    # One entry decision per closed bar (see _last_entry_bar). Frames without
+    # open_time (synthetic/derived) simply opt out rather than blocking the
+    # cycle — the guard is an optimisation over correct data, not a gate.
+    if "open_time" in df.columns:
+        bar_time = df["open_time"].iloc[-1]
+        if _last_entry_bar.get(sym) == bar_time:
+            logger.info(
+                "[%s] Bar %s already evaluated — skipping entry pass "
+                "(exits still run every 60s)",
+                sym, bar_time,
+            )
+            return
+        _last_entry_bar[sym] = bar_time
 
     # Daily klines for BiasFilter — backtest-proven: daily EMA9/21 gate
     # outperforms 4h EMA gate (PF 1.19-1.30 vs 0.82-0.93 with taker fees)
     df_4h = None
     try:
-        df_4h = client.get_klines(sym, "1d", 60)
+        df_4h = client.get_klines(sym, "1d", 60, closed_only=True)
     except Exception as exc:
         logger.warning(
             "[%s] Failed to fetch daily klines: %s — BiasFilter will use NEUTRAL "
@@ -457,7 +537,7 @@ def run_cycle(
     # Weekly klines for momentum filter
     df_weekly: pd.DataFrame | None = None
     try:
-        df_weekly = client.get_klines(sym, "1w", 60)
+        df_weekly = client.get_klines(sym, "1w", 60, closed_only=True)
     except Exception as exc:
         logger.warning(
             "[%s] Failed to fetch weekly klines: %s — momentum filter will use BULLISH (fail-open)",
@@ -1121,30 +1201,40 @@ def main() -> None:
     if eq_should_run(db):
         _launch_auto_entry_quality_optimizer(db, primary_orch, notifier)
 
-    schedule.every().hour.at(":00").do(run_all_cycles)
+    # Every job goes through `guarded` — see gotcha #44. `position_manager` in
+    # particular is the one that must never die: it is the only thing watching
+    # the stops on open positions.
+    schedule.every().hour.at(":00").do(guarded(run_all_cycles, "run_all_cycles"))
     schedule.every(60).seconds.do(
-        position_manager, db, args.dry_run, primary_orch.risk_manager.config, notifier
+        guarded(position_manager, "position_manager"),
+        db, args.dry_run, primary_orch.risk_manager.config, notifier
     )
     schedule.every(7).days.do(
-        _launch_auto_optimizer, db, primary_orch, notifier
+        guarded(_launch_auto_optimizer, "auto_optimizer"), db, primary_orch, notifier
     )
     schedule.every(7).days.do(
-        _launch_auto_entry_quality_optimizer, db, primary_orch, notifier
+        guarded(_launch_auto_entry_quality_optimizer, "auto_entry_quality_optimizer"),
+        db, primary_orch, notifier
     )
     # Daily 'still alive' digest so a quiet (correctly-waiting) bot doesn't look broken.
-    schedule.every().day.at("09:00").do(send_heartbeat, orchestrators, db, notifier)
+    schedule.every().day.at("09:00").do(
+        guarded(send_heartbeat, "heartbeat"), orchestrators, db, notifier
+    )
 
-    while not _shutdown:
-        if db.consume_restart_request():
-            logger.info("Restart requested via dashboard — exiting for container restart.")
-            break
-        schedule.run_pending()
-        time.sleep(10)
-
-    notifier.bot_stopped()
-    cmd_handler.stop()
-    stream_client.stop_price_stream()
-    logger.info("Bot stopped cleanly.")
+    try:
+        while not _shutdown:
+            if db.consume_restart_request():
+                logger.info("Restart requested via dashboard — exiting for container restart.")
+                break
+            run_scheduler_tick()
+            time.sleep(10)
+    finally:
+        # Must run even on an unexpected exit, otherwise the websocket threads
+        # keep the process alive as a zombie instead of letting Docker restart it.
+        notifier.bot_stopped()
+        cmd_handler.stop()
+        stream_client.stop_price_stream()
+        logger.info("Bot stopped cleanly.")
 
 
 if __name__ == "__main__":

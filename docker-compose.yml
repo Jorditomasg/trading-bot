@@ -1,11 +1,21 @@
 services:
 
   bot:
-    image: ghcr.io/jorditomasg/trading-bot:latest
+    # TEMPORARY local build carrying two unpushed fixes:
+    #   2026-07-30  closed-candle fetch + one-decision-per-bar  (gotcha #41)
+    #   2026-08-15  scheduler job guard                          (gotcha #44)
+    # CI has not built these because the changes are not pushed. Watchtower pulls
+    # :latest nightly at 04:00, so pointing at the ghcr tag would silently revert
+    # them; the label below keeps this container out of that run.
+    # TO RESTORE NORMAL DEPLOYMENT: push the changes, wait for CI, then revert
+    # this image tag to ghcr.io/jorditomasg/trading-bot:latest and drop the label.
+    image: trading-bot:local-20260815-schedguard
     container_name: trading-bot
     restart: unless-stopped
     command: python main.py
     env_file: .env
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
     environment:
       DB_PATH: /app/data/trading_bot.db
       TZ: ${TZ:-UTC}
@@ -17,11 +27,16 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+    # Sin memory limit a propósito: los backtests cargan datasets grandes
+    # y un límite fijo los mataría por OOM a mitad de ejecución.
 
   dashboard:
-    image: ghcr.io/jorditomasg/trading-bot:latest
+    # Same temporary local image as `bot` — see the note above.
+    image: trading-bot:local-20260815-schedguard
     container_name: trading-dashboard
     restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
     command: >
       streamlit run dashboard/app.py
       --server.port=8501
@@ -44,6 +59,7 @@ services:
       options:
         max-size: "5m"
         max-file: "3"
+    # Sin memory limit a propósito: comparte imagen y datasets con el bot.
 
 volumes:
   data:

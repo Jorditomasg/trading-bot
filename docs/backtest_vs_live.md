@@ -179,6 +179,37 @@ Items that ARE faithful and should stay that way. The runtime parity test
    `BacktestEngine` and `PortfolioBacktestEngine` (gotcha #26 regression
    guard). Live applies via `orchestrator.step()` — semantically equal.
 
+### 4.1 The guarantee only holds through `build_backtest_config`
+
+The parity test guards the **dashboard** path. It cannot guard a research
+script that constructs `BacktestConfig(...)` by hand, and such a script
+inherits the *dataclass* defaults — which are deliberately permissive research
+defaults, not the live values:
+
+| `BacktestConfig` field | dataclass default | live (`bot_config`) |
+|---|---|---|
+| `ema_tp_mult` | 4.5 | **5.0** |
+| `ema_volume_mult` | `None` (off) | **1.5** |
+| `ema_require_bar_dir` | `None` (off) | **True** |
+| `ema_require_momentum` | `None` (off) | **True** |
+| `ema_min_atr_pct` | `None` (off) | **0.005** |
+| `ema_max_distance_atr` | `None` (off) | **1.0** |
+| `bias_strict` | `False` | **True** |
+| `kelly_enabled` | `True` | **False** |
+
+Eight of those flip the strategy's entry behaviour. A hand-rolled config is
+therefore **not** measuring production, and its numbers must never be written
+into CLAUDE.md as validation of the live baseline.
+
+This is not hypothetical: `scripts/validate_live_risk_2026.py` did exactly
+this, and its output became the "Risk × DD re-run (2026-07-30)" table.
+See `docs/audits/strategy_review_2026-08-15.md`.
+
+**Rule**: any script whose numbers will be quoted as evidence about live must
+build its config with `portfolio_runner.build_backtest_config(req, runtime_cfg)`
+using the real `bot_config` values. `scripts/stress_test_2026.py` is the
+reference implementation.
+
 ---
 
 ## 5. When to update this document

@@ -14,6 +14,7 @@ from bot.config import settings
 logger = logging.getLogger(__name__)
 
 TESTNET_BASE_URL = "https://testnet.binance.vision"
+MAX_KLINES_LIMIT = 1000  # Binance rejects anything above this
 MAX_RETRIES = 3
 BACKOFF_BASE = 2.0  # seconds
 
@@ -96,19 +97,55 @@ class BinanceClient:
         return self._testnet
 
     @_retry
-    def get_klines(self, symbol: str, interval: str, limit: int = 200) -> pd.DataFrame:
-        raw = self._market.get_klines(symbol=symbol, interval=interval, limit=limit)
+    def get_klines(
+        self,
+        symbol: str,
+        interval: str,
+        limit: int = 200,
+        closed_only: bool = False,
+    ) -> pd.DataFrame:
+        """Fetch OHLCV klines.
+
+        `closed_only=True` drops the currently-forming candle, which Binance
+        always appends to the response. Every signal-generating fetch MUST set
+        it: the scheduler ticks hourly while the traded timeframe is 4h, so a
+        raw fetch hands the strategy a partial bar. EMA9/21 then repaint
+        mid-bar and ATR is measured over an incomplete range, which understates
+        it and shrinks the `1.5 × ATR` stop below what `BacktestEngine` — which
+        only ever iterates closed bars — simulated. That gap, not the strategy,
+        is what produced the July 2026 stop-out streak (7 of 8 closed trades).
+
+        Leave it False for price lookups (e.g. the 1m bar used by exit checks),
+        which need the in-flight price.
+        """
+        # +1 so dropping the forming bar still leaves `limit` closed ones.
+        # Clamped because Binance rejects limit > 1000 outright.
+        fetch_limit = min(limit + 1, MAX_KLINES_LIMIT) if closed_only else limit
+        raw = self._market.get_klines(
+            symbol=symbol, interval=interval, limit=fetch_limit
+        )
         df = pd.DataFrame(raw, columns=[
             "open_time", "open", "high", "low", "close", "volume",
             "close_time", "quote_asset_volume", "num_trades",
             "taker_buy_base", "taker_buy_quote", "ignore",
         ])
+        if closed_only and len(df) > 1:
+            # close_time is the last millisecond of the interval; a bar is only
+            # final once that instant has passed.
+            now_ms = time.time() * 1000.0
+            if float(df["close_time"].iloc[-1]) >= now_ms:
+                df = df.iloc[:-1]
+            df = df.iloc[-limit:]
         # open_time as datetime so chart consumers don't have to derive it
         # synthetically. All numeric callers index by name (open/high/low/close/
         # volume) so the extra column is non-breaking.
         ohlcv = df[["open", "high", "low", "close", "volume"]].astype(float)
         ohlcv.insert(0, "open_time", pd.to_datetime(df["open_time"], unit="ms"))
-        logger.debug("Fetched %d klines for %s/%s", len(ohlcv), symbol, interval)
+        ohlcv = ohlcv.reset_index(drop=True)
+        logger.debug(
+            "Fetched %d klines for %s/%s (closed_only=%s)",
+            len(ohlcv), symbol, interval, closed_only,
+        )
         return ohlcv
 
     @_retry

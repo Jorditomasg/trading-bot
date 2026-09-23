@@ -249,3 +249,4 @@ def test_execute_order_open_unknown_symbol_uses_default(monkeypatch):
         client.place_entry_order.call_args.kwargs["price_precision"]
         == main_module._DEFAULT_PRICE_PRECISION
     )
+

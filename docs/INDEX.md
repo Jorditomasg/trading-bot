@@ -18,6 +18,8 @@ for anything detailed.
 | Audit live↔backtest fidelity | `docs/backtest_vs_live.md` |
 | Read past walk-forward audit reports | `docs/audits/` |
 | Read SDD design specs | `docs/superpowers/specs/` |
+| Know which external Claude skills are installed and why | `docs/trading_skills.md` |
+| See the 9-year multi-regime stress test of the live config | `docs/audits/strategy_review_2026-08-15.md` |
 
 ---
 

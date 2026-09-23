@@ -716,3 +716,205 @@ any backtest/sweep result recorded before 2026-06-10 is still ~N× inflated.
 Open follow-up: live's static 1/N split leaves capital idle — see the
 capital-efficiency note in
 `docs/superpowers/specs/2026-06-09-add-sol-diversification.md`.
+
+---
+
+### 41. Live traded the FORMING candle — signals repainted, ATR understated, stops too tight
+
+**Discovered 2026-07-30 while auditing why the live bot's win rate was 12.5%
+(1 win / 7 stop-outs across 8 closed trades, PF 0.35) despite a validated
+baseline of PF 1.52.**
+
+`BinanceClient.get_klines()` returned Binance's response verbatim, and Binance
+**always appends the currently-forming candle**. The scheduler ticks
+`every().hour.at(":00")` while the traded timeframe is `4h`, so three out of
+every four cycles evaluated EMA9/21, ATR and the bias filter on a **partial
+bar**.
+
+Two distinct failures fall out of that:
+
+1. **Repainting** — a bar that looks like a bullish EMA cross two hours in can
+   close flat or bearish. The entry is taken on a signal that never existed at
+   bar close.
+2. **Understated ATR** — a half-formed bar has a smaller true range, so
+   `1.5 × ATR` produced a stop materially tighter than the one
+   `BacktestEngine` simulated. On ETHUSDT 4h that was ~1.3% — routine noise.
+
+`BacktestEngine` iterates `for i in range(min_lb, len(df))` over downloaded
+history where **every bar is closed by construction**, so live and backtest
+were structurally different strategies. No amount of parameter tuning could
+have closed that gap — this is gotcha #24/#36/#37 territory, but at the data
+layer rather than the config layer.
+
+**Evidence**: recorded entry times include `10:00`, `17:00` and `22:00` UTC.
+4h bars open at 00/04/08/12/16/20 UTC — those are all mid-bar.
+
+**Status: FIXED.** `get_klines(..., closed_only=True)` fetches `limit + 1` bars
+and drops the last one when its `close_time` is still in the future. Applied to
+the three signal-generating fetches in `run_cycle` (primary 4h, 1d bias, 1w
+momentum). **Left OFF for the 1m fetch in `_manage_single_position`** — exit
+checks need the in-flight price.
+
+Companion guard: `main._last_entry_bar` makes at most **one entry decision per
+closed bar**. With `closed_only=True` the four hourly cycles inside a 4h bar see
+byte-identical data, so without it a stop-out at 21:30 could be re-entered at
+22:00 into the same setup at an arbitrary intrabar price — churn the backtest,
+which decides once per bar, never simulates. Exits are unaffected:
+`position_manager()` keeps running every 60s.
+
+Regression guards: `tests/test_closed_klines.py`,
+`tests/test_one_decision_per_bar.py`.
+
+**Backtest impact: none, by construction.** The backtest path loads data through
+`bot/backtest/cache.py` → `fetch_historical_klines()`, a different function with
+explicit start/end bounds. It never calls `get_klines`, so no historical result
+changes. This fix does not make the backtest better — it makes **live** finally
+match the backtest that was already validated.
+
+---
+
+### 42. The `equity` table stores FREE USDT, not equity — the dashboard curve lies while capital is deployed
+
+**Cost me an hour of misdiagnosis on 2026-07-30.** The `equity` table read
+`14014.78` on 2026-06-03 and `6893.58` on 2026-07-30 — an apparent **-51%
+collapse**. The recorded `drawdown` column on those same rows said **1.6%**.
+
+Both are right, because they measure different things:
+
+- `record_equity_snapshot()` writes `balance = client.get_balance("USDT")`, the
+  **free** USDT balance. Every open position moves money out of that number, so
+  the "equity" curve drops whenever the bot is invested and recovers when it
+  exits — mostly noise about deployment, not performance.
+- `drawdown` is computed by `compute_drawdown()` from **trading equity** =
+  `account_baseline + SUM(closed pnl)`, which is the correct measure and the one
+  the circuit breaker and HWM use (gotcha #31).
+
+Reconciliation for the 2026-07-30 snapshot:
+
+```
+free USDT                             6,893.58
++ ETHUSDT 0.8536 @ 1910.93            1,631.17
++ BTCUSDT 0.02104 @ 64734.00          1,362.00
+                                    -----------
+= 9,886.75  ≈  baseline 10,000 + closed pnl -118.29 = 9,881.71  ✓
+```
+
+**To judge live performance, never read the equity chart.** Use:
+
+```sql
+SELECT (SELECT value FROM bot_config WHERE key='account_baseline')
+     + (SELECT COALESCE(SUM(pnl),0) FROM trades WHERE exit_price IS NOT NULL);
+```
+
+Not fixed, deliberately: `run_cycle` falls back to `curve[-1]["balance"]` for
+position sizing when `get_balance` fails, and that fallback genuinely wants free
+USDT. Redefining the column would silently change sizing behaviour on an API
+outage. If this is ever cleaned up, add a **separate** `trading_equity` column
+rather than repurposing `balance`, and migrate the dashboard to it.
+
+Companion trap: judging the strategy without a market benchmark. See the buy &
+hold table in `CLAUDE.md` — the bot's -9.7% over the 12m to 2026-07-30 sits
+against -51.4% for equal-weight buy & hold on the same symbols.
+
+---
+
+### 43. A hand-rolled `BacktestConfig` silently measures a DIFFERENT strategy than live
+
+**Discovered 2026-08-15 while re-validating the strategy with the
+`backtest-expert` skill.**
+
+`BacktestConfig`'s dataclass defaults are permissive **research** defaults: all
+four entry-quality filters `None` (off), `bias_strict=False`, `kelly_enabled=True`,
+`ema_tp_mult=4.5`. Live runs the opposite on almost every one of them (filters
+on, `bias_strict` on, Kelly off, TP 5.0).
+
+So this — which looks completely reasonable — does not measure production:
+
+```python
+cfg = BacktestConfig(initial_capital=10_000, risk_per_trade=0.015,
+                     timeframe="4h", long_only=True)     # ✗ 10 fields ≠ live
+```
+
+The correct form reads the real `bot_config` and goes through the
+parity-guarded builder:
+
+```python
+from bot.backtest.portfolio_runner import BacktestRequest, build_backtest_config
+cfg = build_backtest_config(req, runtime_cfg)            # ✓
+```
+
+**This already caused a bad decision record.** `scripts/validate_live_risk_2026.py`
+used the hand-rolled form, and its output was written into CLAUDE.md as the
+"Risk × DD re-run — BTC+ETH+SOL, 4h, ÷N engine (2026-07-30)" table. That table
+reports PF 1.25 / Calmar 0.89 over 3y; the same window with the **live** config
+is materially different (see `docs/audits/strategy_review_2026-08-15.md`).
+
+Why `tests/test_parity_runtime.py` did not catch it: it guards the *dashboard*
+path (`build_backtest_config`), which was correct all along. Nothing can guard a
+script that bypasses the builder — this is a **process** rule, not a code one.
+
+**Rule**: if a number will be quoted as evidence about live behaviour, it must
+come from `build_backtest_config`. `scripts/stress_test_2026.py` is the
+reference implementation. See also `docs/backtest_vs_live.md` §4.1.
+
+Related: #36, #37 (config-layer parity), #40 (sizing-layer parity),
+#41 (data-layer parity).
+
+---
+
+### 44. An exception from a scheduled job KILLS the bot without stopping the container
+
+**Live incident 2026-08-13 02:58 UTC → discovered 2026-08-15. The bot did
+nothing for 2 days 8 hours while `docker ps` showed `Up` and healthy.**
+
+A `ConnectionResetError` during a Binance SSL handshake outlived `_retry`'s 3
+attempts, escaped `position_manager`, propagated out of
+`schedule.run_pending()` and out of `main()`'s `while` loop.
+
+Three things then conspired to hide it:
+
+1. **The process did not exit.** `ThreadedWebsocketManager` runs **non-daemon**
+   threads, so Python stayed alive after the main thread died. Docker saw a
+   running PID 1 → `restart: unless-stopped` never fired, `RestartCount: 0`.
+2. **The logs still looked alive.** The Telegram command handler and the
+   websocket kept emitting WARNINGs for days. Only the *absence* of INFO lines
+   gave it away.
+3. **`sys.excepthook` logged `CRITICAL uncaught` and returned** — by design
+   (`bot/logging_setup.py`), so nothing escalated.
+
+**The damage is in what stopped running, not in what crashed.**
+`position_manager` is the only thing watching stops on open positions. The open
+SOLUSDT trade (#20, entry 76.42, SL 75.0893) had its stop breached on 2026-08-14
+14:00 (low 75.06, session low 74.69) and **no exit was executed**. Entries
+stopping is harmless; exits stopping is not.
+
+**Diagnosis recipe** — "container Up" proves nothing. Check that work is
+actually happening:
+
+```bash
+docker logs trading-bot 2>&1 | grep INFO | tail -3      # should be recent
+docker exec trading-bot python -c "import sqlite3;print(list(sqlite3.connect(
+  '/app/data/trading_bot.db').execute('SELECT MAX(timestamp) FROM equity')))"
+```
+
+`equity` gets a row per hourly cycle, so a stale `MAX(timestamp)` is the
+cheapest liveness probe available.
+
+**Status: FIXED.** Two layers in `main.py`:
+
+- `guarded(job_fn, name)` wraps **every** registered job. Needed because
+  `schedule.run_pending()` aborts the entire pass on the first exception — so
+  without it a job failing every tick starves every job sorted after it
+  (`position_manager` runs every 60s and would block the hourly
+  `run_all_cycles` forever).
+- `run_scheduler_tick()` catches anything that still escapes, so the loop
+  itself cannot die.
+- The loop is now in `try/finally` so cleanup (`stop_price_stream`) always runs
+  and the process actually exits instead of lingering as a zombie.
+
+Regression guard: `tests/test_scheduler_resilience.py` — including a test that
+pins the *unguarded* starvation behaviour, so the reason for per-job wrapping
+does not get refactored away.
+
+Related: #28 (`_retry` narrowed to network/Binance exceptions — it retries, then
+correctly re-raises; the bug was the missing containment above it).

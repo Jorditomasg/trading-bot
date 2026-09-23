@@ -22,7 +22,7 @@ The dataclass defaults in `bot/config.py` mirror these so test/script paths that
 |---|---|---|
 | `symbol` | `BTCUSDT` | Multi-symbol via `PortfolioBacktestEngine`. Live set seeded **`BTCUSDT,ETHUSDT,SOLUSDT`** (SOL added 2026-06-09 for diversification — see below) |
 | `timeframe` | `4h` | 1h is unviable (legacy backtests: PF=0.75, Ann=-26%) |
-| `risk_per_trade` | `0.015` (1.5%) | Picked over 4% per `scripts/risk_scaler_matrix.py` (May 2026) |
+| `risk_per_trade` | `0.015` (1.5%) | Picked over 4% per `scripts/risk_scaler_matrix.py` (May 2026). Live had drifted to **0.025** with no documented justification; restored to 0.015 on 2026-07-30 — see the re-run table below. |
 | `ema_stop_mult` | `1.5` | SL = 1.5 × ATR |
 | `ema_tp_mult` | `5.0` | TP = 5.0 × ATR (B-pick: walk-forward audit winner, May 2026) |
 | `ema_max_dist_atr` | `1.0` | Max distance from EMA9 for trend-continuation entries |
@@ -41,6 +41,26 @@ Hard rules — do not change without re-running `BacktestEngine` or `PortfolioBa
   and recovery winners at quarter size. Code is wired (`bot/risk/drawdown_scaler.py`,
   `bot/orchestrator.py`, `bot/backtest/{engine,portfolio_engine}.py`) but `enabled=False`.
   Can help mean-reverting strategies; never enable for trend-following.
+- **EMA200 alignment and min-entry-ADX stay DISABLED**
+  (`ema_require_ema200=false`, `ema_min_entry_adx=0.0`). Tested across 5 regime
+  windows on 2026-08-15 (`scripts/test_bear_filters.py`): the live setting is
+  best or tied in **every** window. Counterintuitively, EMA200 alignment makes
+  the 2022 bear *worse* (Calmar −0.34 → −0.52, win rate 23.5% → 18.8%) — it
+  barely removes trades but delays re-entry on the recovery legs that pay for
+  the bear. ADX gating is uniformly destructive and only touches continuation
+  entries. **This is the standard "fix" people reach for during a drawdown —
+  it has been tested and it does not work.** This **upgrades the May 2026
+  Phase-2 verdict on EMA200 from INCONCLUSIVE to REJECT** — that audit said
+  "keep OFF pending longer test", and the longer test is now done.
+  Report: `docs/audits/strategy_review_2026-08-15.md` §3.5.
+- **9-year multi-regime validation (2026-08-15)**: with the true live config,
+  BTC+ETH 2017→2026 gives Annual +15.9%, max DD 12.2%, PF 1.48, Calmar 1.31 over
+  477 trades; 6 of 9 calendar years positive, all losing years bears. Scores
+  **87/100 "Deploy"** on the `backtest-expert` framework. Survives 3× fee stress
+  (PF 1.19). Stop=1.5 sits on a clean Calmar plateau; **TP=5.0 does not — Calmar
+  still rises at the grid edge (1.53 at TP 6.0), and `walk_forward.TP_GRID` is
+  capped at exactly 5.0, so the optimizer cannot see past it.** Widen the grid
+  and re-run the walk-forward before changing TP.
 - **SOLUSDT added to the live set (2026-06-09)** for diversification. Under the
   TRUE live ÷N capital allocation, BTC+ETH+SOL cuts 3y max-DD 12.1%→9.4% and
   lifts Calmar 1.61→1.99 vs BTC+ETH, **robust in both sub-period halves** (and in
@@ -71,6 +91,58 @@ survival-vs-return tradeoff better than Sharpe.
 
 Calmar improves marginally (+9% from 1.5% to 4%) while DD scales linearly with risk.
 PF actually peaks at 1.5%. The seeded 1.5% trades return for survivability.
+
+> ⚠️ **The table above is PRE-gotcha-#40 and its Calmar trend is WRONG.** Re-run on
+> the fixed ÷N engine (`scripts/validate_live_risk_2026.py`, 2026-07-30,
+> BTC+ETH+SOL) Calmar **degrades monotonically** with risk — the opposite of what
+> the old table implied. Do not cite the old table to justify raising risk.
+
+### Risk × DD re-run — BTC+ETH+SOL, 4h, ÷N engine (2026-07-30)
+
+> ⚠️ **This table does NOT describe the live strategy — gotcha #43.**
+> `scripts/validate_live_risk_2026.py` built its `BacktestConfig` by hand, so it
+> ran with **10 fields different from production**: all four entry-quality
+> filters off (`ema_vol_mult`, `ema_bar_dir`, `ema_momentum_req`,
+> `ema_min_atr`), `bias_strict` off, Kelly **on**, and `ema_tp_mult` 4.5 instead
+> of the seeded 5.0. Its direction-of-travel conclusion (lower risk wins) still
+> holds and 1.5% is still the right setting, but **do not cite these absolute
+> numbers as live validation.** Superseded by
+> `docs/audits/strategy_review_2026-08-15.md`, which runs the real config
+> through `build_backtest_config` over 9 years.
+
+| Window | Risk | Annual | Max DD | PF | Calmar | Trades | Win% |
+|---|---|---|---|---|---|---|---|
+| 3y | 1.0% | +12.5% | 12.6% | 1.27 | **0.99** | 283 | 34% |
+| 3y | 1.5% | +15.7% | 17.6% | 1.25 | 0.89 | 283 | 34% |
+| 3y | 2.0% | +16.8% | 20.5% | 1.24 | 0.82 | 283 | 34% |
+| 3y | 2.5% | +17.7% | 22.5% | 1.24 | 0.79 | 283 | 34% |
+| 12m | 1.0% | **−8.3%** | 9.7% | 0.64 | — | 77 | 29% |
+| 12m | 1.5% | −9.7% | 11.6% | 0.64 | — | 77 | 29% |
+| 12m | 2.0% | −9.7% | 12.2% | 0.67 | — | 77 | 29% |
+| 12m | 2.5% | −9.6% | 12.0% | 0.69 | — | 77 | 29% |
+
+Lower risk wins on **both** windows: better Calmar over 3y, and a smaller absolute
+loss with a shallower DD over the negative 12m. Calmar is meaningless when annual
+return is negative (ratio of two negatives) — compare absolute loss there instead.
+
+### The 12m window is negative because the MARKET is, not because the edge died
+
+Equal-weight buy & hold over the same windows (measured 2026-07-30):
+
+| Window | BTCUSDT | ETHUSDT | SOLUSDT | Equal-weight |
+|---|---|---|---|---|
+| 3y | +124.5% | +5.2% | +218.2% | **+116.0%** |
+| 12m | −45.3% | −50.2% | −58.7% | **−51.4%** |
+| 6m | −21.7% | −29.9% | −34.9% | **−28.8%** |
+
+A long-only trend follower losing **−9.7%** while its universe loses **−51.4%** is
+the strategy working as designed: it sat in cash through the downtrend. **Do not
+"fix" the negative 12m by re-optimising parameters on it** — that curve-fits a bear
+market into a system whose whole thesis is long-only trend continuation. The
+correct responses are position sizing (done: back to 1.5%) and patience.
+
+Corollary for judging live results: always benchmark against buy & hold over the
+same window before concluding the bot underperformed.
 
 ---
 
@@ -259,7 +331,8 @@ switch strategies anymore.
 - Trend strength: `0.5 × (1 - dist_atr / max_distance_atr) + 0.4`, capped 0.4–0.8
 - Distance check uses `abs()` — filters overextension in both directions (above AND below EMA9)
 - SL: `stop_atr_mult × ATR` below/above entry (default 1.5; overridable via `ema_stop_mult` runtime config)
-- TP: `tp_atr_mult × ATR` above/below entry (default 4.5; overridable via `ema_tp_mult` runtime config)
+- TP: `tp_atr_mult × ATR` above/below entry (dataclass default **3.5**; seeded live
+  value is 5.0 via the `ema_tp_mult` runtime config, which is what production runs)
 - Optional entry-quality filters (per `EMACrossoverConfig`): `volume_multiplier`,
   `require_bar_direction`, `require_ema_momentum`, `min_atr_pct`. Tuned by the
   Entry Quality auto-optimizer (`bot/optimizer/entry_quality_optimizer.py`).
