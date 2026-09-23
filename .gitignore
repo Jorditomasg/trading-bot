@@ -83,3 +83,6 @@ optuna_studies/
 research/
 *.tearsheet.html
 requirements-research.txt
+
+# Local DB snapshots (e.g. before a stats reset) — production data, never commit
+backups/
