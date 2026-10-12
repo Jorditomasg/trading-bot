@@ -28,6 +28,11 @@ def _fmt(value: float, spec: str = ",.2f") -> str:
     return s.replace(",", "\x00").replace(".", ",").replace("\x00", ".")
 
 
+def _fmt_tp(value: float | None) -> str:
+    """TP for display — ``0`` means no take-profit (trailing exit, gotcha #50)."""
+    return f"${_fmt(value)}" if value and value > 0 else "— (trailing)"
+
+
 class TelegramNotifier:
     """Fire-and-forget Telegram notifier. Silently no-ops when disabled or unconfigured."""
 
@@ -109,7 +114,7 @@ class TelegramNotifier:
             f"Entry:    <code>${_fmt(trade.get('entry_price', 0))}</code>\n"
             f"Qty:      <code>{trade.get('quantity', 0):.5f}</code>\n"
             f"SL:       <code>${_fmt(trade.get('stop_loss', 0))}</code>\n"
-            f"TP:       <code>${_fmt(trade.get('take_profit', 0))}</code>\n"
+            f"TP:       <code>{_fmt_tp(trade.get('take_profit', 0))}</code>\n"
             f"Strategy: <code>{trade.get('strategy', '?')}</code>  "
             f"Regime: <code>{trade.get('regime', '?')}</code>"
         )
@@ -290,7 +295,7 @@ class TelegramNotifier:
                 sections.append(
                     f"<b>{sym}</b>  {pos['side']} @ <code>${_fmt(pos['entry_price'])}</code>\n"
                     f"  SL <code>${_fmt(pos['stop_loss'])}</code>  "
-                    f"TP <code>${_fmt(pos['take_profit'])}</code>\n"
+                    f"TP <code>{_fmt_tp(pos['take_profit'])}</code>\n"
                     f"{price_line}{pnl_line}"
                 )
             positions_block = "\n".join(sections).rstrip()

@@ -428,8 +428,9 @@ class TestBuildBacktestConfigFallbacks:
     def test_empty_runtime_uses_validated_baseline(self) -> None:
         cfg = build_backtest_config(_make_request(), runtime_cfg={})
         # Validated baseline (CLAUDE.md → Validated Baseline section)
-        assert cfg.ema_stop_mult        == 1.5
-        assert cfg.ema_tp_mult          == 5.0
+        assert cfg.ema_stop_mult        == 2.0
+        assert cfg.ema_tp_mult          == 0.0
+        assert cfg.ema_trail_mult       == 4.0
         assert cfg.ema_max_distance_atr == 1.0
         assert cfg.long_only is True
         assert cfg.ema_volume_mult      == 1.5

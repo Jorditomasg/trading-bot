@@ -22,8 +22,10 @@ EXPECTED_SEED = {
     "symbols":                   "BTCUSDT,ETHUSDT,SOLUSDT",  # SOL added 2026-06-09 (diversification)
     "timeframe":                 "4h",
     "risk_per_trade":            "0.015",
-    "ema_stop_mult":             "1.5",
-    "ema_tp_mult":               "5.0",
+    # Chandelier exit (gotcha #50, 2026-10-12): SL 2×ATR, trail 4×ATR, no TP.
+    "ema_stop_mult":             "2.0",
+    "ema_tp_mult":               "0.0",
+    "ema_trail_mult":            "4.0",
     "ema_max_dist_atr":          "1.0",
     "long_only":                 "true",
     "backtest_cost_per_side":    "0.001",

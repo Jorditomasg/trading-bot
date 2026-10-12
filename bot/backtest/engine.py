@@ -38,6 +38,7 @@ from bot.risk.news_pause import NewsPauseConfig, is_pause_triggered
 from bot.risk.vol_regime import VolRegime, VolRegimeConfig, VolRegimeFilter
 from bot.strategy.base import Signal
 from bot.strategy.ema_crossover import EMACrossoverConfig, EMACrossoverStrategy
+from bot.strategy.levels import tp_hit as _tp_hit, trail_stop
 from bot.strategy.signal_factory import hold_signal
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,9 @@ EXIT_END_OF_PERIOD = "END_OF_PERIOD"
 EXIT_LIQUIDATED    = "LIQUIDATED"
 
 _OHLCV_COLS = ["open", "high", "low", "close", "volume"]
+# Binance interval → pandas Timedelta string.
+_TF_ALIASES = {"1m": "1min", "5m": "5min", "15m": "15min", "30m": "30min", "1h": "1h", "2h": "2h",
+               "4h": "4h", "6h": "6h", "12h": "12h", "1d": "1D", "1w": "7D"}
 
 
 @dataclass
@@ -63,6 +67,9 @@ class BacktestConfig:
     # EMA strategy TP/SL multipliers (searchable by optimizer)
     ema_stop_mult:     float = 1.5
     ema_tp_mult:       float = 4.5   # 3yr backtest optimal (long-only 4h, dist=1.0): PF=1.551, Ann=22.5%
+    # Chandelier trailing stop (gotcha #50): stop ratchets to peak − mult × ATR at
+    # every bar close. 0 = off. ema_tp_mult <= 0 disables the take-profit.
+    ema_trail_mult:    float = 0.0
     long_only:         bool  = False  # when True: EMA strategy ignores SELL signals
     # Leverage simulation (1.0 = spot, no change to existing behaviour)
     leverage:              float = 1.0
@@ -211,16 +218,41 @@ class BacktestEngine:
             cfg.hurst_lookback,
         )
 
+    def _primary_delta(self) -> pd.Timedelta:
+        """Duration of one primary-timeframe bar (``config.timeframe``)."""
+        if not hasattr(self, "_primary_delta_cache"):
+            self._primary_delta_cache = pd.Timedelta(_TF_ALIASES.get(self.config.timeframe, self.config.timeframe))
+        return self._primary_delta_cache
+
+    @staticmethod
+    def _bar_delta(df: pd.DataFrame) -> pd.Timedelta:
+        """Bar duration of a higher-timeframe frame, inferred from its open_times."""
+        t = df["open_time"]
+        if len(t) < 2:
+            return pd.Timedelta(0)
+        return pd.Series(t.iloc[: min(len(t), 6)]).diff().dropna().min()
+
+    def _closed_before(self, df: pd.DataFrame, current_time: pd.Timestamp) -> pd.DataFrame:
+        """Higher-timeframe bars that had CLOSED when the current primary bar closed.
+
+        Gotcha #49: the old ``open_time <= current_time`` admitted the bar that
+        was still forming — with its FINAL close (a daily bar is up to 20h in
+        the future at a 4h decision; a weekly bar up to 7 days). Live fetches
+        ``closed_only=True`` klines, so that was a pure look-ahead that live
+        never had. A bar is usable iff ``open_time + duration <= bar close``.
+        """
+        decision_time = current_time + self._primary_delta()
+        return df[df["open_time"] + self._bar_delta(df) <= decision_time]
+
     def _get_4h_window(
         self,
         df_4h: pd.DataFrame | None,
         current_time: pd.Timestamp,
     ) -> pd.DataFrame | None:
-        """Return the 4h OHLCV bars available at *current_time* (no lookahead)."""
+        """Return the higher-timeframe bars CLOSED at *current_time*'s close (no lookahead)."""
         if df_4h is None:
             return None
-        mask     = df_4h["open_time"] <= current_time
-        filtered = df_4h[mask]
+        filtered = self._closed_before(df_4h, current_time)
         if len(filtered) < self.config.min_4h_bars:
             return None
         # BiasFilter needs only 'close'; drop open_time before passing.
@@ -236,28 +268,36 @@ class BacktestEngine:
         df_weekly: pd.DataFrame | None,
         current_time: pd.Timestamp,
     ) -> pd.DataFrame | None:
-        """Return weekly bars completed before current_time (no lookahead)."""
+        """Return weekly bars CLOSED at *current_time*'s close (no lookahead)."""
         if df_weekly is None:
             return None
-        mask     = df_weekly["open_time"] <= current_time
-        filtered = df_weekly[mask]
+        filtered = self._closed_before(df_weekly, current_time)
         if len(filtered) < self.config.momentum_sma_period:
             return None
         return filtered[["open_time", "close"]].tail(self.config.momentum_sma_period + 5).reset_index(drop=True)
 
-    def _get_momentum_state(self, weekly_window: pd.DataFrame | None) -> str:
+    def _get_momentum_state(
+        self,
+        weekly_window: pd.DataFrame | None,
+        current_price: float | None = None,
+    ) -> str:
         """Return 'BULLISH', 'BEARISH', or 'NEUTRAL' based on weekly SMA.
 
         BULLISH  → price > SMA × (1 + neutral_band)  → full risk
         BEARISH  → price < SMA × (1 − neutral_band)  → block entry
         NEUTRAL  → within the band                   → half risk
         Returns 'BULLISH' when filter is disabled or data is insufficient.
+
+        ``current_price`` is the close of the bar being decided — the price
+        live passes to ``MomentumFilter.get_state``. Without it, falls back to
+        the last CLOSED weekly close (gotcha #49: it used to be the forming
+        week's final close).
         """
         if not self.config.momentum_filter_enabled or weekly_window is None:
             return "BULLISH"
         closes = weekly_window["close"].to_numpy()
         sma    = closes[-self.config.momentum_sma_period:].mean()
-        price  = float(closes[-1])
+        price  = float(current_price) if current_price is not None else float(closes[-1])
         band   = self.config.momentum_neutral_band
         if price > sma * (1.0 + band):
             return "BULLISH"
@@ -330,7 +370,7 @@ class BacktestEngine:
 
         if trade["side"] == "BUY":
             sl_hit = low <= sl
-            tp_hit = high >= tp
+            tp_hit = _tp_hit("BUY", tp, high, low)
             if sl_hit and tp_hit:
                 # Both wicked — use close direction to pick the winner
                 if close > entry:
@@ -343,7 +383,7 @@ class BacktestEngine:
                 return EXIT_TAKE_PROFIT, tp
         else:  # SELL
             sl_hit = high >= sl
-            tp_hit = low <= tp
+            tp_hit = _tp_hit("SELL", tp, high, low)
             if sl_hit and tp_hit:
                 # Both wicked — use close direction to pick the winner
                 if close < entry:
@@ -370,6 +410,31 @@ class BacktestEngine:
             if result is not None:
                 return result
         return None
+
+    def _trail_atr_series(self, df: pd.DataFrame):
+        """Causal ATR used by the trailing stop — same period as the strategy's ATR."""
+        from bot.indicators import atr as compute_atr
+        strat = self._strategies.get(StrategyName.EMA_CROSSOVER)
+        period = getattr(getattr(strat, "config", None), "atr_period", 14)
+        return compute_atr(df[_OHLCV_COLS].reset_index(drop=True), period).to_numpy()
+
+    def _ratchet_trailing_stop(
+        self, trade: dict, bar_high: float, bar_low: float, atr: float
+    ) -> None:
+        """Advance a surviving trade's chandelier stop at bar close (gotcha #50).
+
+        Called only when the bar did NOT exit the trade, so the raised stop
+        applies from the NEXT bar — the same timing as live, which ratchets on
+        the first cycle after the 4h bar closes.
+        """
+        mult = self.config.ema_trail_mult
+        if mult <= 0:
+            return
+        side = trade["side"]
+        prev = trade.get("peak_price") or trade["entry_price"]
+        peak = max(prev, bar_high) if side == "BUY" else min(prev, bar_low)
+        trade["peak_price"] = peak
+        trade["stop_loss"] = trail_stop(side, trade["stop_loss"], peak, atr, mult)
 
     def _apply_entry_cost(self, side: str, raw_price: float) -> float:
         """Adjust entry price for slippage + commission."""
@@ -569,6 +634,9 @@ class BacktestEngine:
         news_pause_cfg = self.config.news_pause
         dd_cfg = self.config.dd_risk if self.config.dd_risk is not None else DrawdownRiskConfig(enabled=False)
 
+        # Causal ATR series for the trailing stop (gotcha #50) — value at i uses bars <= i.
+        atr_series = self._trail_atr_series(df)
+
         for i in range(min_lb, len(df)):
             bar          = df.iloc[i]
             current_time = bar["open_time"]
@@ -581,7 +649,7 @@ class BacktestEngine:
 
             # Weekly momentum state — controls entry gating and risk scaling
             weekly_window  = self._get_weekly_window(df_weekly, current_time)
-            momentum_state = self._get_momentum_state(weekly_window)
+            momentum_state = self._get_momentum_state(weekly_window, float(bar["close"]))
 
             # Generate signal (regime + strategy + bias filter)
             regime, signal = self._generate_signal(window, window_4h)
@@ -710,6 +778,12 @@ class BacktestEngine:
                         cooldown_bars   = self.config.post_close_cooldown_bars
                         equity_curve.append({"bar": i, "time": str(current_time), "balance": capital})
 
+            # Chandelier ratchet on a trade that survived this bar (gotcha #50)
+            if open_trade is not None and not closed_this_bar:
+                self._ratchet_trailing_stop(
+                    open_trade, float(bar["high"]), float(bar["low"]), float(atr_series[i]),
+                )
+
             # Tick down cooldown counter each bar
             if cooldown_bars > 0:
                 cooldown_bars -= 1
@@ -793,6 +867,7 @@ class BacktestEngine:
                         "entry_bar":   i,
                         "entry_time":  current_time,
                         "side":        signal.action,
+                        "peak_price":  raw_entry,
                         "entry_price": net_entry,
                         "stop_loss":   signal.stop_loss,
                         "take_profit": signal.take_profit,

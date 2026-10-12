@@ -136,8 +136,10 @@ def build_backtest_config(
         momentum_sma_period     = 20,
         momentum_neutral_band   = 0.08,
         long_only            = runtime_cfg.get("long_only", "true") == "true",
-        ema_stop_mult        = float(runtime_cfg.get("ema_stop_mult", 1.5)),
-        ema_tp_mult          = float(runtime_cfg.get("ema_tp_mult", 5.0)),
+        ema_stop_mult        = float(runtime_cfg.get("ema_stop_mult", 2.0)),
+        ema_tp_mult          = float(runtime_cfg.get("ema_tp_mult", 0.0)),
+        # Chandelier exit (gotcha #50) — live reads the same key in main._trail_mult.
+        ema_trail_mult       = float(runtime_cfg.get("ema_trail_mult", 4.0)),
         ema_max_distance_atr = float(runtime_cfg.get("ema_max_dist_atr", 1.0)),
         ema_volume_mult      = float(runtime_cfg.get("ema_vol_mult", 1.5)),
         ema_require_momentum = runtime_cfg.get("ema_momentum_req", "true") == "true",

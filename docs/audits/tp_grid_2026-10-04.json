@@ -1,0 +1,2087 @@
+[
+ {
+  "label": "tp4.0",
+  "skipped": false,
+  "annual": 0.11838368116617604,
+  "dd": 14.719591690763433,
+  "pf": 1.3235831423496576,
+  "sharpe": 1.0406040282560853,
+  "trades": 561,
+  "win_rate": 36.898395721925134,
+  "avg_win_pct": 0.08752175832138927,
+  "avg_loss_pct": 0.03656230240807627,
+  "final": 27795.44747569493,
+  "extra": {
+   "days": 3335,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "full2",
+   "tp": "4.0"
+  },
+  "window": "full2",
+  "tp": "4.0"
+ },
+ {
+  "label": "tp5.0",
+  "skipped": false,
+  "annual": 0.1618885554055407,
+  "dd": 12.193731558670105,
+  "pf": 1.4865574058991537,
+  "sharpe": 1.3054135656561816,
+  "trades": 488,
+  "win_rate": 34.63114754098361,
+  "avg_win_pct": 0.1102635757819027,
+  "avg_loss_pct": 0.0373721107237483,
+  "final": 39391.897902064666,
+  "extra": {
+   "days": 3335,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "full2",
+   "tp": "5.0"
+  },
+  "window": "full2",
+  "tp": "5.0"
+ },
+ {
+  "label": "tp6.0",
+  "skipped": false,
+  "annual": 0.16548750298034487,
+  "dd": 12.238466304765753,
+  "pf": 1.5048749974889557,
+  "sharpe": 1.2565623231441843,
+  "trades": 444,
+  "win_rate": 31.306306306306308,
+  "avg_win_pct": 0.13417609134315364,
+  "avg_loss_pct": 0.03784159840592404,
+  "final": 40520.9130986174,
+  "extra": {
+   "days": 3335,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "full2",
+   "tp": "6.0"
+  },
+  "window": "full2",
+  "tp": "6.0"
+ },
+ {
+  "label": "tp7.0",
+  "skipped": false,
+  "annual": 0.15430395414565812,
+  "dd": 13.614307847568288,
+  "pf": 1.5211094184966332,
+  "sharpe": 1.1375231857950172,
+  "trades": 398,
+  "win_rate": 28.14070351758794,
+  "avg_win_pct": 0.15701732460836748,
+  "avg_loss_pct": 0.03822146686499321,
+  "final": 37103.82318578754,
+  "extra": {
+   "days": 3335,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "full2",
+   "tp": "7.0"
+  },
+  "window": "full2",
+  "tp": "7.0"
+ },
+ {
+  "label": "tp8.0",
+  "skipped": false,
+  "annual": 0.1824128807942147,
+  "dd": 13.430138807228259,
+  "pf": 1.6410871878634492,
+  "sharpe": 1.2918081903027712,
+  "trades": 366,
+  "win_rate": 27.322404371584703,
+  "avg_win_pct": 0.1834527976007583,
+  "avg_loss_pct": 0.03820624490506428,
+  "final": 46226.47165723273,
+  "extra": {
+   "days": 3335,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "full2",
+   "tp": "8.0"
+  },
+  "window": "full2",
+  "tp": "8.0"
+ },
+ {
+  "label": "tp4.0",
+  "skipped": false,
+  "annual": 0.13656017962575295,
+  "dd": 10.146142052129672,
+  "pf": 1.5454769337612357,
+  "sharpe": 1.364065446767708,
+  "trades": 119,
+  "win_rate": 38.655462184873954,
+  "avg_win_pct": 0.1202662407735993,
+  "avg_loss_pct": 0.052836486218024094,
+  "final": 13548.735551997206,
+  "extra": {
+   "days": 866,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "tr2020",
+   "tp": "4.0"
+  },
+  "window": "tr2020",
+  "tp": "4.0"
+ },
+ {
+  "label": "tp5.0",
+  "skipped": false,
+  "annual": 0.14418225769225468,
+  "dd": 11.337812811821776,
+  "pf": 1.5894038543764086,
+  "sharpe": 1.3119233437344031,
+  "trades": 108,
+  "win_rate": 34.25925925925926,
+  "avg_win_pct": 0.15183463236199682,
+  "avg_loss_pct": 0.05377143627321847,
+  "final": 13765.30673538096,
+  "extra": {
+   "days": 866,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "tr2020",
+   "tp": "5.0"
+  },
+  "window": "tr2020",
+  "tp": "5.0"
+ },
+ {
+  "label": "tp6.0",
+  "skipped": false,
+  "annual": 0.15382386172494433,
+  "dd": 11.820060331195352,
+  "pf": 1.6507637942184834,
+  "sharpe": 1.3163517824766091,
+  "trades": 100,
+  "win_rate": 31.0,
+  "avg_win_pct": 0.1858443213256876,
+  "avg_loss_pct": 0.053870017406570006,
+  "final": 14042.110501618334,
+  "extra": {
+   "days": 866,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "tr2020",
+   "tp": "6.0"
+  },
+  "window": "tr2020",
+  "tp": "6.0"
+ },
+ {
+  "label": "tp7.0",
+  "skipped": false,
+  "annual": 0.11102723703585382,
+  "dd": 13.614307847568288,
+  "pf": 1.501379572094181,
+  "sharpe": 0.9568295061116012,
+  "trades": 89,
+  "win_rate": 25.842696629213485,
+  "avg_win_pct": 0.2380162517720365,
+  "avg_loss_pct": 0.054761242511814724,
+  "final": 12837.680486418656,
+  "extra": {
+   "days": 866,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "tr2020",
+   "tp": "7.0"
+  },
+  "window": "tr2020",
+  "tp": "7.0"
+ },
+ {
+  "label": "tp8.0",
+  "skipped": false,
+  "annual": 0.14825202905358226,
+  "dd": 12.626577888312399,
+  "pf": 1.7311167203255924,
+  "sharpe": 1.2695361508564917,
+  "trades": 81,
+  "win_rate": 25.925925925925924,
+  "avg_win_pct": 0.28227181581779587,
+  "avg_loss_pct": 0.05354705253068582,
+  "final": 13881.758229340025,
+  "extra": {
+   "days": 866,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "tr2020",
+   "tp": "8.0"
+  },
+  "window": "tr2020",
+  "tp": "8.0"
+ },
+ {
+  "label": "tp4.0",
+  "skipped": false,
+  "annual": 0.18758545529487636,
+  "dd": 10.146098680540478,
+  "pf": 1.7155142002646788,
+  "sharpe": 1.5989033828410455,
+  "trades": 165,
+  "win_rate": 41.81818181818181,
+  "avg_win_pct": 0.09056401495724015,
+  "avg_loss_pct": 0.04142863811176951,
+  "final": 16749.220888456595,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "tr2021",
+   "tp": "4.0"
+  },
+  "window": "tr2021",
+  "tp": "4.0"
+ },
+ {
+  "label": "tp5.0",
+  "skipped": false,
+  "annual": 0.2152646790748256,
+  "dd": 11.337778860742773,
+  "pf": 1.8856817727197783,
+  "sharpe": 1.6740753339539018,
+  "trades": 148,
+  "win_rate": 38.513513513513516,
+  "avg_win_pct": 0.111924009448715,
+  "avg_loss_pct": 0.0427318950438431,
+  "final": 17947.85807970766,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "tr2021",
+   "tp": "5.0"
+  },
+  "window": "tr2021",
+  "tp": "5.0"
+ },
+ {
+  "label": "tp6.0",
+  "skipped": false,
+  "annual": 0.19663219336106108,
+  "dd": 11.819987368383327,
+  "pf": 1.813621082885882,
+  "sharpe": 1.438399744749273,
+  "trades": 136,
+  "win_rate": 33.82352941176471,
+  "avg_win_pct": 0.12953580399332748,
+  "avg_loss_pct": 0.04339834515820187,
+  "final": 17134.91868759318,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "tr2021",
+   "tp": "6.0"
+  },
+  "window": "tr2021",
+  "tp": "6.0"
+ },
+ {
+  "label": "tp7.0",
+  "skipped": false,
+  "annual": 0.18905578805949919,
+  "dd": 13.614271271891138,
+  "pf": 1.8033155343708627,
+  "sharpe": 1.3612468117483052,
+  "trades": 121,
+  "win_rate": 30.57851239669421,
+  "avg_win_pct": 0.15615687987725835,
+  "avg_loss_pct": 0.04393913116985701,
+  "final": 16811.508863555642,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "tr2021",
+   "tp": "7.0"
+  },
+  "window": "tr2021",
+  "tp": "7.0"
+ },
+ {
+  "label": "tp8.0",
+  "skipped": false,
+  "annual": 0.23695210228755692,
+  "dd": 12.626601164261034,
+  "pf": 2.113677363997495,
+  "sharpe": 1.6573992567660492,
+  "trades": 113,
+  "win_rate": 30.08849557522124,
+  "avg_win_pct": 0.18191796936491209,
+  "avg_loss_pct": 0.043892581180950255,
+  "final": 18925.991867293786,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "tr2021",
+   "tp": "8.0"
+  },
+  "window": "tr2021",
+  "tp": "8.0"
+ },
+ {
+  "label": "tp4.0",
+  "skipped": false,
+  "annual": 0.23631164471273713,
+  "dd": 8.541576840409745,
+  "pf": 1.5936221880612027,
+  "sharpe": 1.7364173166924748,
+  "trades": 211,
+  "win_rate": 40.758293838862556,
+  "avg_win_pct": 0.10210046333998395,
+  "avg_loss_pct": 0.041848169375772674,
+  "final": 18896.609113034356,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "tr2022",
+   "tp": "4.0"
+  },
+  "window": "tr2022",
+  "tp": "4.0"
+ },
+ {
+  "label": "tp5.0",
+  "skipped": false,
+  "annual": 0.3126283985300591,
+  "dd": 7.761796202177891,
+  "pf": 1.8414822123272732,
+  "sharpe": 2.053507373063485,
+  "trades": 187,
+  "win_rate": 39.037433155080215,
+  "avg_win_pct": 0.12596262543491263,
+  "avg_loss_pct": 0.04251859300396165,
+  "final": 22616.49952632352,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "tr2022",
+   "tp": "5.0"
+  },
+  "window": "tr2022",
+  "tp": "5.0"
+ },
+ {
+  "label": "tp6.0",
+  "skipped": false,
+  "annual": 0.35979136765552133,
+  "dd": 8.644154721981657,
+  "pf": 2.060846203713993,
+  "sharpe": 2.1664823868887866,
+  "trades": 171,
+  "win_rate": 36.84210526315789,
+  "avg_win_pct": 0.15158793408621055,
+  "avg_loss_pct": 0.04313552870810456,
+  "final": 25142.985184298923,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "tr2022",
+   "tp": "6.0"
+  },
+  "window": "tr2022",
+  "tp": "6.0"
+ },
+ {
+  "label": "tp7.0",
+  "skipped": false,
+  "annual": 0.32837752367377737,
+  "dd": 9.339136001964892,
+  "pf": 2.002201857086734,
+  "sharpe": 1.9281795088452893,
+  "trades": 155,
+  "win_rate": 32.903225806451616,
+  "avg_win_pct": 0.1737146029692865,
+  "avg_loss_pct": 0.043266978766287885,
+  "final": 23440.375040020026,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "tr2022",
+   "tp": "7.0"
+  },
+  "window": "tr2022",
+  "tp": "7.0"
+ },
+ {
+  "label": "tp8.0",
+  "skipped": false,
+  "annual": 0.3657844167603401,
+  "dd": 8.625563957067166,
+  "pf": 2.1122469320675084,
+  "sharpe": 2.1080798842828976,
+  "trades": 145,
+  "win_rate": 31.724137931034484,
+  "avg_win_pct": 0.19954993017216477,
+  "avg_loss_pct": 0.04359417309604563,
+  "final": 25476.89279930546,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "tr2022",
+   "tp": "8.0"
+  },
+  "window": "tr2022",
+  "tp": "8.0"
+ },
+ {
+  "label": "tp4.0",
+  "skipped": false,
+  "annual": 0.12400415132242171,
+  "dd": 14.17924819040754,
+  "pf": 1.335251867617345,
+  "sharpe": 1.0348573341842706,
+  "trades": 188,
+  "win_rate": 36.702127659574465,
+  "avg_win_pct": 0.10182789705910719,
+  "avg_loss_pct": 0.039276436868543,
+  "final": 14200.50358101459,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "tr2023",
+   "tp": "4.0"
+  },
+  "window": "tr2023",
+  "tp": "4.0"
+ },
+ {
+  "label": "tp5.0",
+  "skipped": false,
+  "annual": 0.18119716360571747,
+  "dd": 10.687516955448203,
+  "pf": 1.5033696983224851,
+  "sharpe": 1.3655952237912483,
+  "trades": 170,
+  "win_rate": 34.705882352941174,
+  "avg_win_pct": 0.12541082550945543,
+  "avg_loss_pct": 0.03932166741837036,
+  "final": 16480.37867060053,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "tr2023",
+   "tp": "5.0"
+  },
+  "window": "tr2023",
+  "tp": "5.0"
+ },
+ {
+  "label": "tp6.0",
+  "skipped": false,
+  "annual": 0.20211219808830716,
+  "dd": 10.050915856290793,
+  "pf": 1.6111499324282315,
+  "sharpe": 1.4223233783687579,
+  "trades": 157,
+  "win_rate": 31.84713375796178,
+  "avg_win_pct": 0.1514015804101468,
+  "avg_loss_pct": 0.03942272998134317,
+  "final": 17371.40766135558,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "tr2023",
+   "tp": "6.0"
+  },
+  "window": "tr2023",
+  "tp": "6.0"
+ },
+ {
+  "label": "tp7.0",
+  "skipped": false,
+  "annual": 0.18361780926454618,
+  "dd": 11.413192706770566,
+  "pf": 1.570145883075715,
+  "sharpe": 1.2555178674971408,
+  "trades": 145,
+  "win_rate": 28.27586206896552,
+  "avg_win_pct": 0.16879086192130027,
+  "avg_loss_pct": 0.03943973797232621,
+  "final": 16581.906936570336,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "tr2023",
+   "tp": "7.0"
+  },
+  "window": "tr2023",
+  "tp": "7.0"
+ },
+ {
+  "label": "tp8.0",
+  "skipped": false,
+  "annual": 0.206456176747837,
+  "dd": 10.544886037989292,
+  "pf": 1.6533956822335614,
+  "sharpe": 1.374250454680143,
+  "trades": 138,
+  "win_rate": 26.811594202898554,
+  "avg_win_pct": 0.19260090708185865,
+  "avg_loss_pct": 0.03938376895293395,
+  "final": 17560.410086439417,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "tr2023",
+   "tp": "8.0"
+  },
+  "window": "tr2023",
+  "tp": "8.0"
+ },
+ {
+  "label": "tp4.0",
+  "skipped": false,
+  "annual": 0.0949076674546252,
+  "dd": 9.563902385019528,
+  "pf": 1.3008713045782736,
+  "sharpe": 0.9398661552626101,
+  "trades": 266,
+  "win_rate": 35.338345864661655,
+  "avg_win_pct": 0.12464857215113756,
+  "avg_loss_pct": 0.044823701180428215,
+  "final": 13122.742519808515,
+  "extra": {
+   "days": 1094,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "tr2024",
+   "tp": "4.0"
+  },
+  "window": "tr2024",
+  "tp": "4.0"
+ },
+ {
+  "label": "tp5.0",
+  "skipped": false,
+  "annual": 0.139269750151239,
+  "dd": 9.50001470291911,
+  "pf": 1.4787332664501707,
+  "sharpe": 1.2833904995843515,
+  "trades": 237,
+  "win_rate": 33.33333333333333,
+  "avg_win_pct": 0.1534827410980469,
+  "avg_loss_pct": 0.045531178222212004,
+  "final": 14781.705899843053,
+  "extra": {
+   "days": 1094,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "tr2024",
+   "tp": "5.0"
+  },
+  "window": "tr2024",
+  "tp": "5.0"
+ },
+ {
+  "label": "tp6.0",
+  "skipped": false,
+  "annual": 0.17677199171267244,
+  "dd": 9.015320257779678,
+  "pf": 1.6405554739264738,
+  "sharpe": 1.518123112334084,
+  "trades": 214,
+  "win_rate": 31.775700934579437,
+  "avg_win_pct": 0.184990531031293,
+  "avg_loss_pct": 0.04660283505766891,
+  "final": 16288.582508410467,
+  "extra": {
+   "days": 1094,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "tr2024",
+   "tp": "6.0"
+  },
+  "window": "tr2024",
+  "tp": "6.0"
+ },
+ {
+  "label": "tp7.0",
+  "skipped": false,
+  "annual": 0.16413985806583642,
+  "dd": 8.830756143107912,
+  "pf": 1.5765589522387942,
+  "sharpe": 1.3840271245686901,
+  "trades": 210,
+  "win_rate": 28.095238095238095,
+  "avg_win_pct": 0.21015533793715935,
+  "avg_loss_pct": 0.04915746342885807,
+  "final": 15770.107028649947,
+  "extra": {
+   "days": 1094,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "tr2024",
+   "tp": "7.0"
+  },
+  "window": "tr2024",
+  "tp": "7.0"
+ },
+ {
+  "label": "tp8.0",
+  "skipped": false,
+  "annual": 0.1828298953490628,
+  "dd": 10.306480977354497,
+  "pf": 1.6898646038306315,
+  "sharpe": 1.4746644034483671,
+  "trades": 193,
+  "win_rate": 26.94300518134715,
+  "avg_win_pct": 0.2453728687703532,
+  "avg_loss_pct": 0.04798406233484272,
+  "final": 16541.20296196247,
+  "extra": {
+   "days": 1094,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "tr2024",
+   "tp": "8.0"
+  },
+  "window": "tr2024",
+  "tp": "8.0"
+ },
+ {
+  "label": "tp4.0",
+  "skipped": false,
+  "annual": 0.09187795224944684,
+  "dd": 9.48751323476123,
+  "pf": 1.3011276040962005,
+  "sharpe": 0.9190752291705103,
+  "trades": 267,
+  "win_rate": 35.580524344569284,
+  "avg_win_pct": 0.08643007142576965,
+  "avg_loss_pct": 0.03688672079108319,
+  "final": 13017.34124149896,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "tr2025",
+   "tp": "4.0"
+  },
+  "window": "tr2025",
+  "tp": "4.0"
+ },
+ {
+  "label": "tp5.0",
+  "skipped": false,
+  "annual": 0.12423337117074507,
+  "dd": 8.827007479955132,
+  "pf": 1.4616893986296702,
+  "sharpe": 1.1688357214696767,
+  "trades": 224,
+  "win_rate": 33.035714285714285,
+  "avg_win_pct": 0.1116228604235392,
+  "avg_loss_pct": 0.037296955081201434,
+  "final": 14209.19314267556,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "tr2025",
+   "tp": "5.0"
+  },
+  "window": "tr2025",
+  "tp": "5.0"
+ },
+ {
+  "label": "tp6.0",
+  "skipped": false,
+  "annual": 0.10833155506759007,
+  "dd": 9.015338198457787,
+  "pf": 1.4031659761228819,
+  "sharpe": 0.9828914441035952,
+  "trades": 207,
+  "win_rate": 28.502415458937197,
+  "avg_win_pct": 0.13783179169463755,
+  "avg_loss_pct": 0.03733419360050819,
+  "final": 13614.731921011484,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "tr2025",
+   "tp": "6.0"
+  },
+  "window": "tr2025",
+  "tp": "6.0"
+ },
+ {
+  "label": "tp7.0",
+  "skipped": false,
+  "annual": 0.1327348634317853,
+  "dd": 9.01129525570945,
+  "pf": 1.529310354408874,
+  "sharpe": 1.1550360473494337,
+  "trades": 193,
+  "win_rate": 26.94300518134715,
+  "avg_win_pct": 0.15408930616267913,
+  "avg_loss_pct": 0.03922191372024785,
+  "final": 14533.988172338783,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "tr2025",
+   "tp": "7.0"
+  },
+  "window": "tr2025",
+  "tp": "7.0"
+ },
+ {
+  "label": "tp8.0",
+  "skipped": false,
+  "annual": 0.13919014499164462,
+  "dd": 11.19459036583838,
+  "pf": 1.5683511097414258,
+  "sharpe": 1.1500170463592838,
+  "trades": 179,
+  "win_rate": 25.139664804469277,
+  "avg_win_pct": 0.18273979832536022,
+  "avg_loss_pct": 0.039577493722079284,
+  "final": 14783.887798210288,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "tr2025",
+   "tp": "8.0"
+  },
+  "window": "tr2025",
+  "tp": "8.0"
+ },
+ {
+  "label": "tp4.0",
+  "skipped": false,
+  "annual": 0.07182198654867111,
+  "dd": 9.963409822865314,
+  "pf": 1.2136666864652932,
+  "sharpe": 0.7321286756045854,
+  "trades": 292,
+  "win_rate": 33.9041095890411,
+  "avg_win_pct": 0.08168274165438111,
+  "avg_loss_pct": 0.03453191959261602,
+  "final": 12313.116392753484,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "tr2026",
+   "tp": "4.0"
+  },
+  "window": "tr2026",
+  "tp": "4.0"
+ },
+ {
+  "label": "tp5.0",
+  "skipped": false,
+  "annual": 0.11107951636433633,
+  "dd": 7.613046833235283,
+  "pf": 1.3742965730989798,
+  "sharpe": 1.0520224503050528,
+  "trades": 244,
+  "win_rate": 31.557377049180328,
+  "avg_win_pct": 0.10507877020023046,
+  "avg_loss_pct": 0.03495843842253759,
+  "final": 13716.250982296015,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "tr2026",
+   "tp": "5.0"
+  },
+  "window": "tr2026",
+  "tp": "5.0"
+ },
+ {
+  "label": "tp6.0",
+  "skipped": false,
+  "annual": 0.10283996471826207,
+  "dd": 8.750457263887103,
+  "pf": 1.3556682947907037,
+  "sharpe": 0.9272053419516813,
+  "trades": 225,
+  "win_rate": 27.555555555555557,
+  "avg_win_pct": 0.129479932776394,
+  "avg_loss_pct": 0.03500339693008643,
+  "final": 13413.35710651425,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "tr2026",
+   "tp": "6.0"
+  },
+  "window": "tr2026",
+  "tp": "6.0"
+ },
+ {
+  "label": "tp7.0",
+  "skipped": false,
+  "annual": 0.12313119511469295,
+  "dd": 9.01146766266924,
+  "pf": 1.465809885916028,
+  "sharpe": 1.0402291282478886,
+  "trades": 201,
+  "win_rate": 25.870646766169152,
+  "avg_win_pct": 0.14973607751382,
+  "avg_loss_pct": 0.03669000386633169,
+  "final": 14167.442868814116,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "tr2026",
+   "tp": "7.0"
+  },
+  "window": "tr2026",
+  "tp": "7.0"
+ },
+ {
+  "label": "tp8.0",
+  "skipped": false,
+  "annual": 0.13705546515645595,
+  "dd": 11.194620312414951,
+  "pf": 1.52749966581657,
+  "sharpe": 1.1020021746784332,
+  "trades": 189,
+  "win_rate": 24.33862433862434,
+  "avg_win_pct": 0.17388173829336545,
+  "avg_loss_pct": 0.037013416247348045,
+  "final": 14700.934743982545,
+  "extra": {
+   "days": 1095,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "tr2026",
+   "tp": "8.0"
+  },
+  "window": "tr2026",
+  "tp": "8.0"
+ },
+ {
+  "label": "tp4.0",
+  "skipped": false,
+  "annual": -0.012668650910322987,
+  "dd": 10.146098680540478,
+  "pf": 0.9311273371090911,
+  "sharpe": -0.1725434900650273,
+  "trades": 30,
+  "win_rate": 26.666666666666668,
+  "avg_win_pct": 0.12565595424543313,
+  "avg_loss_pct": 0.04078718468861026,
+  "final": 9873.658375345249,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "y2018",
+   "tp": "4.0"
+  },
+  "window": "y2018",
+  "tp": "4.0"
+ },
+ {
+  "label": "tp5.0",
+  "skipped": false,
+  "annual": -0.04435789391296763,
+  "dd": 11.337778860742773,
+  "pf": 0.7370073023042422,
+  "sharpe": -0.618479375847589,
+  "trades": 27,
+  "win_rate": 18.51851851851852,
+  "avg_win_pct": 0.16592379955399106,
+  "avg_loss_pct": 0.04109250585324686,
+  "final": 9557.609058116415,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "y2018",
+   "tp": "5.0"
+  },
+  "window": "y2018",
+  "tp": "5.0"
+ },
+ {
+  "label": "tp6.0",
+  "skipped": false,
+  "annual": -0.06149989302014491,
+  "dd": 10.342841020466501,
+  "pf": 0.5845840533731396,
+  "sharpe": -0.8271439704623487,
+  "trades": 23,
+  "win_rate": 13.043478260869565,
+  "avg_win_pct": 0.18717464963061956,
+  "avg_loss_pct": 0.04197883173490735,
+  "final": 9386.633232770104,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "y2018",
+   "tp": "6.0"
+  },
+  "window": "y2018",
+  "tp": "6.0"
+ },
+ {
+  "label": "tp7.0",
+  "skipped": false,
+  "annual": -0.06509866820056942,
+  "dd": 12.167180393180162,
+  "pf": 0.5079900263909127,
+  "sharpe": -0.8913282912157612,
+  "trades": 20,
+  "win_rate": 10.0,
+  "avg_win_pct": 0.2459714193255067,
+  "avg_loss_pct": 0.041981287980872604,
+  "final": 9350.737647200116,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "y2018",
+   "tp": "7.0"
+  },
+  "window": "y2018",
+  "tp": "7.0"
+ },
+ {
+  "label": "tp8.0",
+  "skipped": false,
+  "annual": -0.04902286258387256,
+  "dd": 11.162967016404718,
+  "pf": 0.6120491439043688,
+  "sharpe": -0.6581788108231397,
+  "trades": 19,
+  "win_rate": 10.526315789473683,
+  "avg_win_pct": 0.28139562237172244,
+  "avg_loss_pct": 0.0409016692533603,
+  "final": 9511.081083806903,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "y2018",
+   "tp": "8.0"
+  },
+  "window": "y2018",
+  "tp": "8.0"
+ },
+ {
+  "label": "tp4.0",
+  "skipped": false,
+  "annual": 0.22958132104269668,
+  "dd": 5.3949373744414855,
+  "pf": 1.9009505504285906,
+  "sharpe": 1.980773794938123,
+  "trades": 52,
+  "win_rate": 44.230769230769226,
+  "avg_win_pct": 0.09186070639013902,
+  "avg_loss_pct": 0.0453844138776584,
+  "final": 12288.852930535499,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "y2019",
+   "tp": "4.0"
+  },
+  "window": "y2019",
+  "tp": "4.0"
+ },
+ {
+  "label": "tp5.0",
+  "skipped": false,
+  "annual": 0.26191778728725335,
+  "dd": 7.336244814221109,
+  "pf": 2.07563675103546,
+  "sharpe": 2.0000160256013655,
+  "trades": 46,
+  "win_rate": 41.30434782608695,
+  "avg_win_pct": 0.11462695222346075,
+  "avg_loss_pct": 0.04667124509609347,
+  "final": 12611.137606948441,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "y2019",
+   "tp": "5.0"
+  },
+  "window": "y2019",
+  "tp": "5.0"
+ },
+ {
+  "label": "tp6.0",
+  "skipped": false,
+  "annual": 0.31227710266022024,
+  "dd": 7.3362215970937426,
+  "pf": 2.301800167994112,
+  "sharpe": 2.185251905053477,
+  "trades": 43,
+  "win_rate": 39.53488372093023,
+  "avg_win_pct": 0.13809053896863582,
+  "avg_loss_pct": 0.04758666645516339,
+  "final": 13113.003991615189,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "y2019",
+   "tp": "6.0"
+  },
+  "window": "y2019",
+  "tp": "6.0"
+ },
+ {
+  "label": "tp7.0",
+  "skipped": false,
+  "annual": 0.26230195890823027,
+  "dd": 7.73802334617391,
+  "pf": 2.149497348452557,
+  "sharpe": 1.8885085848439864,
+  "trades": 38,
+  "win_rate": 34.21052631578947,
+  "avg_win_pct": 0.17227200916588759,
+  "avg_loss_pct": 0.04779525511738751,
+  "final": 12614.966355281576,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "y2019",
+   "tp": "7.0"
+  },
+  "window": "y2019",
+  "tp": "7.0"
+ },
+ {
+  "label": "tp8.0",
+  "skipped": false,
+  "annual": 0.32137358185734266,
+  "dd": 7.441855302237498,
+  "pf": 2.543376364157125,
+  "sharpe": 2.333557543991295,
+  "trades": 34,
+  "win_rate": 35.294117647058826,
+  "avg_win_pct": 0.19978059808570883,
+  "avg_loss_pct": 0.05016502892209552,
+  "final": 13203.651188285008,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "y2019",
+   "tp": "8.0"
+  },
+  "window": "y2019",
+  "tp": "8.0"
+ },
+ {
+  "label": "tp4.0",
+  "skipped": false,
+  "annual": 0.3315867709053033,
+  "dd": 5.474923165591844,
+  "pf": 1.8818129397224537,
+  "sharpe": 2.155647161187501,
+  "trades": 75,
+  "win_rate": 45.33333333333333,
+  "avg_win_pct": 0.08384329600055156,
+  "avg_loss_pct": 0.037544716375074366,
+  "final": 13315.867709053033,
+  "extra": {
+   "days": 365,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "y2020",
+   "tp": "4.0"
+  },
+  "window": "y2020",
+  "tp": "4.0"
+ },
+ {
+  "label": "tp5.0",
+  "skipped": false,
+  "annual": 0.40987549263849976,
+  "dd": 6.860582368441404,
+  "pf": 2.165284141168387,
+  "sharpe": 2.4201024994224727,
+  "trades": 67,
+  "win_rate": 43.28358208955223,
+  "avg_win_pct": 0.10413407198949486,
+  "avg_loss_pct": 0.039495140208144985,
+  "final": 14098.754926384998,
+  "extra": {
+   "days": 365,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "y2020",
+   "tp": "5.0"
+  },
+  "window": "y2020",
+  "tp": "5.0"
+ },
+ {
+  "label": "tp6.0",
+  "skipped": false,
+  "annual": 0.31956750336994655,
+  "dd": 8.644137165755602,
+  "pf": 1.8735167483028514,
+  "sharpe": 1.8070045134824129,
+  "trades": 64,
+  "win_rate": 35.9375,
+  "avg_win_pct": 0.11751995239603182,
+  "avg_loss_pct": 0.03995981974435232,
+  "final": 13195.675033699465,
+  "extra": {
+   "days": 365,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "y2020",
+   "tp": "6.0"
+  },
+  "window": "y2020",
+  "tp": "6.0"
+ },
+ {
+  "label": "tp7.0",
+  "skipped": false,
+  "annual": 0.33349498924093335,
+  "dd": 9.339068846288761,
+  "pf": 1.898583319660766,
+  "sharpe": 1.8165990220648478,
+  "trades": 57,
+  "win_rate": 33.33333333333333,
+  "avg_win_pct": 0.13899635797659993,
+  "avg_loss_pct": 0.04078089380237546,
+  "final": 13334.949892409333,
+  "extra": {
+   "days": 365,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "y2020",
+   "tp": "7.0"
+  },
+  "window": "y2020",
+  "tp": "7.0"
+ },
+ {
+  "label": "tp8.0",
+  "skipped": false,
+  "annual": 0.3913307795367513,
+  "dd": 8.545445773144557,
+  "pf": 2.190384869490258,
+  "sharpe": 2.0436274880650243,
+  "trades": 54,
+  "win_rate": 31.48148148148148,
+  "avg_win_pct": 0.1624051712746769,
+  "avg_loss_pct": 0.03994287587877071,
+  "final": 13913.307795367513,
+  "extra": {
+   "days": 365,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+   ],
+   "window": "y2020",
+   "tp": "8.0"
+  },
+  "window": "y2020",
+  "tp": "8.0"
+ },
+ {
+  "label": "tp4.0",
+  "skipped": false,
+  "annual": 0.14779240011090633,
+  "dd": 7.119575050273633,
+  "pf": 1.3371847983969978,
+  "sharpe": 1.2624114726189248,
+  "trades": 116,
+  "win_rate": 35.3448275862069,
+  "avg_win_pct": 0.16377863514470511,
+  "avg_loss_pct": 0.0557100954807893,
+  "final": 11473.590238221595,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2021",
+   "tp": "4.0"
+  },
+  "window": "y2021",
+  "tp": "4.0"
+ },
+ {
+  "label": "tp5.0",
+  "skipped": false,
+  "annual": 0.1942479825228065,
+  "dd": 7.054003116197527,
+  "pf": 1.442221700177988,
+  "sharpe": 1.574507615550095,
+  "trades": 109,
+  "win_rate": 32.11009174311927,
+  "avg_win_pct": 0.2009871915342224,
+  "avg_loss_pct": 0.05582723426257672,
+  "final": 11936.673047214155,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2021",
+   "tp": "5.0"
+  },
+  "window": "y2021",
+  "tp": "5.0"
+ },
+ {
+  "label": "tp6.0",
+  "skipped": false,
+  "annual": 0.3006336973664405,
+  "dd": 6.2235616034934464,
+  "pf": 1.7728948227944004,
+  "sharpe": 2.187194763569126,
+  "trades": 95,
+  "win_rate": 32.631578947368425,
+  "avg_win_pct": 0.2341055952306241,
+  "avg_loss_pct": 0.059118862572977056,
+  "final": 12996.973943910873,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2021",
+   "tp": "6.0"
+  },
+  "window": "y2021",
+  "tp": "6.0"
+ },
+ {
+  "label": "tp7.0",
+  "skipped": false,
+  "annual": 0.2661338894941345,
+  "dd": 7.27364412991593,
+  "pf": 1.6270011310198296,
+  "sharpe": 1.8641721829513342,
+  "trades": 98,
+  "win_rate": 27.55102040816326,
+  "avg_win_pct": 0.2739702159095483,
+  "avg_loss_pct": 0.06015322211359673,
+  "final": 12653.15613811884,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2021",
+   "tp": "7.0"
+  },
+  "window": "y2021",
+  "tp": "7.0"
+ },
+ {
+  "label": "tp8.0",
+  "skipped": false,
+  "annual": 0.25127546924884814,
+  "dd": 7.882259129427376,
+  "pf": 1.6299546995856893,
+  "sharpe": 1.7034550941918518,
+  "trades": 87,
+  "win_rate": 25.287356321839084,
+  "avg_win_pct": 0.33199036761483236,
+  "avg_loss_pct": 0.0574332853777468,
+  "final": 12505.072389522362,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2021",
+   "tp": "8.0"
+  },
+  "window": "y2021",
+  "tp": "8.0"
+ },
+ {
+  "label": "tp4.0",
+  "skipped": false,
+  "annual": 0.005812037804898251,
+  "dd": 7.908230948619205,
+  "pf": 1.0305973127397747,
+  "sharpe": 0.11151358033760994,
+  "trades": 52,
+  "win_rate": 30.76923076923077,
+  "avg_win_pct": 0.08089931828577358,
+  "avg_loss_pct": 0.03905518182694415,
+  "final": 10057.960683561407,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2022",
+   "tp": "4.0"
+  },
+  "window": "y2022",
+  "tp": "4.0"
+ },
+ {
+  "label": "tp5.0",
+  "skipped": false,
+  "annual": -0.013680281093348179,
+  "dd": 8.443438286702412,
+  "pf": 0.9295779529138409,
+  "sharpe": -0.11110895371418988,
+  "trades": 49,
+  "win_rate": 24.489795918367346,
+  "avg_win_pct": 0.09726976183441316,
+  "avg_loss_pct": 0.038727945385173324,
+  "final": 9863.569422840852,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2022",
+   "tp": "5.0"
+  },
+  "window": "y2022",
+  "tp": "5.0"
+ },
+ {
+  "label": "tp6.0",
+  "skipped": false,
+  "annual": -0.015289821687984873,
+  "dd": 8.457623832038601,
+  "pf": 0.9215142664027182,
+  "sharpe": -0.13067301741224194,
+  "trades": 47,
+  "win_rate": 21.27659574468085,
+  "avg_win_pct": 0.11378042107012291,
+  "avg_loss_pct": 0.03807178236947923,
+  "final": 9847.517472223486,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2022",
+   "tp": "6.0"
+  },
+  "window": "y2022",
+  "tp": "6.0"
+ },
+ {
+  "label": "tp7.0",
+  "skipped": false,
+  "annual": -0.011723361760989426,
+  "dd": 7.727754825365165,
+  "pf": 0.9411775588546776,
+  "sharpe": -0.0871378454332294,
+  "trades": 47,
+  "win_rate": 19.148936170212767,
+  "avg_win_pct": 0.13704051301576492,
+  "avg_loss_pct": 0.03829199951858732,
+  "final": 9883.085685439491,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2022",
+   "tp": "7.0"
+  },
+  "window": "y2022",
+  "tp": "7.0"
+ },
+ {
+  "label": "tp8.0",
+  "skipped": false,
+  "annual": 0.020085482348722428,
+  "dd": 7.859483144663009,
+  "pf": 1.1018411343554864,
+  "sharpe": 0.26344169578102394,
+  "trades": 46,
+  "win_rate": 19.565217391304348,
+  "avg_win_pct": 0.1569031580177316,
+  "avg_loss_pct": 0.03847636522012475,
+  "final": 10200.299061680736,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2022",
+   "tp": "8.0"
+  },
+  "window": "y2022",
+  "tp": "8.0"
+ },
+ {
+  "label": "tp4.0",
+  "skipped": false,
+  "annual": 0.04466656501942201,
+  "dd": 9.963409822865314,
+  "pf": 1.1423061521911884,
+  "sharpe": 0.48512320769051653,
+  "trades": 92,
+  "win_rate": 32.608695652173914,
+  "avg_win_pct": 0.10084923847951785,
+  "avg_loss_pct": 0.03496279305273855,
+  "final": 10445.415051447937,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2023",
+   "tp": "4.0"
+  },
+  "window": "y2023",
+  "tp": "4.0"
+ },
+ {
+  "label": "tp5.0",
+  "skipped": false,
+  "annual": 0.10093194020861329,
+  "dd": 6.860173339164027,
+  "pf": 1.3800716446829082,
+  "sharpe": 0.9862514525850387,
+  "trades": 74,
+  "win_rate": 32.432432432432435,
+  "avg_win_pct": 0.1234608894493147,
+  "avg_loss_pct": 0.03436593147202242,
+  "final": 11006.419445569,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2023",
+   "tp": "5.0"
+  },
+  "window": "y2023",
+  "tp": "5.0"
+ },
+ {
+  "label": "tp6.0",
+  "skipped": false,
+  "annual": 0.11091665789068639,
+  "dd": 7.9425489799092395,
+  "pf": 1.437591630327724,
+  "sharpe": 1.0248404070646062,
+  "trades": 68,
+  "win_rate": 29.411764705882355,
+  "avg_win_pct": 0.1582130120812265,
+  "avg_loss_pct": 0.03542458786697919,
+  "final": 11105.965606848658,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2023",
+   "tp": "6.0"
+  },
+  "window": "y2023",
+  "tp": "6.0"
+ },
+ {
+  "label": "tp7.0",
+  "skipped": false,
+  "annual": 0.10363090360180638,
+  "dd": 7.632707078654151,
+  "pf": 1.4110297239634024,
+  "sharpe": 0.9421940112334963,
+  "trades": 62,
+  "win_rate": 27.419354838709676,
+  "avg_win_pct": 0.17402285388594607,
+  "avg_loss_pct": 0.039749421605324936,
+  "final": 11033.327955164872,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2023",
+   "tp": "7.0"
+  },
+  "window": "y2023",
+  "tp": "7.0"
+ },
+ {
+  "label": "tp8.0",
+  "skipped": false,
+  "annual": 0.16495949990003234,
+  "dd": 7.336020838903703,
+  "pf": 1.6945091108959778,
+  "sharpe": 1.3895020482229503,
+  "trades": 60,
+  "win_rate": 28.333333333333332,
+  "avg_win_pct": 0.19388321357414282,
+  "avg_loss_pct": 0.040069317746327146,
+  "final": 11644.7227748067,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2023",
+   "tp": "8.0"
+  },
+  "window": "y2023",
+  "tp": "8.0"
+ },
+ {
+  "label": "tp4.0",
+  "skipped": false,
+  "annual": 0.16086801405726003,
+  "dd": 7.194550367692582,
+  "pf": 1.4437784477485645,
+  "sharpe": 1.4167861181148105,
+  "trades": 103,
+  "win_rate": 37.86407766990291,
+  "avg_win_pct": 0.07701181154161608,
+  "avg_loss_pct": 0.03650860742578677,
+  "final": 11608.6801405726,
+  "extra": {
+   "days": 365,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2024",
+   "tp": "4.0"
+  },
+  "window": "y2024",
+  "tp": "4.0"
+ },
+ {
+  "label": "tp5.0",
+  "skipped": false,
+  "annual": 0.1685276776347875,
+  "dd": 7.612736256995153,
+  "pf": 1.5277832454105387,
+  "sharpe": 1.4717766592483217,
+  "trades": 86,
+  "win_rate": 33.72093023255814,
+  "avg_win_pct": 0.10455929209652924,
+  "avg_loss_pct": 0.03718474053276785,
+  "final": 11685.276776347875,
+  "extra": {
+   "days": 365,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2024",
+   "tp": "5.0"
+  },
+  "window": "y2024",
+  "tp": "5.0"
+ },
+ {
+  "label": "tp6.0",
+  "skipped": false,
+  "annual": 0.12638903832629178,
+  "dd": 8.750454260894584,
+  "pf": 1.4045868465261782,
+  "sharpe": 1.0674767119808048,
+  "trades": 78,
+  "win_rate": 28.205128205128204,
+  "avg_win_pct": 0.12543949311094874,
+  "avg_loss_pct": 0.03679656373665021,
+  "final": 11263.890383262918,
+  "extra": {
+   "days": 365,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2024",
+   "tp": "6.0"
+  },
+  "window": "y2024",
+  "tp": "6.0"
+ },
+ {
+  "label": "tp7.0",
+  "skipped": false,
+  "annual": 0.21696572526907176,
+  "dd": 7.981387734722517,
+  "pf": 1.7563728029227323,
+  "sharpe": 1.6698203850124111,
+  "trades": 71,
+  "win_rate": 29.577464788732392,
+  "avg_win_pct": 0.14349466688020357,
+  "avg_loss_pct": 0.03717943894202919,
+  "final": 12169.657252690718,
+  "extra": {
+   "days": 365,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2024",
+   "tp": "7.0"
+  },
+  "window": "y2024",
+  "tp": "7.0"
+ },
+ {
+  "label": "tp8.0",
+  "skipped": false,
+  "annual": 0.18040656257746623,
+  "dd": 11.136070789713445,
+  "pf": 1.6384464535018526,
+  "sharpe": 1.3271635602796807,
+  "trades": 66,
+  "win_rate": 25.757575757575758,
+  "avg_win_pct": 0.1654249761254222,
+  "avg_loss_pct": 0.03663766867605909,
+  "final": 11804.065625774661,
+  "extra": {
+   "days": 365,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2024",
+   "tp": "8.0"
+  },
+  "window": "y2024",
+  "tp": "8.0"
+ },
+ {
+  "label": "tp4.0",
+  "skipped": false,
+  "annual": 0.050103757629592405,
+  "dd": 6.082101792187725,
+  "pf": 1.186848516234215,
+  "sharpe": 0.5865630858048527,
+  "trades": 77,
+  "win_rate": 33.76623376623377,
+  "avg_win_pct": 0.0676158455315394,
+  "avg_loss_pct": 0.030495619880714305,
+  "final": 10499.631136311311,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2025",
+   "tp": "4.0"
+  },
+  "window": "y2025",
+  "tp": "4.0"
+ },
+ {
+  "label": "tp5.0",
+  "skipped": false,
+  "annual": 0.08092730488018196,
+  "dd": 5.926708142578743,
+  "pf": 1.3299547020707223,
+  "sharpe": 0.8485071942399305,
+  "trades": 67,
+  "win_rate": 31.343283582089555,
+  "avg_win_pct": 0.08266990929646878,
+  "avg_loss_pct": 0.03160453264819814,
+  "final": 10806.96871928788,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2025",
+   "tp": "5.0"
+  },
+  "window": "y2025",
+  "tp": "5.0"
+ },
+ {
+  "label": "tp6.0",
+  "skipped": false,
+  "annual": 0.09967481417433666,
+  "dd": 5.417618668009803,
+  "pf": 1.412307119366035,
+  "sharpe": 0.9676978012136173,
+  "trades": 62,
+  "win_rate": 29.03225806451613,
+  "avg_win_pct": 0.09921047197613383,
+  "avg_loss_pct": 0.031045405459519424,
+  "final": 10993.885909736746,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2025",
+   "tp": "6.0"
+  },
+  "window": "y2025",
+  "tp": "6.0"
+ },
+ {
+  "label": "tp7.0",
+  "skipped": false,
+  "annual": 0.09411114632677742,
+  "dd": 6.610637850188622,
+  "pf": 1.4329115500973753,
+  "sharpe": 0.8618222057785792,
+  "trades": 54,
+  "win_rate": 25.925925925925924,
+  "avg_win_pct": 0.11488102075409658,
+  "avg_loss_pct": 0.03118051156948028,
+  "final": 10938.41571685589,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2025",
+   "tp": "7.0"
+  },
+  "window": "y2025",
+  "tp": "7.0"
+ },
+ {
+  "label": "tp8.0",
+  "skipped": false,
+  "annual": 0.11887625610146713,
+  "dd": 6.6005095364853545,
+  "pf": 1.5432561311036965,
+  "sharpe": 1.0657139414981138,
+  "trades": 52,
+  "win_rate": 25.0,
+  "avg_win_pct": 0.13045014463049098,
+  "avg_loss_pct": 0.0319658571019877,
+  "final": 11185.319868982277,
+  "extra": {
+   "days": 364,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2025",
+   "tp": "8.0"
+  },
+  "window": "y2025",
+  "tp": "8.0"
+ },
+ {
+  "label": "tp4.0",
+  "skipped": false,
+  "annual": -0.018934144226895322,
+  "dd": 11.07571078811478,
+  "pf": 0.9092249611551164,
+  "sharpe": -0.1329436230948996,
+  "trades": 70,
+  "win_rate": 30.0,
+  "avg_win_pct": 0.060933455067739964,
+  "avg_loss_pct": 0.024502470444164946,
+  "final": 9856.493620090347,
+  "extra": {
+   "days": 276,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2026",
+   "tp": "4.0"
+  },
+  "window": "y2026",
+  "tp": "4.0"
+ },
+ {
+  "label": "tp5.0",
+  "skipped": false,
+  "annual": -0.006891070951368983,
+  "dd": 10.592653619453039,
+  "pf": 0.9510675157463278,
+  "sharpe": -0.005827135885018305,
+  "trades": 59,
+  "win_rate": 27.11864406779661,
+  "avg_win_pct": 0.07009199769350417,
+  "avg_loss_pct": 0.0244198430279406,
+  "final": 9947.848272165123,
+  "extra": {
+   "days": 276,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2026",
+   "tp": "5.0"
+  },
+  "window": "y2026",
+  "tp": "5.0"
+ },
+ {
+  "label": "tp6.0",
+  "skipped": false,
+  "annual": 0.03439512033981207,
+  "dd": 9.779202700902076,
+  "pf": 1.0276868310371192,
+  "sharpe": 0.3452682490148769,
+  "trades": 46,
+  "win_rate": 28.26086956521739,
+  "avg_win_pct": 0.08046793371286286,
+  "avg_loss_pct": 0.024743830443438575,
+  "final": 10259.008280223912,
+  "extra": {
+   "days": 276,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2026",
+   "tp": "6.0"
+  },
+  "window": "y2026",
+  "tp": "6.0"
+ },
+ {
+  "label": "tp7.0",
+  "skipped": false,
+  "annual": -0.009262626003487928,
+  "dd": 13.82699291539303,
+  "pf": 0.8316851861760681,
+  "sharpe": -0.007410320412015172,
+  "trades": 43,
+  "win_rate": 23.25581395348837,
+  "avg_win_pct": 0.0877061816452582,
+  "avg_loss_pct": 0.025015336131665348,
+  "final": 9929.879920361425,
+  "extra": {
+   "days": 276,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2026",
+   "tp": "7.0"
+  },
+  "window": "y2026",
+  "tp": "7.0"
+ },
+ {
+  "label": "tp8.0",
+  "skipped": false,
+  "annual": -0.0028070693595462215,
+  "dd": 13.69372694075194,
+  "pf": 0.8108525232450718,
+  "sharpe": 0.04511008239364713,
+  "trades": 42,
+  "win_rate": 21.428571428571427,
+  "avg_win_pct": 0.10230166498408097,
+  "avg_loss_pct": 0.02542567869177619,
+  "final": 9978.766668582379,
+  "extra": {
+   "days": 276,
+   "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+   ],
+   "window": "y2026",
+   "tp": "8.0"
+  },
+  "window": "y2026",
+  "tp": "8.0"
+ }
+]

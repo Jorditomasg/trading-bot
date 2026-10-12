@@ -1,6 +1,8 @@
 import logging
 import math
 import time
+import uuid
+from decimal import ROUND_DOWN, Decimal
 from typing import Callable, Optional
 
 import pandas as pd
@@ -159,7 +161,6 @@ class BinanceClient:
         logger.warning("Asset %s not found in account balances", asset)
         return 0.0
 
-    @_retry
     def place_order(
         self,
         symbol: str,
@@ -167,20 +168,77 @@ class BinanceClient:
         quantity: float,
         order_type: str = Client.ORDER_TYPE_MARKET,
     ) -> dict:
+        """Place an order exactly once, even across network retries.
+
+        Not wrapped in @_retry on purpose: a ReadTimeout can arrive AFTER
+        Binance accepted the order, and a blind resend doubles the position.
+        Every attempt carries the same newClientOrderId; after a network
+        failure the order is looked up by that id before trying again (and a
+        resend with the same id is rejected by Binance as a duplicate).
+        Binance API rejections (e.g. -2010 insufficient balance) are not
+        retried — they are deterministic — and stay as __cause__ so callers
+        can inspect the code.
+        """
         logger.info(
             "Placing order symbol=%s side=%s qty=%.5f type=%s",
             symbol, side, quantity, order_type,
         )
-        order = self._client.create_order(
-            symbol=symbol,
-            side=side,
-            type=order_type,
-            quantity=quantity,
-        )
+        client_order_id = f"tb{uuid.uuid4().hex[:30]}"
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                order = self._client.create_order(
+                    symbol=symbol,
+                    side=side,
+                    type=order_type,
+                    quantity=quantity,
+                    newClientOrderId=client_order_id,
+                )
+                break
+            except BinanceAPIException as exc:
+                raise RuntimeError(
+                    f"place_order rejected by Binance: {exc}"
+                ) from exc
+            except _RETRYABLE as exc:
+                last_exc = exc
+                existing = self._find_order(symbol, client_order_id)
+                if existing is not None:
+                    logger.warning(
+                        "place_order: %s after submit, but the order exists "
+                        "(orderId=%s status=%s) — not resending",
+                        exc, existing.get("orderId"), existing.get("status"),
+                    )
+                    return existing
+                wait = BACKOFF_BASE ** attempt
+                logger.warning(
+                    "Attempt %d/%d failed for place_order: %s — retrying in %.1fs",
+                    attempt, MAX_RETRIES, exc, wait,
+                )
+                time.sleep(wait)
+        else:
+            raise RuntimeError(
+                f"All {MAX_RETRIES} attempts failed for place_order"
+            ) from last_exc
+
         order_id = order.get("orderId", "N/A")
         status   = order.get("status", "N/A")
         logger.info("Order placed orderId=%s status=%s", order_id, status)
         return order
+
+    def _find_order(self, symbol: str, client_order_id: str) -> dict | None:
+        """Look an order up by client id; None if Binance has no such order.
+
+        Any other failure is treated as "unknown" and also returns None, so the
+        caller retries with the SAME client id — Binance rejects a duplicate
+        id, which makes that retry safe.
+        """
+        try:
+            return self._client.get_order(
+                symbol=symbol, origClientOrderId=client_order_id,
+            )
+        except Exception as exc:
+            logger.debug("Order lookup %s failed: %s", client_order_id, exc)
+            return None
 
     def get_price_precision(self, symbol: str) -> int:
         """Return decimal places for price from PRICE_FILTER → tickSize.
@@ -282,11 +340,46 @@ class BinanceClient:
                     wait_seconds,
                 )
 
-            # Cancel unfilled limit order (best-effort)
+            # Cancel the limit order (best-effort), then re-read it: it may
+            # have filled — fully or partly — between the last poll and the
+            # cancel. Only the unfilled remainder may go out at MARKET,
+            # otherwise the exchange position ends up larger than the DB's.
             try:
                 self._client.cancel_order(symbol=symbol, orderId=order_id)
             except Exception as cancel_exc:
                 logger.warning("Could not cancel LIMIT_MAKER orderId=%s: %s", order_id, cancel_exc)
+
+            try:
+                final = self._client.get_order(symbol=symbol, orderId=order_id)
+            except Exception as exc:
+                # Unknown fill state: sending MARKET could double the
+                # position. Fail the entry instead — the caller logs it and
+                # nothing is recorded; the next bar can re-enter.
+                raise RuntimeError(
+                    f"LIMIT_MAKER orderId={order_id} state unknown after cancel: {exc}"
+                ) from exc
+
+            executed = float(final.get("executedQty") or 0)
+            remaining = quantity - executed
+            if executed > 0 and remaining > 0:
+                try:
+                    decimals = self.get_quantity_precision(symbol)
+                except Exception:
+                    decimals = 8
+                remaining = _round_down(remaining, decimals)
+            if final.get("status") == "FILLED" or remaining <= 0:
+                logger.info(
+                    "LIMIT_MAKER orderId=%s filled before cancel (executed=%s)",
+                    order_id, final.get("executedQty"),
+                )
+                return final
+            if executed > 0:
+                logger.info(
+                    "LIMIT_MAKER orderId=%s partially filled %.8f/%.8f — MARKET for remainder %.8f",
+                    order_id, executed, quantity, remaining,
+                )
+                market = self.place_order(symbol=symbol, side=side, quantity=remaining)
+                return _merge_fills(final, market)
 
         except BinanceAPIException as exc:
             if exc.code == -2010:
@@ -376,3 +469,25 @@ class BinanceClient:
                 logger.info("ThreadedWebsocketManager stopped.")
             except Exception as exc:
                 logger.warning("Error stopping ThreadedWebsocketManager: %s", exc)
+
+
+def _round_down(value: float, decimals: int) -> float:
+    """Round `value` DOWN to the symbol's LOT_SIZE decimals.
+
+    The remainder of a partial fill is a difference of two LOT_SIZE-aligned
+    quantities; float subtraction leaves noise (0.6000000000000001) that
+    Binance would reject. Rounding down never sends more than was intended.
+    """
+    q = Decimal(1).scaleb(-decimals)
+    return float(Decimal(repr(value)).quantize(q, rounding=ROUND_DOWN))
+
+
+def _merge_fills(first: dict, second: dict) -> dict:
+    """Combine a partial LIMIT_MAKER fill and its MARKET remainder into one
+    result so callers' avg-fill-price maths covers the whole position."""
+    merged = dict(second)
+    for key in ("executedQty", "cummulativeQuoteQty"):
+        total = float(first.get(key) or 0) + float(second.get(key) or 0)
+        merged[key] = f"{total:.8f}"
+    merged["status"] = "FILLED"
+    return merged

@@ -214,6 +214,17 @@ class Database:
         )
         return trade_id
 
+    def update_trade_stop(self, trade_id: int, stop_loss: float, peak_price: float) -> None:
+        """Persist a ratcheted (trailing) stop on an OPEN trade (gotcha #50).
+
+        No-op on a closed trade, so a late ratchet can never rewrite history.
+        """
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE trades SET stop_loss = ?, peak_price = ? WHERE id = ? AND exit_price IS NULL",
+                (stop_loss, peak_price, trade_id),
+            )
+
     def close_trade(
         self,
         trade_id: int,

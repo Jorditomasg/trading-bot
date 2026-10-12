@@ -563,15 +563,15 @@ def _momentum_engine(enabled: bool = True) -> BacktestEngine:
 
 
 def test_momentum_bearish_blocks_all_entries():
-    """When weekly price is far below its SMA (BEARISH) no new trades open.
+    """When the CURRENT price is far below the weekly SMA (BEARISH) no new trades open.
 
-    momentum_sma_period=4: SMA-4 of last 4 bars.
-    Last bar = 30_000, previous 8 bars = 60_000.
-    tail(9) = [60k×8, 30k]. closes[-4:] = [60k, 60k, 60k, 30k]. SMA=52_500.
-    30_000 < 52_500 × 0.95 = 49_875 → BEARISH.
+    momentum_sma_period=4. Every weekly bar closed at 100_000 → SMA 100_000.
+    The 1h uptrend trades at 40k-50k < 100_000 × 0.95 → BEARISH on every bar.
+    Gotcha #49: the price compared is the bar being decided (as live passes to
+    MomentumFilter.get_state), not the forming week's final close.
     """
     df = _uptrend(300)
-    weekly_closes = [60_000.0] * 52 + [30_000.0]  # crash at last bar
+    weekly_closes = [100_000.0] * 53
     df_weekly = _make_weekly(weekly_closes)
 
     engine = _momentum_engine(enabled=True)

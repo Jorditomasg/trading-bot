@@ -23,15 +23,27 @@ The dataclass defaults in `bot/config.py` mirror these so test/script paths that
 | `symbol` | `BTCUSDT` | Multi-symbol via `PortfolioBacktestEngine`. Live set seeded **`BTCUSDT,ETHUSDT,SOLUSDT`** (SOL added 2026-06-09 for diversification — see below) |
 | `timeframe` | `4h` | 1h is unviable (legacy backtests: PF=0.75, Ann=-26%) |
 | `risk_per_trade` | `0.015` (1.5%) | Picked over 4% per `scripts/risk_scaler_matrix.py` (May 2026). Live had drifted to **0.025** with no documented justification; restored to 0.015 on 2026-07-30 — see the re-run table below. |
-| `ema_stop_mult` | `1.5` | SL = 1.5 × ATR |
-| `ema_tp_mult` | `5.0` | TP = 5.0 × ATR (B-pick: walk-forward audit winner, May 2026) |
+| `ema_stop_mult` | `2.0` | Initial SL = 2 × ATR (was 1.5 until 2026-10-12) |
+| `ema_tp_mult` | `0.0` | **No take-profit** (was 5.0). `0` = disabled; exits only via the stop |
+| `ema_trail_mult` | `4.0` | Chandelier: stop ratchets to highest-high-since-entry − 4 × ATR at each closed bar (gotcha #50) |
 | `ema_max_dist_atr` | `1.0` | Max distance from EMA9 for trend-continuation entries |
 | `long_only` | `true` | Bidirectional destroys PF on BTC |
+
+> 🚨 **2026-10-12 — every engine number below this line, and in `docs/audits/`
+> before this date, was produced WITH LOOK-AHEAD (gotcha #49)**: the daily bias
+> and weekly momentum read the still-forming bar's final close. Honest re-run,
+> old exit: BTC+ETH **+6.6 %/yr** (not +15.9 %), Sharpe 0.70; BTC+ETH+SOL
+> +5.5 %/yr. Current config (chandelier exit, gotcha #50): BTC+ETH **+14.1 %/yr,
+> DD 10.8 %, Sharpe 1.20, OOS Sharpe 0.94**; BTC+ETH+SOL **+11.3 %/yr, DD 8.4 %,
+> Sharpe 1.15, OOS Sharpe 1.06**. Report: `docs/audits/trailing_exit_2026-10-12.md`.
+> Treat the older tables (risk matrix, stop×TP grid, TP-grid rejection, bear
+> filters, SOL spec) as **unverified** until re-run on the fixed engine.
+> Validate with `scripts/validate_trailing_exit_2026_10.py` as the template.
 
 Hard rules — do not change without re-running `BacktestEngine` or `PortfolioBacktestEngine`:
 
 - **Long-only on BTC**: bidirectional destroys PF (1.55 → 1.09). BTC upward bias.
-- **No trailing stop in live**: gotcha #1 (still exists in `BacktestConfig` for research).
+- **Trailing stop IS live since 2026-10-12** (gotcha #50 supersedes gotcha #1): 4 × ATR chandelier, no TP. Gotcha #1's failure was a *tight* trail *combined with* a TP.
 - **4h timeframe**: validated. 1h is unviable.
 - **R:R ≥ 1.5**: optimizer skips any combo below this floor.
 - **Drawdown scaler stays DISABLED**: matrix backtest (`scripts/risk_scaler_matrix.py`, May 2026)
@@ -61,6 +73,9 @@ Hard rules — do not change without re-running `BacktestEngine` or `PortfolioBa
   still rises at the grid edge (1.53 at TP 6.0), and `walk_forward.TP_GRID` is
   capped at exactly 5.0, so the optimizer cannot see past it.** Widen the grid
   and re-run the walk-forward before changing TP.
+  **Done 2026-10-04 → REJECTED, keep TP 5.0**: above 5.0 the surface is noise
+  (Calmar 1.33/1.35/1.13/1.36 for TP 5/6/7/8) and a rolling 3y walk-forward
+  picking TP each year does not beat fixed 5.0. `docs/audits/tp_grid_2026-10-04.md`.
 - **SOLUSDT added to the live set (2026-06-09)** for diversification. Under the
   TRUE live ÷N capital allocation, BTC+ETH+SOL cuts 3y max-DD 12.1%→9.4% and
   lifts Calmar 1.61→1.99 vs BTC+ETH, **robust in both sub-period halves** (and in
@@ -163,8 +178,8 @@ same window before concluding the bot underperformed.
               └────────────┬────────────┘
                            │  pd.DataFrame (OHLCV)
               ┌────────────▼────────────┐
-              │  Capital allocation      │  main.py:run_cycle
-              │  balance = total / N     │  N = len(active symbols)
+              │  Capital allocation      │  main.py:_allocate_capital
+              │  min(equity/N, free)     │  N = len(active symbols)
               └────────────┬────────────┘
                            │  allocated balance
               ┌────────────▼────────────┐
@@ -215,7 +230,7 @@ same window before concluding the bot underperformed.
 
 | File | Responsibility |
 |------|---------------|
-| `main.py` | Entry point, CLI flags, scheduler, run_cycle loop; **`run_cycle` divides total USDT balance by `n_symbols` so each symbol gets an equitable allocation** |
+| `main.py` | Entry point, CLI flags, scheduler, run_cycle loop; **`run_cycle` gives each symbol `min(trading_equity / n_symbols, free USDT)` (`_allocate_capital`) — trading equity, like the backtest, not free cash (gotcha #46)** |
 | `bot/config.py` | Settings dataclass, reads `.env` via python-dotenv |
 | `bot/constants.py` | All enums: ExitReason, TradeAction, OrderSide, StrategyName |
 | `bot/orchestrator.py` | Coordinates regime → strategy → bias filter → risk → order dict. HWM lives in DB only — no in-memory `_peak_capital` cache; re-read each `step()` to avoid cross-symbol race (gotcha #30, #31). |

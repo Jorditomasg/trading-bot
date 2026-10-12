@@ -162,7 +162,7 @@ def _execute(job: dict) -> dict:
         risk=job.get("risk", BASE_RISK),
         cost_per_side=job.get("cost", 0.001),
         use_bias=True,
-        use_momentum=False,
+        use_momentum=True,   # live always applies the weekly filter (gotcha #49)
         use_1m=False,
     )
     engine = PortfolioBacktestEngine(config=build_backtest_config(req, cfg_dict))

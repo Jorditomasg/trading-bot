@@ -58,13 +58,14 @@ def _find_cfg_rt_defaults(source: str) -> dict[str, object]:
 
 class TestBacktestRunnerFallbacks:
     def test_backtest_runner_fallback_values(self) -> None:
-        """ema_tp_mult fallback must be 5.0 (not 4.5) and ema_vol_mult must be 1.5 (not 2.0)."""
+        """ema_tp_mult fallback must match the live seed (0.0 = chandelier exit, gotcha #50)
+        and ema_vol_mult must be 1.5 (not 2.0)."""
         source = _read_source()
         defaults = _find_cfg_rt_defaults(source)
 
         assert "ema_tp_mult" in defaults, "cfg_rt.get('ema_tp_mult', ...) not found in backtest_runner.py"
-        assert defaults["ema_tp_mult"] == 5.0, (
-            f"ema_tp_mult fallback must be 5.0 (live seed), got {defaults['ema_tp_mult']!r}"
+        assert defaults["ema_tp_mult"] == 0.0, (
+            f"ema_tp_mult fallback must be 0.0 (live seed), got {defaults['ema_tp_mult']!r}"
         )
 
         assert "ema_vol_mult" in defaults, "cfg_rt.get('ema_vol_mult', ...) not found in backtest_runner.py"

@@ -135,3 +135,18 @@ __all__ = [
     "tmp_db",
     "seeded_db",
 ]
+
+
+@pytest.fixture(autouse=True)
+def _reset_scheduler_client_cache():
+    """main._scheduler_client caches one BinanceClient per mode; tests patch
+    _build_client with a fresh mock each time, so the cache must not leak a
+    previous test's client."""
+    try:
+        import main as _main
+    except Exception:
+        yield
+        return
+    _main._client_cache.clear()
+    yield
+    _main._client_cache.clear()

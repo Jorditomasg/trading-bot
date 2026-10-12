@@ -89,7 +89,7 @@ def _render_symbol_card(db: Database, symbol: str, trade: dict | None) -> None:
         c1, c2, c3 = st.columns(3)
         c1.metric("Entry", f"${fmt(entry, ',.0f')}")
         c2.metric("SL",    f"${fmt(sl, ',.0f')}")
-        c3.metric("TP",    f"${fmt(tp, ',.0f')}")
+        c3.metric("TP",    f"${fmt(tp, ',.0f')}" if tp and tp > 0 else "— (trailing)")
         st.caption(f"{trade['strategy']} · {trade['regime']}")
     else:
         st.markdown(

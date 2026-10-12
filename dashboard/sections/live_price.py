@@ -87,6 +87,8 @@ def _add_position_levels(
             (tp,    GREEN, "dot",  f"TP  ${fmt(tp, ',.0f')}"),
             (sl,    RED,   "dot",  f"SL  ${fmt(sl, ',.0f')}"),
         ):
+            if not y or y <= 0:   # TP 0 = no take-profit (trailing exit)
+                continue
             fig.add_shape(
                 type="line",
                 x0=entry_ts, x1=chart_end,

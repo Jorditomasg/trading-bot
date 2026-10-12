@@ -50,7 +50,7 @@ def test_second_cycle_on_the_same_bar_is_skipped(tmp_db):
     orch = StrategyOrchestrator(db=tmp_db, symbol="ETHUSDT")
     client = _client_for(_df("2026-07-30 20:00"))
 
-    with patch.object(main_module, "_build_client", return_value=client):
+    with patch.object(main_module, "_scheduler_client", return_value=client):
         main_module.run_cycle(orch, tmp_db, dry_run=True)
         first_pass_calls = client.get_klines.call_count
         main_module.run_cycle(orch, tmp_db, dry_run=True)
@@ -63,12 +63,12 @@ def test_second_cycle_on_the_same_bar_is_skipped(tmp_db):
 def test_a_new_closed_bar_re_enables_the_entry_pass(tmp_db):
     orch = StrategyOrchestrator(db=tmp_db, symbol="ETHUSDT")
 
-    with patch.object(main_module, "_build_client",
+    with patch.object(main_module, "_scheduler_client",
                       return_value=_client_for(_df("2026-07-30 20:00"))):
         main_module.run_cycle(orch, tmp_db, dry_run=True)
 
     client = _client_for(_df("2026-07-31 00:00"))
-    with patch.object(main_module, "_build_client", return_value=client):
+    with patch.object(main_module, "_scheduler_client", return_value=client):
         main_module.run_cycle(orch, tmp_db, dry_run=True)
 
     assert client.get_klines.call_count > 1  # ran the full pass again
@@ -80,11 +80,11 @@ def test_the_guard_is_per_symbol(tmp_db):
     btc = StrategyOrchestrator(db=tmp_db, symbol="BTCUSDT")
     df = _df("2026-07-30 20:00")
 
-    with patch.object(main_module, "_build_client", return_value=_client_for(df)):
+    with patch.object(main_module, "_scheduler_client", return_value=_client_for(df)):
         main_module.run_cycle(eth, tmp_db, dry_run=True)
 
     client = _client_for(df)
-    with patch.object(main_module, "_build_client", return_value=client):
+    with patch.object(main_module, "_scheduler_client", return_value=client):
         main_module.run_cycle(btc, tmp_db, dry_run=True)
 
     assert client.get_klines.call_count > 1
@@ -97,9 +97,25 @@ def test_frame_without_open_time_does_not_break_the_cycle(tmp_db):
     df = _df("2026-07-30 20:00").drop(columns=["open_time"])
     client = _client_for(df)
 
-    with patch.object(main_module, "_build_client", return_value=client):
+    with patch.object(main_module, "_scheduler_client", return_value=client):
         main_module.run_cycle(orch, tmp_db, dry_run=True)
 
     assert "ETHUSDT" not in main_module._last_entry_bar
     intervals = [c.args[1] for c in client.get_klines.call_args_list]
     assert "1w" in intervals  # full pass still ran
+
+
+def test_a_failed_decision_does_not_burn_the_bar(tmp_db):
+    """If step() raises, the bar was never decided — the next hourly cycle
+    must retry it instead of skipping that 4h bar's entry for good."""
+    orch = StrategyOrchestrator(db=tmp_db, symbol="ETHUSDT")
+    client = _client_for(_df("2026-07-30 20:00"))
+
+    with patch.object(main_module, "_scheduler_client", return_value=client):
+        with patch.object(orch, "step", side_effect=RuntimeError("db locked")):
+            with pytest.raises(RuntimeError):
+                main_module.run_cycle(orch, tmp_db, dry_run=True)
+        calls_after_failure = client.get_klines.call_count
+        main_module.run_cycle(orch, tmp_db, dry_run=True)
+
+    assert client.get_klines.call_count > calls_after_failure + 1  # full pass again

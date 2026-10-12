@@ -21,6 +21,7 @@ from bot.config import settings
 from bot.constants import ExitReason, StrategyName, TradeAction
 from bot.database.db import Database
 from bot.exchange.binance_client import BinanceClient
+from bot.indicators import atr as compute_atr
 from bot.indicators.utils import resample_ohlcv
 from bot.logging_setup import setup_logging
 from bot.optimizer.auto_optimizer import run_and_apply, should_run
@@ -30,6 +31,7 @@ from bot.optimizer.auto_entry_quality_optimizer import (
 )
 from bot.orchestrator import StrategyOrchestrator
 from bot.risk.manager import RiskConfig
+from bot.strategy.levels import tp_hit, trail_stop
 from bot.telegram_commands import TelegramCommandHandler
 from bot.telegram_notifier import TelegramNotifier
 
@@ -111,6 +113,27 @@ def _build_client(db: Database) -> BinanceClient:
         else:
             logger.error("MAINNET mode set but no credentials found — falling back to TESTNET")
     return BinanceClient()
+
+
+# One client per (mode, credentials) for the scheduler-thread jobs
+# (run_cycle, position_manager, equity snapshot). Every BinanceClient() builds
+# two python-binance Clients, each pinging in its constructor without retry;
+# rebuilding one per 60 s tick meant a single ping timeout skipped that whole
+# SL/TP check. All three jobs run sequentially on the main thread, so sharing
+# is safe. Other threads (Telegram, optimizers) keep calling _build_client.
+_client_cache: dict[tuple, BinanceClient] = {}
+
+
+def _scheduler_client(db: Database) -> BinanceClient:
+    mode = db.get_active_mode()
+    creds = db.get_mainnet_credentials() if mode == "MAINNET" else None
+    key = (mode, tuple(creds) if creds else None)
+    client = _client_cache.get(key)
+    if client is None:
+        client = _build_client(db)  # raises → nothing cached, next tick retries
+        _client_cache.clear()
+        _client_cache[key] = client
+    return client
 
 
 logger = logging.getLogger(__name__)
@@ -213,8 +236,16 @@ def _seed_optimized_defaults(db: Database) -> None:
         "symbols":         "BTCUSDT,ETHUSDT,SOLUSDT",
         "timeframe":       "4h",
         "risk_per_trade":  "0.015",   # 1.5% = Quarter-Kelly; safe, ~17% annual
-        "ema_stop_mult":   "1.5",
-        "ema_tp_mult":     "5.0",     # B-pick (audit-validated, May 2026)
+        # Chandelier exit (2026-10-12, gotcha #50): initial SL 2×ATR, stop
+        # trailed 4×ATR behind the peak, NO take-profit (0.0 = disabled).
+        # Re-validated WITHOUT the look-ahead of gotcha #49: Sharpe 0.75→1.21
+        # (BTC+ETH 2018→) and 0.63→1.20 (BTC+ETH+SOL 2020→), better in-sample
+        # AND out-of-sample, centre of a broad plateau (trail 4-5, SL 2-3).
+        # The old SL 1.5 / TP 5.0 "B-pick" was selected on look-ahead data.
+        # Report: docs/audits/trailing_exit_2026-10-12.md.
+        "ema_stop_mult":   "2.0",
+        "ema_tp_mult":     "0.0",
+        "ema_trail_mult":  "4.0",
         "ema_max_dist_atr":"1.0",
         "long_only":       "true",
         "backtest_cost_per_side":     "0.001",   # 0.10% per side (Binance VIP-0 spot, no BNB discount)
@@ -248,8 +279,8 @@ def _seed_optimized_defaults(db: Database) -> None:
 # Detection is WARN-only — no auto-correct (design D11).
 _LEGACY_OVERRIDES: dict[str, tuple[str, str]] = {
     "risk_per_trade": ("0.03",  "0.015"),
-    "ema_stop_mult":  ("1.25",  "1.5"),
-    "ema_tp_mult":    ("4.5",   "5.0"),    # old C1 value — B-pick uses 5.0
+    "ema_stop_mult":  ("1.5",   "2.0"),    # pre-trailing B-pick (gotcha #50)
+    "ema_tp_mult":    ("5.0",   "0.0"),    # fixed TP superseded by the chandelier exit
     "ema_vol_mult":   ("2.0",   "1.5"),
     "ema_bar_dir":    ("false", "true"),
     "momentum_neutral_band": ("0.05", "0.08"),
@@ -476,7 +507,7 @@ def run_cycle(
         logger.info("[%s] Bot is paused — skipping cycle", sym)
         return
 
-    client = _build_client(db)
+    client = _scheduler_client(db)
 
     try:
         df = client.get_klines(
@@ -490,6 +521,13 @@ def run_cycle(
         logger.error("[%s] Empty kline frame — skipping cycle", sym)
         return
 
+    # Ratchet trailing stops on open positions BEFORE the one-decision-per-bar
+    # guard: exits must keep trailing even on ticks that skip the entry pass.
+    try:
+        _update_trailing_stop(db, sym, df, _trail_mult(db))
+    except Exception as exc:   # never let a ratchet failure block the cycle
+        logger.error("[%s] trailing-stop update failed: %s", sym, exc, exc_info=True)
+
     # One entry decision per closed bar (see _last_entry_bar). Frames without
     # open_time (synthetic/derived) simply opt out rather than blocking the
     # cycle — the guard is an optimisation over correct data, not a gate.
@@ -502,7 +540,10 @@ def run_cycle(
                 sym, bar_time,
             )
             return
-        _last_entry_bar[sym] = bar_time
+        # Marked only once step() has decided (below): a failure before the
+        # decision must leave the bar retryable on the next hourly tick.
+    else:
+        bar_time = None
 
     # Daily klines for BiasFilter — backtest-proven: daily EMA9/21 gate
     # outperforms 4h EMA gate (PF 1.19-1.30 vs 0.82-0.93 with taker fees)
@@ -551,18 +592,28 @@ def run_cycle(
         curve = db.get_equity_curve()
         total_balance = curve[-1]["balance"] if curve else settings.initial_capital
 
-    # Allocate capital evenly across active symbols so one symbol can't drain the pool
-    balance = total_balance / max(1, n_symbols)
+    # Allocate capital evenly across active symbols so one symbol can't drain
+    # the pool — off TRADING EQUITY, like PortfolioBacktestEngine, capped by
+    # free cash (see _allocate_capital).
+    baseline = db.get_account_baseline()
+    trading_equity = (
+        baseline + db.get_closed_pnl_sum() if baseline is not None else None
+    )
+    balance = _allocate_capital(trading_equity, total_balance, n_symbols)
     if n_symbols > 1:
         logger.info(
-            "[%s] Capital allocation: total=%.2f / %d symbols → allocated=%.2f",
-            sym, total_balance, n_symbols, balance,
+            "[%s] Capital allocation: equity=%s free=%.2f / %d symbols → allocated=%.2f",
+            sym,
+            f"{trading_equity:.2f}" if trading_equity is not None else "n/a",
+            total_balance, n_symbols, balance,
         )
 
     # Snapshot circuit breaker state before step to detect new triggers
     breaker_was_active = orchestrator.risk_manager._breaker_triggered_at is not None
 
     orders = orchestrator.step(df, balance, df_high=df_4h, df_weekly=df_weekly, total_balance=total_balance)
+    if bar_time is not None:
+        _last_entry_bar[sym] = bar_time
 
     # Notify if circuit breaker just fired this cycle
     if notifier and not breaker_was_active:
@@ -592,6 +643,27 @@ def run_cycle(
         )
 
     logger.info("─── [%s] Cycle end ───", sym)
+
+
+def _allocate_capital(
+    trading_equity: float | None,
+    free_usdt: float,
+    n_symbols: int,
+) -> float:
+    """Capital one symbol may size its next entry off.
+
+    Mirrors PortfolioBacktestEngine, which sizes off `capital / N` where
+    `capital` is REALIZED equity (baseline + closed PnL) — opening a trade does
+    not shrink it. Sizing off FREE USDT / N instead shrank every later entry
+    while other symbols were deployed (2026-10-01: BTC sized off 8182/3 = 2727
+    instead of 12646/3 = 4215, -35 % risk). Capped at free cash because spot
+    cannot spend money it does not have. Without a baseline (first start),
+    falls back to the old free-cash split.
+    """
+    n = max(1, n_symbols)
+    if trading_equity is None or trading_equity <= 0:
+        return free_usdt / n
+    return min(trading_equity / n, free_usdt)
 
 
 def _avg_fill_price(order_result: dict) -> float | None:
@@ -854,6 +926,62 @@ def _execute_order(
             notifier.trade_closed(trade or order, pnl, order["exit_reason"], mode)
 
 
+def _trail_mult(db: Database) -> float:
+    """Live chandelier multiplier from bot_config (0 = trailing off)."""
+    try:
+        return float(db.get_runtime_config().get("ema_trail_mult", "0") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _update_trailing_stop(
+    db: Database,
+    sym: str,
+    df: pd.DataFrame,
+    trail_mult: float,
+) -> None:
+    """Ratchet the stop of every open trade on *sym* from CLOSED primary bars.
+
+    Gotcha #50 — live half of the chandelier exit; the backtest half is
+    `BacktestEngine._ratchet_trailing_stop`. Both call `levels.trail_stop`.
+    `peak` is the best high since the entry bar opened; ATR is the strategy's
+    SMA-ATR(14) on the last closed bar. Idempotent per bar, never lowers the
+    stop, and safe to call every hourly tick (position_manager then checks the
+    new stop against 1m wicks every 60s).
+    """
+    if trail_mult <= 0 or df is None or df.empty or "open_time" not in df.columns:
+        return
+    trades = db.get_open_trades(sym) if sym else []
+    if not trades:
+        return
+    atr_now = float(compute_atr(df[["open", "high", "low", "close", "volume"]].reset_index(drop=True), 14).iloc[-1])
+    times = pd.to_datetime(df["open_time"], utc=True)
+    bar = times.iloc[-1] - times.iloc[-2] if len(times) > 1 else pd.Timedelta(hours=4)
+    for trade in trades:
+        try:
+            entry_ts = pd.Timestamp(trade["entry_time"])
+            entry_ts = entry_ts.tz_localize("UTC") if entry_ts.tzinfo is None else entry_ts.tz_convert("UTC")
+        except (TypeError, ValueError):
+            continue
+        since = df.loc[(times >= entry_ts.floor(bar)).to_numpy()]
+        side = trade["side"]
+        prev_peak = trade.get("peak_price") or trade["entry_price"]
+        if since.empty:
+            peak = prev_peak
+        elif side == "BUY":
+            peak = max(prev_peak, float(since["high"].max()))
+        else:
+            peak = min(prev_peak, float(since["low"].min()))
+        new_stop = trail_stop(side, trade["stop_loss"], peak, atr_now, trail_mult)
+        if new_stop != trade["stop_loss"] or peak != trade.get("peak_price"):
+            db.update_trade_stop(trade["id"], new_stop, peak)
+            if new_stop != trade["stop_loss"]:
+                logger.info(
+                    "[%s] trailing stop id=%d: %.4f → %.4f (peak=%.4f, ATR=%.4f × %.1f)",
+                    sym, trade["id"], trade["stop_loss"], new_stop, peak, atr_now, trail_mult,
+                )
+
+
 def _check_intra_bar_exit(
     client: BinanceClient,
     trade: dict,
@@ -898,25 +1026,25 @@ def _check_intra_bar_exit(
         low   = float(bar["low"])
         close = float(bar["close"])
 
+        # tp <= 0 means "no take-profit" (trailing exit, gotcha #50).
+        tp_reached = tp_hit(side, tp, high, low)
         if side == "BUY":
             sl_hit = low  <= sl
-            tp_hit = high >= tp
-            if sl_hit and tp_hit:
+            if sl_hit and tp_reached:
                 reason = ExitReason.TAKE_PROFIT if close > entry else ExitReason.STOP_LOSS
                 return (reason, close)
             if sl_hit:
                 return (ExitReason.STOP_LOSS, close)
-            if tp_hit:
+            if tp_reached:
                 return (ExitReason.TAKE_PROFIT, close)
         else:  # SELL
             sl_hit = high >= sl
-            tp_hit = low  <= tp
-            if sl_hit and tp_hit:
+            if sl_hit and tp_reached:
                 reason = ExitReason.TAKE_PROFIT if close < entry else ExitReason.STOP_LOSS
                 return (reason, close)
             if sl_hit:
                 return (ExitReason.STOP_LOSS, close)
-            if tp_hit:
+            if tp_reached:
                 return (ExitReason.TAKE_PROFIT, close)
 
     return None
@@ -971,8 +1099,7 @@ def _manage_single_position(
         if (side == "BUY" and price <= stop_loss) or \
            (side == "SELL" and price >= stop_loss):
             reason, exit_price = ExitReason.STOP_LOSS, price
-        elif (side == "BUY" and price >= take_profit) or \
-             (side == "SELL" and price <= take_profit):
+        elif tp_hit(side, take_profit, price, price):
             reason, exit_price = ExitReason.TAKE_PROFIT, price
 
     if reason is None:
@@ -1019,7 +1146,7 @@ def position_manager(
     if not trades:
         return
 
-    client = _build_client(db)
+    client = _scheduler_client(db)
     for trade in trades:
         _manage_single_position(trade, db, client, dry_run, risk_config, notifier)
 
@@ -1274,7 +1401,7 @@ def main() -> None:
                 logger.error("run_cycle failed for %s: %s", sym, exc)
         # One account-level equity point per full cycle (gotcha #39)
         try:
-            record_equity_snapshot(db, _build_client(db))
+            record_equity_snapshot(db, _scheduler_client(db))
         except Exception as exc:
             logger.error("record_equity_snapshot failed: %s", exc)
 

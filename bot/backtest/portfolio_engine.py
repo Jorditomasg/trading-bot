@@ -62,6 +62,7 @@ class _SymbolState:
     cooldown_bars: int                 = 0
     trades:        list[dict]          = field(default_factory=list)
     last_close:    float               = 0.0
+    atr:           object              = None   # causal ATR array for the trailing stop
 
 
 @dataclass
@@ -151,6 +152,7 @@ class PortfolioBacktestEngine:
                 df_1m        = df_1m_norm,
                 min_lookback = min_lb,
                 last_close   = float(df_norm.iloc[0]["close"]),
+                atr          = engine._trail_atr_series(df_norm),
             )
 
         # Build the union of all symbol timestamps, sorted ascending.
@@ -235,6 +237,12 @@ class PortfolioBacktestEngine:
                     state.trades.append(state.open_trade)
                     state.open_trade    = None
                     state.cooldown_bars = self.config.post_close_cooldown_bars
+                else:
+                    # Chandelier ratchet on a trade that survived this bar (gotcha #50)
+                    engine._ratchet_trailing_stop(
+                        state.open_trade, float(bar["high"]), float(bar["low"]),
+                        float(state.atr[idx]),
+                    )
 
             # ── Tick cooldown counters once per participating bar ─────────────
             for symbol in participating:
@@ -260,7 +268,7 @@ class PortfolioBacktestEngine:
                 window         = state.df.iloc[: idx + 1][_OHLCV_COLS].reset_index(drop=True)
                 window_4h      = engine._get_4h_window(state.df_4h, current_time)
                 weekly_window  = engine._get_weekly_window(state.df_weekly, current_time)
-                momentum_state = engine._get_momentum_state(weekly_window)
+                momentum_state = engine._get_momentum_state(weekly_window, float(bar["close"]))
 
                 regime, signal = engine._generate_signal(window, window_4h)
 
@@ -328,6 +336,7 @@ class PortfolioBacktestEngine:
                     "entry_bar":   idx,
                     "entry_time":  current_time,
                     "side":        signal.action,
+                    "peak_price":  raw_entry,
                     "entry_price": net_entry,
                     "stop_loss":   signal.stop_loss,
                     "take_profit": signal.take_profit,

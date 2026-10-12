@@ -12,19 +12,22 @@ from bot.database.db import Database
 from main import _seed_optimized_defaults
 
 
-def test_seed_writes_b_pick_ema_tp_mult(tmp_path) -> None:
+def test_seed_disables_fixed_take_profit(tmp_path) -> None:
+    """The B-pick TP 5.0 was selected on look-ahead data (gotcha #49) and is
+    superseded by the chandelier exit (gotcha #50): TP 0.0 = no take-profit."""
     db = Database(str(tmp_path / "test.db"))
     _seed_optimized_defaults(db)
     cfg = db.get_runtime_config()
-    assert cfg["ema_tp_mult"] == "5.0"
+    assert cfg["ema_tp_mult"] == "0.0"
+    assert cfg["ema_trail_mult"] == "4.0"
 
 
-def test_seed_preserves_c1_stop_mult(tmp_path) -> None:
-    """B-pick uses same SL as C1 (1.5×ATR), only TP differs."""
+def test_seed_writes_chandelier_initial_stop(tmp_path) -> None:
+    """Initial SL 2×ATR — centre of the honest SL×trail plateau (2026-10-12)."""
     db = Database(str(tmp_path / "test.db"))
     _seed_optimized_defaults(db)
     cfg = db.get_runtime_config()
-    assert cfg["ema_stop_mult"] == "1.5"
+    assert cfg["ema_stop_mult"] == "2.0"
 
 
 def test_seed_writes_validated_risk(tmp_path) -> None:

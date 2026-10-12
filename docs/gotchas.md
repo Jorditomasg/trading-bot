@@ -15,6 +15,8 @@ focused on orientation. Anchors and numbering are preserved exactly.
 
 ### 1. Trailing stop is OFF in the live bot — but `BacktestConfig` still has the fields
 
+> **SUPERSEDED 2026-10-12 by gotcha #50** — a 4×ATR chandelier with NO take-profit is now live.
+
 **Live**: trailing stop is removed from the live position manager. The
 ratcheting block, `TRAILING_STOP` exit reason, and `trailing_stop_enabled`
 config flag have been removed from `RiskConfig`, `position_manager()`, and
@@ -941,3 +943,132 @@ free base asset is below the trade quantity —
 
 **Diagnosis**: compare `get_my_trades(symbol)` against the DB's open trades. An
 empty exchange history for a symbol the DB holds open is a reset.
+
+### 46. Live sized each entry off FREE USDT / N — later entries came out up to ~35% small
+
+**Found 2026-10-02.** `run_cycle` passed `get_balance("USDT") / N` to the
+orchestrator. `get_balance` is the **free** balance, so every position already
+open shrank the next entry's capital — then it was divided by N again. On
+2026-10-01 BTC entered with SOL and ETH deployed: 8,182 / 3 = 2,727 instead of
+(baseline + closed PnL) 12,646 / 3 = 4,215 → **$40.9 at risk instead of ~$63**.
+
+`PortfolioBacktestEngine` sizes off `capital / N` where `capital` is REALIZED
+equity — it only moves on closed PnL — so gotcha #40's "÷N parity" held only
+while nothing else was open. Every validated number in `CLAUDE.md` assumes the
+equity-based split.
+
+Fix (`main._allocate_capital`): `min(trading_equity / N, free_usdt)`. The cap is
+spot reality (cannot spend cash you don't have) and essentially never binds,
+since each slot's notional is ≤ equity/N. No baseline yet → old free-cash split.
+Regression guard: `tests/test_capital_allocation.py`.
+
+### 47. Entry orders could put MORE size on the exchange than the DB records
+
+**Found 2026-10-02** (code review; no incident on record). Three paths in
+`BinanceClient`:
+
+1. LIMIT_MAKER **partially** filled → cancelled → MARKET fallback for the
+   **full** quantity.
+2. LIMIT_MAKER filled between the last 2 s poll and the cancel → the cancel
+   fails (logged as a warning only) → MARKET for the full quantity anyway → 2×.
+3. `place_order` was under `@_retry`: a ReadTimeout arriving **after** Binance
+   accepted the order (a 10 s one happened 2026-09-29) resent it → 2×.
+
+The DB records only `order["quantity"]`, so SL/TP closes would leave the extra
+base asset behind on mainnet.
+
+Fix: after cancelling, the LIMIT_MAKER order is re-read and only the unfilled
+remainder (rounded DOWN to LOT_SIZE) goes out at MARKET; fills are merged so
+`_avg_fill_price` covers both legs. If the order state can't be read, the entry
+fails instead of guessing. `place_order` sends a `newClientOrderId`, looks the
+order up by it after a network error before retrying with the same id, and no
+longer retries Binance API rejections (deterministic — this also removes the
+~14 s of backoff per -2010 in gotcha #45; `__cause__` still carries the code).
+Regression guard: `tests/test_order_fill_safety.py`.
+
+### 48. The entry bar was marked "evaluated" before the decision ran; a client was rebuilt every 60 s
+
+**Found 2026-10-02.** `_last_entry_bar[sym]` was set right after fetching
+klines, so any exception between that and `orchestrator.step()` returning burned
+that 4 h bar's entry for good (the next three hourly ticks see the same bar). It
+is now set only after `step()` returns.
+
+Separately, `run_cycle`, `position_manager` (every 60 s) and the equity snapshot
+each built a fresh `BinanceClient` — two python-binance `Client()`s, each doing
+an **unretried** `ping()` in its constructor. 9,273 rebuilds in 7 days, and a
+ping timeout skipped the whole SL/TP tick. These scheduler-thread jobs now share
+one client per (mode, credentials) via `main._scheduler_client`; other threads
+(Telegram, optimizers) still build their own. Tests that patch `_build_client`
+rely on the autouse cache reset in `tests/conftest.py`.
+
+### 49. The backtest read the FUTURE through the daily bias and the weekly momentum
+
+**Discovered 2026-10-12 while asking why live lost −11.4 % from 2026-06-03 while
+BTC/ETH/SOL rose +30 / +39 / +52 % over the same window.**
+
+`BacktestEngine._get_4h_window` and `_get_weekly_window` kept higher-timeframe
+bars with `open_time <= current_time`. At a 4h bar opening 08:00 that admits the
+daily bar opened at 00:00 **with its final close** — 16-20 h in the future — and
+the current week with **Sunday's** close. `_get_momentum_state` then compared
+that weekly close (not the current price) against the SMA. Live fetches
+`closed_only=True` klines (gotcha #41), so the daily EMA9/21 bias and the weekly
+momentum filter saw today's/this week's outcome in every backtest and never in
+live.
+
+It was not a rounding error. Same config, same data:
+
+| | Annual | Max DD | Sharpe | PF |
+|---|---|---|---|---|
+| BTC+ETH 2017→, with look-ahead (the "87/100 Deploy" baseline) | +15.9 % | 12.2 % | — | 1.48 |
+| BTC+ETH 2018→, honest (momentum on, as live) | **+6.6 %** | 10.7 % | 0.70 | 1.31 |
+| BTC+ETH+SOL 2020→, honest | **+5.5 %** | 9.2 % | 0.65 | 1.22 |
+
+**Every number in CLAUDE.md / docs/audits produced before 2026-10-12 by the
+engine is inflated by this** — the 9-year validation, the stop×TP Calmar grid,
+the TP-grid rejection, the bear-filter tests, the SOL diversification spec.
+Their *relative* conclusions may or may not survive; re-run before citing them.
+
+Fix: a higher-timeframe bar is usable iff `open_time + duration <= bar close`
+(`BacktestEngine._closed_before`), and the momentum price is the decided bar's
+close (`_get_momentum_state(window, current_price)`). Regression guard:
+`tests/test_backtest_no_lookahead.py`. Also: `scripts/stress_test_2026.py` ran
+with `use_momentum=False` while live always applies the weekly filter — now True.
+
+**Rule:** when a backtest uses a coarser timeframe than the one it steps on,
+assert in a test that the coarse bar's CLOSE time is ≤ the decision time.
+
+### 50. Exits: chandelier trailing stop replaced the fixed 5×ATR take-profit
+
+**2026-10-12.** With the look-ahead of #49 removed, the fixed TP was the main
+drag: it capped the trend legs a long-only trend follower lives on (average
+winner +13 % vs a loser −4 %, but the right tail was cut at 5×ATR). Replacing it
+with a stop that trails `4 × ATR(14)` behind the highest high since entry —
+initial stop `2 × ATR`, **no TP** — on the official engine:
+
+| | Annual | Max DD | Sharpe | PF | OOS Sharpe (2023→) |
+|---|---|---|---|---|---|
+| BTC+ETH 2018→ old (SL1.5 TP5) | 6.6 % | 10.7 % | 0.70 | 1.31 | 0.46 |
+| BTC+ETH 2018→ **new** | **14.1 %** | 10.8 % | **1.20** | **1.81** | **0.94** |
+| BTC+ETH+SOL 2020→ old | 5.5 % | 9.2 % | 0.65 | 1.22 | 0.53 |
+| BTC+ETH+SOL 2020→ **new** | **11.3 %** | **8.4 %** | **1.15** | **1.65** | **1.06** |
+
+It is a plateau, not a peak: every trail ≥ 4 with SL 1.5-3 beats the old exit
+in-sample and out-of-sample on both universes. Report:
+`docs/audits/trailing_exit_2026-10-12.md`. This **supersedes gotcha #1**: that
+legacy test trailed tightly *while keeping* a TP, which cut winners twice.
+
+Mechanics (parity by construction — both sides call `levels.trail_stop`):
+- Backtest: `BacktestEngine._ratchet_trailing_stop` runs after the exit check
+  on a bar the trade survived, so the raised stop applies from the next bar.
+- Live: `main._update_trailing_stop` runs at the top of every `run_cycle` (before
+  the one-decision-per-bar guard), on closed bars only; persists
+  `trades.stop_loss` + `trades.peak_price` via `Database.update_trade_stop`.
+  `position_manager` keeps checking 1m wicks against that stop every 60 s.
+  After an outage, live catches up with the max high since entry and the
+  CURRENT ATR — a slight difference from the bar-by-bar engine, never looser
+  than the stored stop.
+- `take_profit = 0.0` means "no TP" (the column is NOT NULL). Every TP check
+  goes through `levels.tp_hit`, which treats `<= 0` as disabled; Telegram and
+  the dashboard show "— (trailing)".
+- Config: `ema_stop_mult=2.0`, `ema_tp_mult=0.0`, `ema_trail_mult=4.0` (seeded;
+  existing DBs migrated with `scripts/migrate_trailing_exit_2026_10.py`).
