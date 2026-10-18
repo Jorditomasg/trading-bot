@@ -81,7 +81,9 @@ jobs:
               docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
             docker compose pull
-
+            # The GITHUB_TOKEN expires with the job: a stale login breaks every later ghcr pull on the host
+            docker logout ghcr.io
+            
             docker compose up -d --no-deps dashboard
             sleep 5
             docker compose up -d --no-deps bot
