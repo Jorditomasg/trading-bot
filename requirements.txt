@@ -2,6 +2,7 @@ python-binance==1.0.19
 pandas==2.2.2
 numpy==1.26.4
 streamlit==1.37.0
+pyarrow==25.0.1  # 26.x exige numpy>=2; numpy fijado en 1.26
 plotly==5.22.0
 streamlit-autorefresh==1.0.1
 python-dotenv==1.0.1
